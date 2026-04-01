@@ -275,6 +275,7 @@ async function fetchOverseasBalance(token: string, appKey: string, appSecret: st
   const allHoldings: any[] = [];
   let totalPurchase = 0;
   let totalEval = 0;
+  let overseasDeposit = 0;
 
   for (const exchg of exchanges) {
     let ctxAreaFK200 = '';
@@ -335,6 +336,11 @@ async function fetchOverseasBalance(token: string, appKey: string, appSecret: st
         totalEval += evalAmt;
       }
 
+      // output3: 외화 예수금 (거래소별 동일 값이므로 최초 1회만)
+      if (overseasDeposit === 0 && data.output3) {
+        overseasDeposit = Number(data.output3.frcr_dncl_amt_2 || 0);
+      }
+
       // 연속조회
       const trCont = response.headers.get('tr_cont');
       if (trCont === 'M' || trCont === 'F') {
@@ -351,6 +357,7 @@ async function fetchOverseasBalance(token: string, appKey: string, appSecret: st
     totalPurchaseAmount: Number(totalPurchase.toFixed(2)),
     totalEvalAmount: Number(totalEval.toFixed(2)),
     totalProfitLoss: Number((totalEval - totalPurchase).toFixed(2)),
+    depositAmount: Number(overseasDeposit.toFixed(2)),
   };
 }
 
@@ -425,7 +432,7 @@ router.get('/balance', async (_req: Request, res: Response) => {
     const summary = data.output2?.[0] || {};
 
     // 해외 잔고 조회
-    let overseas = { holdings: [] as any[], totalPurchaseAmount: 0, totalEvalAmount: 0, totalProfitLoss: 0 };
+    let overseas = { holdings: [] as any[], totalPurchaseAmount: 0, totalEvalAmount: 0, totalProfitLoss: 0, depositAmount: 0 };
     try {
       overseas = await fetchOverseasBalance(token, appKey, appSecret, baseUrl, settings.kisAccountNo, settings.kisAccountProductCode || '01', settings.kisVirtual);
     } catch {
@@ -443,6 +450,7 @@ router.get('/balance', async (_req: Request, res: Response) => {
       overseasTotalPurchaseAmount: overseas.totalPurchaseAmount,
       overseasTotalEvalAmount: overseas.totalEvalAmount,
       overseasTotalProfitLoss: overseas.totalProfitLoss,
+      overseasDepositAmount: overseas.depositAmount,
     });
   } catch (err: any) {
     res.status(500).json({ error: err.message || '잔고 조회 실패' });

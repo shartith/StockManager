@@ -93,7 +93,7 @@
               <h4 class="text-sm font-semibold text-green-800">해외 보유 종목</h4>
             </div>
             <!-- 해외 요약 -->
-            <div class="grid grid-cols-2 md:grid-cols-3 gap-4 p-4 border-b border-slate-100">
+            <div class="grid grid-cols-2 md:grid-cols-4 gap-4 p-4 border-b border-slate-100">
               <div>
                 <p class="text-xs text-slate-500">해외 평가금액 (USD)</p>
                 <p class="font-bold text-slate-800">{{ formatUsd(balanceData.overseasTotalEvalAmount) }}</p>
@@ -107,6 +107,10 @@
                 <p class="font-bold" :class="balanceData.overseasTotalProfitLoss >= 0 ? 'text-red-600' : 'text-blue-600'">
                   {{ formatUsd(balanceData.overseasTotalProfitLoss) }}
                 </p>
+              </div>
+              <div>
+                <p class="text-xs text-slate-500">외화 예수금 (USD)</p>
+                <p class="font-bold text-slate-800">{{ formatUsd(balanceData.overseasDepositAmount || 0) }}</p>
               </div>
             </div>
             <div class="overflow-x-auto">
