@@ -36,29 +36,25 @@
         </div>
         <div v-if="balanceError" class="p-4 text-sm text-red-600">{{ balanceError }}</div>
         <div v-else-if="balanceData">
-          <!-- 계좌 요약 -->
-          <div class="grid grid-cols-2 md:grid-cols-5 gap-4 p-4 border-b border-slate-100">
+          <!-- 계좌 요약 (국내) -->
+          <div class="grid grid-cols-2 md:grid-cols-4 gap-4 p-4 border-b border-slate-100">
             <div>
-              <p class="text-xs text-slate-500">평가금액</p>
+              <p class="text-xs text-slate-500">국내 평가금액</p>
               <p class="font-bold text-slate-800">{{ formatCurrency(balanceData.totalEvalAmount) }}</p>
             </div>
             <div>
-              <p class="text-xs text-slate-500">매입금액</p>
+              <p class="text-xs text-slate-500">국내 매입금액</p>
               <p class="font-bold text-slate-800">{{ formatCurrency(balanceData.totalPurchaseAmount) }}</p>
             </div>
             <div>
-              <p class="text-xs text-slate-500">평가손익</p>
+              <p class="text-xs text-slate-500">국내 평가손익</p>
               <p class="font-bold" :class="balanceData.totalProfitLoss >= 0 ? 'text-red-600' : 'text-blue-600'">
                 {{ formatCurrency(balanceData.totalProfitLoss) }}
               </p>
             </div>
             <div>
-              <p class="text-xs text-slate-500">예수금</p>
+              <p class="text-xs text-slate-500">KRW 예수금</p>
               <p class="font-bold text-slate-800">{{ formatCurrency(balanceData.depositAmount) }}</p>
-            </div>
-            <div>
-              <p class="text-xs text-slate-500">출금가능금액</p>
-              <p class="font-bold text-slate-800">{{ formatCurrency(balanceData.withdrawableAmount || 0) }}</p>
             </div>
           </div>
           <!-- 보유 종목 목록 -->

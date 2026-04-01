@@ -157,22 +157,26 @@ async function runPhase(market: Market, phase: SchedulePhase) {
 
   try {
     // 관심종목 + 보유종목 중 해당 시장 종목 가져오기
+    // NYSE 스케줄은 NASDAQ, AMEX 종목도 포함 (미국 시장 동일 시간대)
+    const markets = market === 'NYSE' ? ['NYSE', 'NASDAQ', 'NASD', 'AMEX'] : [market];
+    const placeholders = markets.map(() => '?').join(',');
+
     const watchlistStocks = queryAll(
       `SELECT s.id, s.ticker, s.name, s.market, w.auto_trade_enabled
        FROM watchlist w
        JOIN stocks s ON s.id = w.stock_id
-       WHERE w.market = ?`,
-      [market]
+       WHERE w.market IN (${placeholders})`,
+      markets
     );
 
     const holdingStocks = queryAll(
       `SELECT DISTINCT s.id, s.ticker, s.name, s.market
        FROM stocks s
        JOIN transactions t ON t.stock_id = s.id
-       WHERE s.market = ?
+       WHERE s.market IN (${placeholders})
        GROUP BY s.id
        HAVING SUM(CASE WHEN t.type = 'BUY' THEN t.quantity ELSE 0 END) - SUM(CASE WHEN t.type = 'SELL' THEN t.quantity ELSE 0 END) > 0`,
-      [market]
+      markets
     );
 
     // 중복 제거

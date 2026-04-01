@@ -336,9 +336,9 @@ async function fetchOverseasBalance(token: string, appKey: string, appSecret: st
         totalEval += evalAmt;
       }
 
-      // output3: 외화 예수금 (거래소별 동일 값이므로 최초 1회만)
+      // output3: 외화 예수금
       if (overseasDeposit === 0 && data.output3) {
-        // frcr_dncl_amt_2: 외화예수금2, ovrs_tot_pfls: 해외총손익
+        console.log(`[Balance] overseas output3 (${exchg}):`, JSON.stringify(data.output3).slice(0, 500));
         overseasDeposit = Number(data.output3.frcr_dncl_amt_2 || data.output3.frcr_dncl_amt || 0);
       }
 
@@ -442,21 +442,20 @@ router.get('/balance', async (_req: Request, res: Response) => {
       // 해외 잔고 조회 실패 시 국내만 반환
     }
 
-    // 예수금 = 총자산 - 평가금액 (외화 포함), 출금가능금액 = dnca_tot_amt (KRW만)
-    const totalAssets = Number(summary.tot_evlu_amt || 0);
-    const stockEvalAmount = Number(summary.evlu_amt_smtl_amt || 0);
-    const depositAmount = totalAssets > 0 ? totalAssets - stockEvalAmount : Number(summary.dnca_tot_amt || 0);
-    const withdrawableAmount = Number(summary.dnca_tot_amt || 0);
+    // 국내 API(TTTC8434R)의 output2는 KRW 국내 자산만 포함
+    // dnca_tot_amt = KRW 예수금 (외화 미포함)
+    // 한투 앱의 "예수금"은 KRW 예수금 + 외화예수금(KRW환산)을 합산한 값
+    const krwDeposit = Number(summary.dnca_tot_amt || 0);
+    const withdrawableAmount = krwDeposit;
 
     res.json({
       holdings,
       totalPurchaseAmount: Number(summary.pchs_amt_smtl_amt || 0),
-      totalEvalAmount: stockEvalAmount,
+      totalEvalAmount: Number(summary.evlu_amt_smtl_amt || 0),
       totalProfitLoss: Number(summary.evlu_pfls_smtl_amt || 0),
       totalProfitLossRate: Number(summary.tot_evlu_pfls_rt || 0),
-      depositAmount,
+      depositAmount: krwDeposit,
       withdrawableAmount,
-      totalAssets,
       overseasHoldings: overseas.holdings,
       overseasTotalPurchaseAmount: overseas.totalPurchaseAmount,
       overseasTotalEvalAmount: overseas.totalEvalAmount,
