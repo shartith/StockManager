@@ -100,6 +100,21 @@ router.post('/config', (req: Request, res: Response) => {
   res.json({ message: '설정 저장 완료' });
 });
 
+// 해외 종목 여부 판별
+function isOverseasTicker(ticker: string): { overseas: boolean; exchCode: string } {
+  const stock: any = queryOne('SELECT market FROM stocks WHERE ticker = ?', [ticker]);
+  const market = stock?.market || '';
+  const overseasMarkets: Record<string, string> = { NASDAQ: 'NAS', NYSE: 'NYS', NASD: 'NAS', AMEX: 'AMS' };
+  if (overseasMarkets[market]) {
+    return { overseas: true, exchCode: overseasMarkets[market] };
+  }
+  // DB에 없으면 티커 형식으로 추정 (영문 대문자 1~5자 = 해외)
+  if (/^[A-Z]{1,5}$/.test(ticker)) {
+    return { overseas: true, exchCode: 'NAS' };
+  }
+  return { overseas: false, exchCode: '' };
+}
+
 // 일/주/월/년봉 캔들 데이터 조회
 router.get('/candle/:ticker', async (req: Request, res: Response) => {
   const ticker = req.params.ticker as string;
@@ -116,6 +131,7 @@ router.get('/candle/:ticker', async (req: Request, res: Response) => {
   try {
     const token = await getAccessToken();
     const { baseUrl } = getKisConfig();
+    const settings = getSettings();
 
     const today = new Date();
     const end = (endDate as string) || today.toISOString().slice(0, 10).replace(/-/g, '');
@@ -123,64 +139,130 @@ router.get('/candle/:ticker', async (req: Request, res: Response) => {
     startDefault.setFullYear(startDefault.getFullYear() - 1);
     const start = (startDate as string) || startDefault.toISOString().slice(0, 10).replace(/-/g, '');
 
-    const params = new URLSearchParams({
-      fid_cond_mrkt_div_code: 'J',
-      fid_input_iscd: ticker,
-      fid_input_date_1: start,
-      fid_input_date_2: end,
-      fid_period_div_code: period as string,
-      fid_org_adj_prc: '0',
-    });
+    const { overseas, exchCode } = isOverseasTicker(ticker);
 
-    const response = await fetch(
-      `${baseUrl}/uapi/domestic-stock/v1/quotations/inquire-daily-itemchartprice?${params}`,
-      {
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${token}`,
-          appkey: appKey,
-          appsecret: appSecret,
-          tr_id: 'FHKST03010100',
-          custtype: 'P',
-        },
+    if (overseas) {
+      // 해외 주식 캔들 조회
+      const trId = settings.kisVirtual ? 'VHHDFS76240000' : 'HHDFS76240000';
+      const params = new URLSearchParams({
+        AUTH: '',
+        EXCD: exchCode,
+        SYMB: ticker,
+        GUBN: '0', // 0=일봉
+        BYMD: end,
+        MODP: '1', // 수정주가
+      });
+
+      const response = await fetch(
+        `${baseUrl}/uapi/overseas-price/v1/quotations/dailyprice?${params}`,
+        {
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${token}`,
+            appkey: appKey,
+            appsecret: appSecret,
+            tr_id: trId,
+            custtype: 'P',
+          },
+        }
+      );
+
+      if (!response.ok) {
+        const errText = await response.text();
+        return res.status(response.status).json({ error: `KIS API 오류: ${errText}` });
       }
-    );
 
-    if (!response.ok) {
-      const errText = await response.text();
-      return res.status(response.status).json({ error: `KIS API 오류: ${errText}` });
+      const data: any = await response.json();
+      if (data.rt_cd !== '0') {
+        return res.status(400).json({ error: `KIS API 오류: ${data.msg1}` });
+      }
+
+      const candles = (data.output2 || [])
+        .filter((item: any) => item.xymd && Number(item.open) > 0)
+        .map((item: any) => ({
+          time: `${item.xymd.slice(0, 4)}-${item.xymd.slice(4, 6)}-${item.xymd.slice(6, 8)}`,
+          open: Number(item.open),
+          high: Number(item.high),
+          low: Number(item.low),
+          close: Number(item.clos),
+          volume: Number(item.tvol),
+        }))
+        .sort((a: any, b: any) => (a.time > b.time ? 1 : -1));
+
+      // output1: 해외 종목 현재 시세
+      const info = data.output1 || {};
+
+      res.json({
+        ticker,
+        period,
+        name: info.rsym ? ticker : ticker,
+        currentPrice: Number(info.last || 0),
+        changeRate: Number(info.rate || 0),
+        changeAmount: Number(info.diff || 0),
+        candles,
+        currency: 'USD',
+      });
+    } else {
+      // 국내 주식 캔들 조회
+      const params = new URLSearchParams({
+        fid_cond_mrkt_div_code: 'J',
+        fid_input_iscd: ticker,
+        fid_input_date_1: start,
+        fid_input_date_2: end,
+        fid_period_div_code: period as string,
+        fid_org_adj_prc: '0',
+      });
+
+      const response = await fetch(
+        `${baseUrl}/uapi/domestic-stock/v1/quotations/inquire-daily-itemchartprice?${params}`,
+        {
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${token}`,
+            appkey: appKey,
+            appsecret: appSecret,
+            tr_id: 'FHKST03010100',
+            custtype: 'P',
+          },
+        }
+      );
+
+      if (!response.ok) {
+        const errText = await response.text();
+        return res.status(response.status).json({ error: `KIS API 오류: ${errText}` });
+      }
+
+      const data: any = await response.json();
+
+      if (data.rt_cd !== '0') {
+        return res.status(400).json({ error: `KIS API 오류: ${data.msg1}` });
+      }
+
+      // lightweight-charts 형식으로 변환
+      const candles = (data.output2 || [])
+        .filter((item: any) => item.stck_bsop_date && Number(item.stck_oprc) > 0)
+        .map((item: any) => ({
+          time: `${item.stck_bsop_date.slice(0, 4)}-${item.stck_bsop_date.slice(4, 6)}-${item.stck_bsop_date.slice(6, 8)}`,
+          open: Number(item.stck_oprc),
+          high: Number(item.stck_hgpr),
+          low: Number(item.stck_lwpr),
+          close: Number(item.stck_clpr),
+          volume: Number(item.acml_vol),
+        }))
+        .sort((a: any, b: any) => (a.time > b.time ? 1 : -1));
+
+      const info = data.output1 || {};
+
+      res.json({
+        ticker,
+        period,
+        name: info.hts_kor_isnm || ticker,
+        currentPrice: Number(info.stck_prpr || 0),
+        changeRate: Number(info.prdy_ctrt || 0),
+        changeAmount: Number(info.prdy_vrss || 0),
+        candles,
+      });
     }
-
-    const data: any = await response.json();
-
-    if (data.rt_cd !== '0') {
-      return res.status(400).json({ error: `KIS API 오류: ${data.msg1}` });
-    }
-
-    // lightweight-charts 형식으로 변환
-    const candles = (data.output2 || [])
-      .filter((item: any) => item.stck_bsop_date && Number(item.stck_oprc) > 0)
-      .map((item: any) => ({
-        time: `${item.stck_bsop_date.slice(0, 4)}-${item.stck_bsop_date.slice(4, 6)}-${item.stck_bsop_date.slice(6, 8)}`,
-        open: Number(item.stck_oprc),
-        high: Number(item.stck_hgpr),
-        low: Number(item.stck_lwpr),
-        close: Number(item.stck_clpr),
-        volume: Number(item.acml_vol),
-      }))
-      .sort((a: any, b: any) => (a.time > b.time ? 1 : -1));
-
-    const info = data.output1 || {};
-
-    res.json({
-      ticker,
-      period,
-      name: info.hts_kor_isnm || ticker,
-      currentPrice: Number(info.stck_prpr || 0),
-      changeRate: Number(info.prdy_ctrt || 0),
-      changeAmount: Number(info.prdy_vrss || 0),
-      candles,
-    });
   } catch (err: any) {
     res.status(500).json({ error: err.message || '캔들 데이터 조회 실패' });
   }
@@ -188,7 +270,7 @@ router.get('/candle/:ticker', async (req: Request, res: Response) => {
 
 // 해외 주식 잔고 조회 헬퍼
 async function fetchOverseasBalance(token: string, appKey: string, appSecret: string, baseUrl: string, accountNo: string, productCode: string, isVirtual: boolean) {
-  const trId = isVirtual ? 'VTRP6504R' : 'TTTS3012R';
+  const trId = isVirtual ? 'CTRP6504R' : 'TTTS3012R';
   const exchanges = ['NASD', 'NYSE', 'AMEX'];
   const allHoldings: any[] = [];
   let totalPurchase = 0;

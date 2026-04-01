@@ -7,13 +7,15 @@ const router = Router();
 
 router.get('/summary', async (_req: Request, res: Response) => {
   try {
-    const stocks = queryAll('SELECT ticker FROM stocks');
+    const stocks = queryAll('SELECT ticker, market FROM stocks');
     const tickers = stocks.map((s: any) => s.ticker);
+    const tickerMarkets = new Map<string, string>();
+    stocks.forEach((s: any) => tickerMarkets.set(s.ticker, s.market || ''));
     let prices: Map<string, number> | undefined;
 
     if (tickers.length > 0) {
       try {
-        prices = await getMultipleStockPrices(tickers);
+        prices = await getMultipleStockPrices(tickers, tickerMarkets);
       } catch {
         // 시세 조회 실패 시 시세 없이 반환
       }
