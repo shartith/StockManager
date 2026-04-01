@@ -306,10 +306,16 @@ async function fetchOverseasBalance(token: string, appKey: string, appSecret: st
         }
       );
 
-      if (!response.ok) break;
+      if (!response.ok) {
+        console.log(`[Balance] overseas API failed (${exchg}): status=${response.status}`);
+        break;
+      }
 
       const data: any = await response.json();
-      if (data.rt_cd !== '0') break;
+      if (data.rt_cd !== '0') {
+        console.log(`[Balance] overseas API error (${exchg}): rt_cd=${data.rt_cd}, msg=${data.msg1}`);
+        break;
+      }
 
       const items = (data.output1 || []).filter((item: any) => Number(item.ovrs_cblc_qty) > 0);
       for (const item of items) {
@@ -337,8 +343,13 @@ async function fetchOverseasBalance(token: string, appKey: string, appSecret: st
       }
 
       // output3: 외화 예수금
+      console.log(`[Balance] overseas rt_cd=${data.rt_cd}, output1=${(data.output1||[]).length}건, output3 exists=${!!data.output3}, exchg=${exchg}`);
+      if (data.output3) {
+        console.log(`[Balance] overseas output3 (${exchg}):`, JSON.stringify(data.output3).slice(0, 800));
+      } else {
+        console.log(`[Balance] overseas output3 (${exchg}): null/undefined, keys in data:`, Object.keys(data));
+      }
       if (overseasDeposit === 0 && data.output3) {
-        console.log(`[Balance] overseas output3 (${exchg}):`, JSON.stringify(data.output3).slice(0, 500));
         overseasDeposit = Number(data.output3.frcr_dncl_amt_2 || data.output3.frcr_dncl_amt || 0);
       }
 
