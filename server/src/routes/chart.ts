@@ -342,15 +342,13 @@ async function fetchOverseasBalance(token: string, appKey: string, appSecret: st
         totalEval += evalAmt;
       }
 
-      // output3: 외화 예수금
-      console.log(`[Balance] overseas rt_cd=${data.rt_cd}, output1=${(data.output1||[]).length}건, output3 exists=${!!data.output3}, exchg=${exchg}`);
-      if (data.output3) {
-        console.log(`[Balance] overseas output3 (${exchg}):`, JSON.stringify(data.output3).slice(0, 800));
-      } else {
-        console.log(`[Balance] overseas output3 (${exchg}): null/undefined, keys in data:`, Object.keys(data));
-      }
-      if (overseasDeposit === 0 && data.output3) {
-        overseasDeposit = Number(data.output3.frcr_dncl_amt_2 || data.output3.frcr_dncl_amt || 0);
+      // output2: 해외 잔고 요약 (외화 예수금 포함)
+      const overseasSummary = data.output2;
+      if (overseasSummary) {
+        console.log(`[Balance] overseas output2 (${exchg}):`, JSON.stringify(overseasSummary).slice(0, 800));
+        if (overseasDeposit === 0) {
+          overseasDeposit = Number(overseasSummary.frcr_dncl_amt_2 || overseasSummary.frcr_dncl_amt || overseasSummary.ovrs_frcr_amt || 0);
+        }
       }
 
       // 연속조회
