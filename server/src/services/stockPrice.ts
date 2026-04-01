@@ -23,7 +23,7 @@ async function getKisStockPrice(ticker: string, token: string): Promise<number |
       }
     );
     if (!response.ok) return null;
-    const data = await response.json();
+    const data: any = await response.json();
     if (data.rt_cd !== '0') return null;
     const price = Number(data.output?.stck_prpr);
     return price > 0 ? price : null;
@@ -39,7 +39,7 @@ async function getYahooStockPrice(ticker: string): Promise<number | null> {
       `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(ticker)}?interval=1d&range=1d`
     );
     if (!response.ok) return null;
-    const data = await response.json();
+    const data: any = await response.json();
     const price = data?.chart?.result?.[0]?.meta?.regularMarketPrice;
     return price ?? null;
   } catch {

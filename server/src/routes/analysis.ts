@@ -9,7 +9,7 @@ const router = Router();
 
 /** 종목 기술적 분석 */
 router.get('/:ticker', async (req: Request, res: Response) => {
-  const { ticker } = req.params;
+  const ticker = req.params.ticker as string;
   const { appKey, appSecret, baseUrl } = getKisConfig();
 
   if (!appKey || !appSecret) {
@@ -51,7 +51,7 @@ router.get('/:ticker', async (req: Request, res: Response) => {
       return res.status(response.status).json({ error: 'KIS API 오류' });
     }
 
-    const data = await response.json();
+    const data: any = await response.json();
     if (data.rt_cd !== '0') {
       return res.status(400).json({ error: data.msg1 });
     }
@@ -350,7 +350,7 @@ router.delete('/ollama/models/:name', async (req: Request, res: Response) => {
 
 /** 뉴스 수집 */
 router.get('/:ticker/news', async (req: Request, res: Response) => {
-  const { ticker } = req.params;
+  const ticker = req.params.ticker as string;
   const { refresh } = req.query;
 
   try {
@@ -375,7 +375,7 @@ router.get('/:ticker/news', async (req: Request, res: Response) => {
 
 /** 매매 신호 이력 조회 */
 router.get('/:ticker/signals', (req: Request, res: Response) => {
-  const { ticker } = req.params;
+  const ticker = req.params.ticker as string;
   const stock = queryOne('SELECT id FROM stocks WHERE ticker = ?', [ticker]);
   if (!stock) return res.json([]);
 

@@ -1,7 +1,8 @@
 import fs from 'fs';
 import path from 'path';
 
-const SETTINGS_PATH = path.join(__dirname, '../../../data/settings.json');
+const DATA_DIR = process.env.STOCK_MANAGER_DATA || path.join(__dirname, '../../../data');
+const SETTINGS_PATH = path.join(DATA_DIR, 'settings.json');
 
 export interface MarketScheduleConfig {
   enabled: boolean;
@@ -83,11 +84,11 @@ export function getSettings(): AppSettings {
   }
 
   // 환경변수로도 동기화
-  if (_cache.kisAppKey) process.env.KIS_APP_KEY = _cache.kisAppKey;
-  if (_cache.kisAppSecret) process.env.KIS_APP_SECRET = _cache.kisAppSecret;
-  process.env.KIS_VIRTUAL = _cache.kisVirtual ? 'true' : 'false';
+  if (_cache!.kisAppKey) process.env.KIS_APP_KEY = _cache!.kisAppKey;
+  if (_cache!.kisAppSecret) process.env.KIS_APP_SECRET = _cache!.kisAppSecret;
+  process.env.KIS_VIRTUAL = _cache!.kisVirtual ? 'true' : 'false';
 
-  return _cache;
+  return _cache!;
 }
 
 export function saveSettings(partial: Partial<AppSettings>) {

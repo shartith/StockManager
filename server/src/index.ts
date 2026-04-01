@@ -1,5 +1,6 @@
 import express from 'express';
 import cors from 'cors';
+import path from 'path';
 import { initializeDB } from './db';
 import stocksRouter from './routes/stocks';
 import transactionsRouter from './routes/transactions';
@@ -35,6 +36,14 @@ app.use('/api/feedback', feedbackRouter);
 
 app.get('/api/health', (_req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });
+});
+
+// 프로덕션: 클라이언트 정적 파일 서빙
+const clientDist = process.env.STOCK_MANAGER_CLIENT || path.join(__dirname, '../../client/dist');
+app.use(express.static(clientDist));
+app.get('*', (_req, res, next) => {
+  if (_req.path.startsWith('/api')) return next();
+  res.sendFile(path.join(clientDist, 'index.html'));
 });
 
 app.get('/api/scheduler/status', (_req, res) => {

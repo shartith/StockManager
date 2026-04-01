@@ -1,0 +1,29 @@
+#!/usr/bin/env node
+
+const path = require('path');
+const os = require('os');
+const fs = require('fs');
+
+// 데이터 디렉토리: ~/.stock-manager
+const dataDir = process.env.STOCK_MANAGER_DATA || path.join(os.homedir(), '.stock-manager');
+if (!fs.existsSync(dataDir)) {
+  fs.mkdirSync(dataDir, { recursive: true });
+}
+process.env.STOCK_MANAGER_DATA = dataDir;
+
+// 클라이언트 정적 파일 경로
+const appRoot = path.resolve(__dirname, '..');
+process.env.STOCK_MANAGER_CLIENT = path.join(appRoot, 'client', 'dist');
+
+const port = process.env.PORT || 3000;
+process.env.PORT = String(port);
+
+console.log('');
+console.log('  Stock Manager v1.0.0');
+console.log('  --------------------');
+console.log(`  Data:   ${dataDir}`);
+console.log(`  Server: http://localhost:${port}`);
+console.log('');
+
+// 서버 시작
+require(path.join(appRoot, 'server', 'dist', 'index.js'));

@@ -1,8 +1,10 @@
-import initSqlJs, { Database as SqlJsDatabase } from 'sql.js';
+import initSqlJs from 'sql.js';
+type SqlJsDatabase = any;
 import fs from 'fs';
 import path from 'path';
 
-const DB_PATH = path.join(__dirname, '../../data/stock-manager.db');
+const DATA_DIR = process.env.STOCK_MANAGER_DATA || path.join(__dirname, '../../data');
+const DB_PATH = path.join(DATA_DIR, 'stock-manager.db');
 
 let db: SqlJsDatabase;
 

@@ -35,7 +35,7 @@ export async function fetchNaverNews(ticker: string, name: string): Promise<News
       return await fetchNaverRSS(ticker, name);
     }
 
-    const data = await res.json();
+    const data: any = await res.json();
     return (data.items || []).map((item: any) => ({
       ticker,
       title: stripHtml(item.title),
@@ -167,7 +167,7 @@ async function callClaudeAPI(prompt: string, apiKey: string, model: string): Pro
   });
 
   if (!res.ok) throw new Error(`Claude API 오류: ${res.status}`);
-  const data = await res.json();
+  const data: any = await res.json();
   return data.content?.[0]?.text || '요약 실패';
 }
 
@@ -186,7 +186,7 @@ async function callOpenAIAPI(prompt: string, apiKey: string, model: string): Pro
   });
 
   if (!res.ok) throw new Error(`OpenAI API 오류: ${res.status}`);
-  const data = await res.json();
+  const data: any = await res.json();
   return data.choices?.[0]?.message?.content || '요약 실패';
 }
 

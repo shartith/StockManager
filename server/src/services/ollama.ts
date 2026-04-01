@@ -118,7 +118,7 @@ export async function checkOllamaStatus(): Promise<{ connected: boolean; models:
   try {
     const res = await fetch(`${settings.ollamaUrl}/api/tags`);
     if (!res.ok) return { connected: false, models: [] };
-    const data = await res.json();
+    const data: any = await res.json();
     const models = (data.models || []).map((m: any) => m.name);
     return { connected: true, models };
   } catch {

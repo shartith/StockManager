@@ -102,7 +102,7 @@ router.post('/config', (req: Request, res: Response) => {
 
 // 일/주/월/년봉 캔들 데이터 조회
 router.get('/candle/:ticker', async (req: Request, res: Response) => {
-  const { ticker } = req.params;
+  const ticker = req.params.ticker as string;
   const { period = 'D', startDate, endDate } = req.query;
 
   const { appKey, appSecret } = getKisConfig();
@@ -151,7 +151,7 @@ router.get('/candle/:ticker', async (req: Request, res: Response) => {
       return res.status(response.status).json({ error: `KIS API 오류: ${errText}` });
     }
 
-    const data = await response.json();
+    const data: any = await response.json();
 
     if (data.rt_cd !== '0') {
       return res.status(400).json({ error: `KIS API 오류: ${data.msg1}` });
@@ -235,7 +235,7 @@ router.get('/balance', async (_req: Request, res: Response) => {
       return res.status(response.status).json({ error: `KIS API 오류: ${errText}` });
     }
 
-    const data = await response.json();
+    const data: any = await response.json();
     if (data.rt_cd !== '0') {
       return res.status(400).json({ error: `KIS API 오류: ${data.msg1}` });
     }
@@ -314,7 +314,7 @@ router.post('/balance/import', async (_req: Request, res: Response) => {
       return res.status(response.status).json({ error: `KIS API 오류: ${errText}` });
     }
 
-    const data = await response.json();
+    const data: any = await response.json();
     if (data.rt_cd !== '0') {
       return res.status(400).json({ error: `KIS API 오류: ${data.msg1}` });
     }

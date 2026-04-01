@@ -20,7 +20,7 @@ import { optimizeWeights } from './weightOptimizer';
 type SchedulePhase = 'PRE_OPEN' | 'POST_OPEN' | 'PRE_CLOSE_1H' | 'PRE_CLOSE_30M';
 type Market = 'KRX' | 'NYSE' | 'NASDAQ';
 
-const activeTasks: cron.ScheduledTask[] = [];
+const activeTasks: any[] = [];
 
 interface ScheduleLog {
   market: Market;

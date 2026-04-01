@@ -48,7 +48,7 @@ export async function getAccessToken(): Promise<string> {
     throw new Error(`KIS 토큰 발급 실패: ${response.status} ${err}`);
   }
 
-  const data = await response.json();
+  const data: any = await response.json();
   const token: string = data.access_token;
   const expiresIn = ((data.expires_in ?? 86400) - 3600) * 1000;
   tokenCache = { token, expiresAt: Date.now() + expiresIn };
