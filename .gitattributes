@@ -1,0 +1,3 @@
+# Ensure bin scripts always use LF (Unix line endings)
+bin/* text eol=lf
+*.sh text eol=lf
