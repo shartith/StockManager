@@ -338,7 +338,8 @@ async function fetchOverseasBalance(token: string, appKey: string, appSecret: st
 
       // output3: 외화 예수금 (거래소별 동일 값이므로 최초 1회만)
       if (overseasDeposit === 0 && data.output3) {
-        overseasDeposit = Number(data.output3.frcr_dncl_amt_2 || 0);
+        // frcr_dncl_amt_2: 외화예수금2, ovrs_tot_pfls: 해외총손익
+        overseasDeposit = Number(data.output3.frcr_dncl_amt_2 || data.output3.frcr_dncl_amt || 0);
       }
 
       // 연속조회
@@ -439,13 +440,21 @@ router.get('/balance', async (_req: Request, res: Response) => {
       // 해외 잔고 조회 실패 시 국내만 반환
     }
 
+    // 예수금 = 총자산 - 평가금액 (외화 포함), 출금가능금액 = dnca_tot_amt (KRW만)
+    const totalAssets = Number(summary.tot_evlu_amt || 0);
+    const stockEvalAmount = Number(summary.evlu_amt_smtl_amt || 0);
+    const depositAmount = totalAssets > 0 ? totalAssets - stockEvalAmount : Number(summary.dnca_tot_amt || 0);
+    const withdrawableAmount = Number(summary.dnca_tot_amt || 0);
+
     res.json({
       holdings,
       totalPurchaseAmount: Number(summary.pchs_amt_smtl_amt || 0),
-      totalEvalAmount: Number(summary.evlu_amt_smtl_amt || 0),
+      totalEvalAmount: stockEvalAmount,
       totalProfitLoss: Number(summary.evlu_pfls_smtl_amt || 0),
       totalProfitLossRate: Number(summary.tot_evlu_pfls_rt || 0),
-      depositAmount: Number(summary.dnca_tot_amt || 0),
+      depositAmount,
+      withdrawableAmount,
+      totalAssets,
       overseasHoldings: overseas.holdings,
       overseasTotalPurchaseAmount: overseas.totalPurchaseAmount,
       overseasTotalEvalAmount: overseas.totalEvalAmount,

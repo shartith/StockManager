@@ -37,7 +37,7 @@
         <div v-if="balanceError" class="p-4 text-sm text-red-600">{{ balanceError }}</div>
         <div v-else-if="balanceData">
           <!-- 계좌 요약 -->
-          <div class="grid grid-cols-2 md:grid-cols-4 gap-4 p-4 border-b border-slate-100">
+          <div class="grid grid-cols-2 md:grid-cols-5 gap-4 p-4 border-b border-slate-100">
             <div>
               <p class="text-xs text-slate-500">평가금액</p>
               <p class="font-bold text-slate-800">{{ formatCurrency(balanceData.totalEvalAmount) }}</p>
@@ -55,6 +55,10 @@
             <div>
               <p class="text-xs text-slate-500">예수금</p>
               <p class="font-bold text-slate-800">{{ formatCurrency(balanceData.depositAmount) }}</p>
+            </div>
+            <div>
+              <p class="text-xs text-slate-500">출금가능금액</p>
+              <p class="font-bold text-slate-800">{{ formatCurrency(balanceData.withdrawableAmount || 0) }}</p>
             </div>
           </div>
           <!-- 보유 종목 목록 -->
@@ -109,8 +113,15 @@
                 </p>
               </div>
               <div>
-                <p class="text-xs text-slate-500">외화 예수금 (USD)</p>
-                <p class="font-bold text-slate-800">{{ formatUsd(balanceData.overseasDepositAmount || 0) }}</p>
+                <p class="text-xs text-slate-500">외화 예수금</p>
+                <p class="font-bold text-slate-800" v-if="balanceData.overseasDepositAmount > 0">
+                  {{ formatUsd(balanceData.overseasDepositAmount) }}
+                </p>
+                <p class="font-bold text-slate-800" v-else-if="(balanceData.depositAmount || 0) - (balanceData.withdrawableAmount || 0) > 0">
+                  {{ formatCurrency((balanceData.depositAmount || 0) - (balanceData.withdrawableAmount || 0)) }}
+                  <span class="text-xs text-slate-400 font-normal ml-1">KRW 환산</span>
+                </p>
+                <p class="font-bold text-slate-800" v-else>{{ formatUsd(0) }}</p>
               </div>
             </div>
             <div class="overflow-x-auto">
