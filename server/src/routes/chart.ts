@@ -431,6 +431,8 @@ router.get('/balance', async (_req: Request, res: Response) => {
 
     // 계좌 요약 (output2)
     const summary = data.output2?.[0] || {};
+    console.log('[Balance] output2 keys:', Object.keys(summary));
+    console.log('[Balance] output2 sample:', JSON.stringify(summary).slice(0, 500));
 
     // 해외 잔고 조회
     let overseas = { holdings: [] as any[], totalPurchaseAmount: 0, totalEvalAmount: 0, totalProfitLoss: 0, depositAmount: 0 };
