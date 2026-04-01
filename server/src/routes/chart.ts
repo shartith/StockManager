@@ -268,6 +268,45 @@ router.get('/candle/:ticker', async (req: Request, res: Response) => {
   }
 });
 
+// 해외주식 매수가능금액 조회 (외화 예수금)
+async function fetchOverseasDeposit(token: string, appKey: string, appSecret: string, baseUrl: string, accountNo: string, productCode: string, isVirtual: boolean): Promise<number> {
+  const trId = isVirtual ? 'VTTS3007R' : 'TTTS3007R';
+  try {
+    const params = new URLSearchParams({
+      CANO: accountNo,
+      ACNT_PRDT_CD: productCode || '01',
+      OVRS_EXCG_CD: 'NASD',
+      OVRS_ORD_UNPR: '0',
+      ITEM_CD: '',
+    });
+
+    const response = await fetch(
+      `${baseUrl}/uapi/overseas-stock/v1/trading/inquire-psamount?${params}`,
+      {
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+          appkey: appKey,
+          appsecret: appSecret,
+          tr_id: trId,
+          custtype: 'P',
+        },
+      }
+    );
+
+    if (!response.ok) return 0;
+    const data: any = await response.json();
+    if (data.rt_cd !== '0') return 0;
+
+    const output = data.output || {};
+    // frcr_ord_psbl_amt1: 외화주문가능금액 (USD 예수금)
+    const deposit = Number(output.frcr_ord_psbl_amt1 || output.ovrs_ord_psbl_amt || 0);
+    return deposit;
+  } catch {
+    return 0;
+  }
+}
+
 // 해외 주식 잔고 조회 헬퍼
 async function fetchOverseasBalance(token: string, appKey: string, appSecret: string, baseUrl: string, accountNo: string, productCode: string, isVirtual: boolean) {
   const trId = isVirtual ? 'CTRP6504R' : 'TTTS3012R';
@@ -275,7 +314,6 @@ async function fetchOverseasBalance(token: string, appKey: string, appSecret: st
   const allHoldings: any[] = [];
   let totalPurchase = 0;
   let totalEval = 0;
-  let overseasDeposit = 0;
 
   for (const exchg of exchanges) {
     let ctxAreaFK200 = '';
@@ -306,16 +344,10 @@ async function fetchOverseasBalance(token: string, appKey: string, appSecret: st
         }
       );
 
-      if (!response.ok) {
-        console.log(`[Balance] overseas API failed (${exchg}): status=${response.status}`);
-        break;
-      }
+      if (!response.ok) break;
 
       const data: any = await response.json();
-      if (data.rt_cd !== '0') {
-        console.log(`[Balance] overseas API error (${exchg}): rt_cd=${data.rt_cd}, msg=${data.msg1}`);
-        break;
-      }
+      if (data.rt_cd !== '0') break;
 
       const items = (data.output1 || []).filter((item: any) => Number(item.ovrs_cblc_qty) > 0);
       for (const item of items) {
@@ -342,15 +374,6 @@ async function fetchOverseasBalance(token: string, appKey: string, appSecret: st
         totalEval += evalAmt;
       }
 
-      // output2: 해외 잔고 요약 (외화 예수금 포함)
-      const overseasSummary = data.output2;
-      if (overseasSummary) {
-        console.log(`[Balance] overseas output2 (${exchg}):`, JSON.stringify(overseasSummary).slice(0, 800));
-        if (overseasDeposit === 0) {
-          overseasDeposit = Number(overseasSummary.frcr_dncl_amt_2 || overseasSummary.frcr_dncl_amt || overseasSummary.ovrs_frcr_amt || 0);
-        }
-      }
-
       // 연속조회
       const trCont = response.headers.get('tr_cont');
       if (trCont === 'M' || trCont === 'F') {
@@ -361,6 +384,9 @@ async function fetchOverseasBalance(token: string, appKey: string, appSecret: st
       }
     }
   }
+
+  // 외화 예수금은 매수가능금액 API에서 별도 조회
+  const overseasDeposit = await fetchOverseasDeposit(token, appKey, appSecret, baseUrl, accountNo, productCode, isVirtual);
 
   return {
     holdings: allHoldings,
@@ -440,8 +466,6 @@ router.get('/balance', async (_req: Request, res: Response) => {
 
     // 계좌 요약 (output2)
     const summary = data.output2?.[0] || {};
-    console.log('[Balance] output2 keys:', Object.keys(summary));
-    console.log('[Balance] output2 sample:', JSON.stringify(summary).slice(0, 500));
 
     // 해외 잔고 조회
     let overseas = { holdings: [] as any[], totalPurchaseAmount: 0, totalEvalAmount: 0, totalProfitLoss: 0, depositAmount: 0 };
