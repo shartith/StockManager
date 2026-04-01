@@ -193,7 +193,6 @@ async function fetchOverseasBalance(token: string, appKey: string, appSecret: st
   const allHoldings: any[] = [];
   let totalPurchase = 0;
   let totalEval = 0;
-  let totalProfitLoss = 0;
 
   for (const exchg of exchanges) {
     let ctxAreaFK200 = '';
@@ -231,25 +230,27 @@ async function fetchOverseasBalance(token: string, appKey: string, appSecret: st
 
       const items = (data.output1 || []).filter((item: any) => Number(item.ovrs_cblc_qty) > 0);
       for (const item of items) {
+        const qty = Number(item.ovrs_cblc_qty);
+        const avgPrc = Number(item.pchs_avg_pric);
+        const curPrc = Number(item.now_pric2);
+        const evalAmt = Number(item.ovrs_stck_evlu_amt);
+        const purchaseAmt = avgPrc * qty;
+
         allHoldings.push({
           ticker: item.ovrs_pdno,
           name: item.ovrs_item_name,
           market: exchg,
-          quantity: Number(item.ovrs_cblc_qty),
-          avgPrice: Number(Number(item.pchs_avg_pric).toFixed(2)),
-          currentPrice: Number(Number(item.now_pric2).toFixed(2)),
-          profitLossRate: Number(Number(item.evlu_pfls_rt).toFixed(2)),
-          totalValue: Number(Number(item.ovrs_stck_evlu_amt).toFixed(2)),
+          quantity: qty,
+          avgPrice: Number(avgPrc.toFixed(2)),
+          currentPrice: Number(curPrc.toFixed(2)),
+          profitLossRate: purchaseAmt > 0 ? Number(((evalAmt - purchaseAmt) / purchaseAmt * 100).toFixed(2)) : 0,
+          totalValue: Number(evalAmt.toFixed(2)),
+          purchaseAmount: Number(purchaseAmt.toFixed(2)),
           currency: 'USD',
         });
-      }
 
-      // output3: 해외 잔고 요약
-      const summary = data.output3;
-      if (summary && items.length > 0) {
-        totalPurchase += Number(summary.frcr_pchs_amt1 || 0);
-        totalEval += Number(summary.tot_evlu_pfls_amt || 0) + Number(summary.frcr_pchs_amt1 || 0);
-        totalProfitLoss += Number(summary.tot_evlu_pfls_amt || 0);
+        totalPurchase += purchaseAmt;
+        totalEval += evalAmt;
       }
 
       // 연속조회
@@ -267,7 +268,7 @@ async function fetchOverseasBalance(token: string, appKey: string, appSecret: st
     holdings: allHoldings,
     totalPurchaseAmount: Number(totalPurchase.toFixed(2)),
     totalEvalAmount: Number(totalEval.toFixed(2)),
-    totalProfitLoss: Number(totalProfitLoss.toFixed(2)),
+    totalProfitLoss: Number((totalEval - totalPurchase).toFixed(2)),
   };
 }
 

@@ -19,7 +19,7 @@ router.get('/summary', async (_req: Request, res: Response) => {
       }
     }
 
-    const summary = getPortfolioSummary(prices);
+    const summary = await getPortfolioSummary(prices);
     res.json(summary);
   } catch (err) {
     res.status(500).json({ error: '포트폴리오 조회 실패' });

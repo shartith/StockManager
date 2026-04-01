@@ -250,11 +250,11 @@
                   <div class="text-xs text-slate-400">{{ h.name }}</div>
                 </td>
                 <td class="text-right px-4 py-3">{{ h.quantity }}</td>
-                <td class="text-right px-4 py-3">{{ formatCurrency(h.avgPrice) }}</td>
-                <td class="text-right px-4 py-3">{{ h.currentPrice ? formatCurrency(h.currentPrice) : '-' }}</td>
-                <td class="text-right px-4 py-3">{{ h.currentValue ? formatCurrency(h.currentValue) : formatCurrency(h.totalCost) }}</td>
+                <td class="text-right px-4 py-3">{{ formatByMarket(h.avgPrice, h.market) }}</td>
+                <td class="text-right px-4 py-3">{{ h.currentPrice ? formatByMarket(h.currentPrice, h.market) : '-' }}</td>
+                <td class="text-right px-4 py-3">{{ h.currentValue ? formatByMarket(h.currentValue, h.market) : formatByMarket(h.totalCost, h.market) }}</td>
                 <td class="text-right px-4 py-3" :class="(h.profitLoss ?? 0) >= 0 ? 'text-profit' : 'text-loss'">
-                  {{ h.profitLoss !== undefined ? formatCurrency(h.profitLoss) : '-' }}
+                  {{ h.profitLoss !== undefined ? formatByMarket(h.profitLoss, h.market) : '-' }}
                 </td>
                 <td class="text-right px-4 py-3" :class="(h.profitLossPercent ?? 0) >= 0 ? 'text-profit' : 'text-loss'">
                   {{ h.profitLossPercent !== undefined ? `${h.profitLossPercent >= 0 ? '+' : ''}${h.profitLossPercent}%` : '-' }}
@@ -311,6 +311,14 @@ function formatCurrency(value: number): string {
 
 function formatUsd(value: number): string {
   return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(value);
+}
+
+function isOverseasMarket(market: string): boolean {
+  return ['NASDAQ', 'NYSE', 'AMEX', 'NASD'].includes(market);
+}
+
+function formatByMarket(value: number, market: string): string {
+  return isOverseasMarket(market) ? formatUsd(value) : formatCurrency(value);
 }
 
 async function checkKisConfig() {

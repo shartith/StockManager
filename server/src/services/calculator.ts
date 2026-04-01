@@ -1,4 +1,5 @@
 import { queryAll } from '../db';
+import { getUsdKrwRate } from './exchangeRate';
 
 export interface PortfolioHolding {
   stockId: number;
@@ -71,8 +72,13 @@ export function getPortfolioHoldings(): PortfolioHolding[] {
   });
 }
 
-export function getPortfolioSummary(currentPrices?: Map<string, number>): PortfolioSummary {
+export async function getPortfolioSummary(currentPrices?: Map<string, number>): Promise<PortfolioSummary> {
   const holdings = getPortfolioHoldings();
+  const overseasMarkets = ['NASDAQ', 'NYSE', 'AMEX', 'NASD'];
+
+  // 해외 종목이 있으면 환율 조회
+  const hasOverseas = holdings.some(h => overseasMarkets.includes(h.market));
+  const usdKrwRate = hasOverseas ? await getUsdKrwRate() : 1;
 
   let totalInvested = 0;
   let totalCurrentValue = 0;
@@ -81,9 +87,12 @@ export function getPortfolioSummary(currentPrices?: Map<string, number>): Portfo
 
   const enrichedHoldings = holdings.map(h => {
     const holding = { ...h };
-    totalInvested += h.totalCost;
-    totalDividends += h.totalDividends;
-    totalFees += h.totalFees;
+    const isOverseas = overseasMarkets.includes(h.market);
+    const rate = isOverseas ? usdKrwRate : 1;
+
+    totalInvested += Math.round(h.totalCost * rate);
+    totalDividends += Math.round(h.totalDividends * rate);
+    totalFees += Math.round(h.totalFees * rate);
 
     if (currentPrices && currentPrices.has(h.ticker)) {
       holding.currentPrice = currentPrices.get(h.ticker)!;
@@ -92,20 +101,22 @@ export function getPortfolioSummary(currentPrices?: Map<string, number>): Portfo
       holding.profitLossPercent = h.totalCost > 0
         ? Math.round((holding.profitLoss / h.totalCost) * 10000) / 100
         : 0;
-      totalCurrentValue += holding.currentValue;
+      totalCurrentValue += Math.round(holding.currentValue * rate);
     } else {
-      totalCurrentValue += h.totalCost;
+      totalCurrentValue += Math.round(h.totalCost * rate);
     }
 
     return holding;
   });
 
-  // 종목별 자산배분
+  // 종목별 자산배분 (KRW 환산 기준)
   const allocationMap = new Map<string, number>();
 
   enrichedHoldings.forEach(h => {
     const key = `${h.name} (${h.ticker})`;
-    const value = h.currentValue ?? h.totalCost;
+    const isOverseas = overseasMarkets.includes(h.market);
+    const rate = isOverseas ? usdKrwRate : 1;
+    const value = Math.round((h.currentValue ?? h.totalCost) * rate);
     allocationMap.set(key, (allocationMap.get(key) || 0) + value);
   });
 
