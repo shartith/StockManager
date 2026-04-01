@@ -186,6 +186,91 @@ router.get('/candle/:ticker', async (req: Request, res: Response) => {
   }
 });
 
+// 해외 주식 잔고 조회 헬퍼
+async function fetchOverseasBalance(token: string, appKey: string, appSecret: string, baseUrl: string, accountNo: string, productCode: string, isVirtual: boolean) {
+  const trId = isVirtual ? 'VTRP6504R' : 'TTTS3012R';
+  const exchanges = ['NASD', 'NYSE', 'AMEX'];
+  const allHoldings: any[] = [];
+  let totalPurchase = 0;
+  let totalEval = 0;
+  let totalProfitLoss = 0;
+
+  for (const exchg of exchanges) {
+    let ctxAreaFK200 = '';
+    let ctxAreaNK200 = '';
+    let hasMore = true;
+
+    while (hasMore) {
+      const params = new URLSearchParams({
+        CANO: accountNo,
+        ACNT_PRDT_CD: productCode || '01',
+        OVRS_EXCG_CD: exchg,
+        TR_CRCY_CD: 'USD',
+        CTX_AREA_FK200: ctxAreaFK200,
+        CTX_AREA_NK200: ctxAreaNK200,
+      });
+
+      const response = await fetch(
+        `${baseUrl}/uapi/overseas-stock/v1/trading/inquire-balance?${params}`,
+        {
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${token}`,
+            appkey: appKey,
+            appsecret: appSecret,
+            tr_id: trId,
+            custtype: 'P',
+          },
+        }
+      );
+
+      if (!response.ok) break;
+
+      const data: any = await response.json();
+      if (data.rt_cd !== '0') break;
+
+      const items = (data.output1 || []).filter((item: any) => Number(item.ovrs_cblc_qty) > 0);
+      for (const item of items) {
+        allHoldings.push({
+          ticker: item.ovrs_pdno,
+          name: item.ovrs_item_name,
+          market: exchg,
+          quantity: Number(item.ovrs_cblc_qty),
+          avgPrice: Number(Number(item.pchs_avg_pric).toFixed(2)),
+          currentPrice: Number(Number(item.now_pric2).toFixed(2)),
+          profitLossRate: Number(Number(item.evlu_pfls_rt).toFixed(2)),
+          totalValue: Number(Number(item.ovrs_stck_evlu_amt).toFixed(2)),
+          currency: 'USD',
+        });
+      }
+
+      // output3: 해외 잔고 요약
+      const summary = data.output3;
+      if (summary && items.length > 0) {
+        totalPurchase += Number(summary.frcr_pchs_amt1 || 0);
+        totalEval += Number(summary.tot_evlu_pfls_amt || 0) + Number(summary.frcr_pchs_amt1 || 0);
+        totalProfitLoss += Number(summary.tot_evlu_pfls_amt || 0);
+      }
+
+      // 연속조회
+      const trCont = response.headers.get('tr_cont');
+      if (trCont === 'M' || trCont === 'F') {
+        ctxAreaFK200 = data.ctx_area_fk200 || '';
+        ctxAreaNK200 = data.ctx_area_nk200 || '';
+      } else {
+        hasMore = false;
+      }
+    }
+  }
+
+  return {
+    holdings: allHoldings,
+    totalPurchaseAmount: Number(totalPurchase.toFixed(2)),
+    totalEvalAmount: Number(totalEval.toFixed(2)),
+    totalProfitLoss: Number(totalProfitLoss.toFixed(2)),
+  };
+}
+
 // KIS 계좌 잔고 조회 (보유 종목 목록)
 router.get('/balance', async (_req: Request, res: Response) => {
   const { appKey, appSecret, baseUrl } = getKisConfig();
@@ -200,8 +285,9 @@ router.get('/balance', async (_req: Request, res: Response) => {
 
   try {
     const token = await getAccessToken();
-    const trId = settings.kisVirtual ? 'VTTC8434R' : 'TTTC8434R';
 
+    // 국내 잔고 조회
+    const domesticTrId = settings.kisVirtual ? 'VTTC8434R' : 'TTTC8434R';
     const params = new URLSearchParams({
       CANO: settings.kisAccountNo,
       ACNT_PRDT_CD: settings.kisAccountProductCode || '01',
@@ -224,7 +310,7 @@ router.get('/balance', async (_req: Request, res: Response) => {
           Authorization: `Bearer ${token}`,
           appkey: appKey,
           appsecret: appSecret,
-          tr_id: trId,
+          tr_id: domesticTrId,
           custtype: 'P',
         },
       }
@@ -255,6 +341,14 @@ router.get('/balance', async (_req: Request, res: Response) => {
     // 계좌 요약 (output2)
     const summary = data.output2?.[0] || {};
 
+    // 해외 잔고 조회
+    let overseas = { holdings: [] as any[], totalPurchaseAmount: 0, totalEvalAmount: 0, totalProfitLoss: 0 };
+    try {
+      overseas = await fetchOverseasBalance(token, appKey, appSecret, baseUrl, settings.kisAccountNo, settings.kisAccountProductCode || '01', settings.kisVirtual);
+    } catch {
+      // 해외 잔고 조회 실패 시 국내만 반환
+    }
+
     res.json({
       holdings,
       totalPurchaseAmount: Number(summary.pchs_amt_smtl_amt || 0),
@@ -262,6 +356,10 @@ router.get('/balance', async (_req: Request, res: Response) => {
       totalProfitLoss: Number(summary.evlu_pfls_smtl_amt || 0),
       totalProfitLossRate: Number(summary.tot_evlu_pfls_rt || 0),
       depositAmount: Number(summary.dnca_tot_amt || 0),
+      overseasHoldings: overseas.holdings,
+      overseasTotalPurchaseAmount: overseas.totalPurchaseAmount,
+      overseasTotalEvalAmount: overseas.totalEvalAmount,
+      overseasTotalProfitLoss: overseas.totalProfitLoss,
     });
   } catch (err: any) {
     res.status(500).json({ error: err.message || '잔고 조회 실패' });
@@ -323,6 +421,7 @@ router.post('/balance/import', async (_req: Request, res: Response) => {
     const imported: string[] = [];
     const skipped: string[] = [];
 
+    // 국내 종목 가져오기
     for (const item of (data.output1 || [])) {
       const qty = Number(item.hldg_qty);
       if (qty <= 0) continue;
@@ -351,6 +450,39 @@ router.post('/balance/import', async (_req: Request, res: Response) => {
         [stock.id, 'BUY', qty, avgPrice, 0, today, 'KIS 계좌 잔고 가져오기']
       );
       imported.push(ticker);
+    }
+
+    // 해외 종목 가져오기
+    const marketMap: Record<string, string> = { NASD: 'NASDAQ', NYSE: 'NYSE', AMEX: 'AMEX' };
+    try {
+      const overseas = await fetchOverseasBalance(token, appKey, appSecret, baseUrl, settings.kisAccountNo, settings.kisAccountProductCode || '01', settings.kisVirtual);
+      for (const item of overseas.holdings) {
+        const ticker = item.ticker;
+        const name = item.name;
+        const avgPrice = item.avgPrice;
+        const qty = item.quantity;
+        const market = marketMap[item.market] || item.market;
+
+        let stock = queryOne('SELECT id FROM stocks WHERE ticker = ?', [ticker]);
+        if (!stock) {
+          execute('INSERT INTO stocks (ticker, name, market, sector) VALUES (?, ?, ?, ?)', [ticker, name, market, '']);
+          stock = queryOne('SELECT id FROM stocks WHERE ticker = ?', [ticker]);
+        }
+
+        const existingTx = queryOne('SELECT id FROM transactions WHERE stock_id = ?', [stock.id]);
+        if (existingTx) {
+          skipped.push(ticker);
+          continue;
+        }
+
+        execute(
+          'INSERT INTO transactions (stock_id, type, quantity, price, fee, date, memo) VALUES (?, ?, ?, ?, ?, ?, ?)',
+          [stock.id, 'BUY', qty, avgPrice, 0, today, 'KIS 계좌 잔고 가져오기 (해외)']
+        );
+        imported.push(ticker);
+      }
+    } catch {
+      // 해외 잔고 가져오기 실패 시 국내만 처리
     }
 
     res.json({

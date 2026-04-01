@@ -87,11 +87,62 @@
               </tbody>
             </table>
           </div>
+          <!-- 해외 보유 종목 -->
+          <div v-if="balanceData.overseasHoldings && balanceData.overseasHoldings.length > 0">
+            <div class="px-5 py-3 bg-green-50 border-t border-b border-green-200">
+              <h4 class="text-sm font-semibold text-green-800">해외 보유 종목</h4>
+            </div>
+            <!-- 해외 요약 -->
+            <div class="grid grid-cols-2 md:grid-cols-3 gap-4 p-4 border-b border-slate-100">
+              <div>
+                <p class="text-xs text-slate-500">해외 평가금액 (USD)</p>
+                <p class="font-bold text-slate-800">{{ formatUsd(balanceData.overseasTotalEvalAmount) }}</p>
+              </div>
+              <div>
+                <p class="text-xs text-slate-500">해외 매입금액 (USD)</p>
+                <p class="font-bold text-slate-800">{{ formatUsd(balanceData.overseasTotalPurchaseAmount) }}</p>
+              </div>
+              <div>
+                <p class="text-xs text-slate-500">해외 평가손익 (USD)</p>
+                <p class="font-bold" :class="balanceData.overseasTotalProfitLoss >= 0 ? 'text-red-600' : 'text-blue-600'">
+                  {{ formatUsd(balanceData.overseasTotalProfitLoss) }}
+                </p>
+              </div>
+            </div>
+            <div class="overflow-x-auto">
+              <table class="w-full text-sm">
+                <thead class="bg-slate-50 text-slate-600">
+                  <tr>
+                    <th class="text-left px-4 py-2">종목</th>
+                    <th class="text-center px-4 py-2">거래소</th>
+                    <th class="text-right px-4 py-2">수량</th>
+                    <th class="text-right px-4 py-2">평균단가</th>
+                    <th class="text-right px-4 py-2">현재가</th>
+                    <th class="text-right px-4 py-2">평가금액</th>
+                    <th class="text-right px-4 py-2">수익률</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr v-for="h in balanceData.overseasHoldings" :key="h.ticker" class="border-t border-slate-100 hover:bg-slate-50">
+                    <td class="px-4 py-2 font-medium">{{ h.ticker }} <span class="text-xs text-slate-400">{{ h.name }}</span></td>
+                    <td class="text-center px-4 py-2 text-xs text-slate-500">{{ h.market }}</td>
+                    <td class="text-right px-4 py-2">{{ h.quantity }}</td>
+                    <td class="text-right px-4 py-2">{{ formatUsd(h.avgPrice) }}</td>
+                    <td class="text-right px-4 py-2">{{ formatUsd(h.currentPrice) }}</td>
+                    <td class="text-right px-4 py-2">{{ formatUsd(h.totalValue) }}</td>
+                    <td class="text-right px-4 py-2 font-medium" :class="h.profitLossRate >= 0 ? 'text-red-600' : 'text-blue-600'">
+                      {{ h.profitLossRate >= 0 ? '+' : '' }}{{ h.profitLossRate.toFixed(2) }}%
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
           <!-- 가져오기 버튼 -->
-          <div v-if="balanceData.holdings.length > 0" class="p-4 border-t border-slate-100 text-right">
+          <div v-if="balanceData.holdings.length > 0 || (balanceData.overseasHoldings && balanceData.overseasHoldings.length > 0)" class="p-4 border-t border-slate-100 text-right">
             <button @click="importBalance" :disabled="importing"
               class="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm hover:bg-blue-700 disabled:opacity-50">
-              {{ importing ? '가져오는 중...' : `📥 ${balanceData.holdings.length}개 종목을 포트폴리오로 가져오기` }}
+              {{ importing ? '가져오는 중...' : `📥 ${balanceData.holdings.length + (balanceData.overseasHoldings?.length || 0)}개 종목을 포트폴리오로 가져오기` }}
             </button>
           </div>
         </div>
@@ -256,6 +307,10 @@ const systemStatus = ref({
 
 function formatCurrency(value: number): string {
   return new Intl.NumberFormat('ko-KR', { style: 'currency', currency: 'KRW', maximumFractionDigits: 0 }).format(value);
+}
+
+function formatUsd(value: number): string {
+  return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(value);
 }
 
 async function checkKisConfig() {
