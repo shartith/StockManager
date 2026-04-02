@@ -3,28 +3,165 @@
 const path = require('path');
 const os = require('os');
 const fs = require('fs');
+const { spawn, execSync } = require('child_process');
 
-// 데이터 디렉토리: ~/.stock-manager
 const dataDir = process.env.STOCK_MANAGER_DATA || path.join(os.homedir(), '.stock-manager');
 if (!fs.existsSync(dataDir)) {
   fs.mkdirSync(dataDir, { recursive: true });
 }
-process.env.STOCK_MANAGER_DATA = dataDir;
 
-// 클라이언트 정적 파일 경로
+const pidFile = path.join(dataDir, 'stock-manager.pid');
+const logFile = path.join(dataDir, 'stock-manager.log');
 const appRoot = path.resolve(__dirname, '..');
-process.env.STOCK_MANAGER_CLIENT = path.join(appRoot, 'client', 'dist');
-
+const pkg = require(path.join(appRoot, 'package.json'));
 const port = process.env.PORT || 3000;
-process.env.PORT = String(port);
 
-console.log('');
-const pkg = require(path.join(__dirname, '..', 'package.json'));
-console.log(`  Stock Manager v${pkg.version}`);
-console.log('  --------------------');
-console.log(`  Data:   ${dataDir}`);
-console.log(`  Server: http://localhost:${port}`);
-console.log('');
+const command = process.argv[2];
 
-// 서버 시작
-require(path.join(appRoot, 'server', 'dist', 'index.js'));
+function isRunning(pid) {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function getPid() {
+  if (!fs.existsSync(pidFile)) return null;
+  const pid = parseInt(fs.readFileSync(pidFile, 'utf-8').trim(), 10);
+  if (isNaN(pid) || !isRunning(pid)) {
+    fs.unlinkSync(pidFile);
+    return null;
+  }
+  return pid;
+}
+
+function startDaemon() {
+  const existing = getPid();
+  if (existing) {
+    console.log(`  Stock Manager is already running (PID: ${existing})`);
+    console.log(`  http://localhost:${port}`);
+    return;
+  }
+
+  const out = fs.openSync(logFile, 'a');
+  const err = fs.openSync(logFile, 'a');
+
+  const child = spawn(process.execPath, [__filename, '_run'], {
+    detached: true,
+    stdio: ['ignore', out, err],
+    env: { ...process.env, STOCK_MANAGER_DATA: dataDir, PORT: String(port) },
+  });
+
+  fs.writeFileSync(pidFile, String(child.pid));
+  child.unref();
+
+  console.log('');
+  console.log(`  Stock Manager v${pkg.version} started`);
+  console.log('  --------------------');
+  console.log(`  PID:    ${child.pid}`);
+  console.log(`  Data:   ${dataDir}`);
+  console.log(`  Log:    ${logFile}`);
+  console.log(`  Server: http://localhost:${port}`);
+  console.log('');
+}
+
+function stopDaemon() {
+  const pid = getPid();
+  if (!pid) {
+    console.log('  Stock Manager is not running');
+    return;
+  }
+
+  try {
+    process.kill(pid, 'SIGTERM');
+    // Wait up to 5s for graceful shutdown
+    for (let i = 0; i < 50; i++) {
+      if (!isRunning(pid)) break;
+      execSync('sleep 0.1');
+    }
+    if (isRunning(pid)) process.kill(pid, 'SIGKILL');
+  } catch {}
+
+  if (fs.existsSync(pidFile)) fs.unlinkSync(pidFile);
+  console.log(`  Stock Manager stopped (PID: ${pid})`);
+}
+
+function showStatus() {
+  const pid = getPid();
+  if (pid) {
+    console.log(`  Stock Manager is running (PID: ${pid})`);
+    console.log(`  http://localhost:${port}`);
+  } else {
+    console.log('  Stock Manager is not running');
+  }
+}
+
+function runServer() {
+  process.env.STOCK_MANAGER_DATA = dataDir;
+  process.env.STOCK_MANAGER_CLIENT = path.join(appRoot, 'client', 'dist');
+  process.env.PORT = String(port);
+
+  console.log('');
+  console.log(`  Stock Manager v${pkg.version}`);
+  console.log('  --------------------');
+  console.log(`  Data:   ${dataDir}`);
+  console.log(`  Server: http://localhost:${port}`);
+  console.log('');
+
+  require(path.join(appRoot, 'server', 'dist', 'index.js'));
+}
+
+// Command routing
+switch (command) {
+  case 'start':
+    startDaemon();
+    break;
+  case 'stop':
+    stopDaemon();
+    break;
+  case 'restart':
+    stopDaemon();
+    startDaemon();
+    break;
+  case 'status':
+    showStatus();
+    break;
+  case 'log':
+  case 'logs':
+    if (fs.existsSync(logFile)) {
+      const lines = process.argv[3] ? parseInt(process.argv[3], 10) : 50;
+      try {
+        const output = execSync(`tail -n ${lines} "${logFile}"`, { encoding: 'utf-8' });
+        process.stdout.write(output);
+      } catch {
+        console.log(fs.readFileSync(logFile, 'utf-8').split('\n').slice(-lines).join('\n'));
+      }
+    } else {
+      console.log('  No log file found');
+    }
+    break;
+  case 'run':
+  case '_run':
+    // Foreground or internal daemon process
+    runServer();
+    break;
+  case undefined:
+    // No command: 백그라운드 데몬으로 시작
+    startDaemon();
+    break;
+  default:
+    console.log(`
+  Stock Manager v${pkg.version}
+
+  Usage:
+    stock-manager              Start as background daemon
+    stock-manager start        Start as background daemon
+    stock-manager run          Run in foreground
+    stock-manager stop         Stop the daemon
+    stock-manager restart      Restart the daemon
+    stock-manager status       Show running status
+    stock-manager logs [n]     Show last n log lines (default: 50)
+`);
+}

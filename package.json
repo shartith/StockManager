@@ -1,6 +1,6 @@
 {
   "name": "stock-manager",
-  "version": "2.0.0",
+  "version": "2.0.1",
   "description": "주식 포트폴리오 관리 및 자동매매 시스템",
   "bin": {
     "stock-manager": "./bin/stock-manager"
