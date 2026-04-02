@@ -26,10 +26,9 @@ export interface AppSettings {
   ollamaModel: string;
   ollamaEnabled: boolean;
 
-  // 외부 AI (뉴스 요약용)
-  externalAiProvider: 'claude' | 'openai' | 'none';
-  externalAiApiKey: string;
-  externalAiModel: string;
+  // AI 분석 옵션
+  investmentStyle: 'balanced' | 'value' | 'growth' | 'momentum';
+  debateMode: boolean;  // 강세/약세 토론 모드
 
   // 자동매매
   autoTradeEnabled: boolean;
@@ -54,9 +53,8 @@ const DEFAULT_SETTINGS: AppSettings = {
   ollamaModel: 'qwen3:4b',
   ollamaEnabled: false,
 
-  externalAiProvider: 'none',
-  externalAiApiKey: '',
-  externalAiModel: '',
+  investmentStyle: 'balanced',
+  debateMode: false,
 
   autoTradeEnabled: false,
   autoTradeMaxInvestment: 10000000,

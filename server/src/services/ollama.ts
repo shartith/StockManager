@@ -74,11 +74,22 @@ export interface StockAnalysisInput {
     volumeTrend: 'INCREASING' | 'DECREASING' | 'STABLE';
   };
 
-  // 뉴스 요약 (외부 AI가 정리한 내용)
+  // 뉴스 요약
   newsSummary?: string;
+
+  // 뉴스 감성 점수
+  sentimentScore?: number;
 
   // 시장 동향
   marketContext?: string;
+
+  // 포트폴리오 리스크 컨텍스트
+  portfolioContext?: {
+    totalInvested: number;
+    holdingCount: number;
+    currentProfitLossPercent: number;
+    sectorConcentration: { sector: string; percent: number }[];
+  };
 }
 
 /** 스케줄 시점 */
@@ -137,41 +148,88 @@ export async function getTradeDecision(
     throw new Error('Ollama가 비활성화되어 있습니다');
   }
 
-  const prompt = buildStructuredPrompt(input, phase);
+  // 토론 모드: 강세/약세 분석 후 종합 판단 (3회 호출)
+  if (settings.debateMode) {
+    return getTradeDecisionWithDebate(input, phase, settings);
+  }
 
-  const res = await fetch(`${settings.ollamaUrl}/api/generate`, {
+  // 기본 모드: 단일 호출
+  return getTradeDecisionSingle(input, phase, settings);
+}
+
+async function callOllama(model: string, url: string, prompt: string, system: string, numPredict: number = 1024): Promise<string> {
+  const res = await fetch(`${url}/api/generate`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
-      model: settings.ollamaModel,
+      model,
       prompt,
-      system: buildSystemPrompt(),
+      system,
       stream: false,
       format: 'json',
-      options: {
-        temperature: 0.2,       // 매매 판단이므로 낮은 온도
-        num_predict: 1024,
-        top_p: 0.9,
-      },
+      options: { temperature: 0.2, num_predict: numPredict, top_p: 0.9 },
     }),
   });
 
-  if (!res.ok) {
-    const errText = await res.text();
-    throw new Error(`Ollama 요청 실패: ${errText}`);
-  }
-
+  if (!res.ok) throw new Error(`Ollama 요청 실패: ${await res.text()}`);
   const data: any = await res.json();
+  return data.response || data.thinking || '';
+}
 
-  // thinking 모델: response가 비어있으면 thinking 필드에서 JSON 추출
-  let responseText = data.response || '';
-  if (!responseText && data.thinking) {
-    responseText = data.thinking;
-  }
-
+async function getTradeDecisionSingle(input: StockAnalysisInput, phase: AnalysisPhase, settings: any): Promise<TradeDecision> {
+  const prompt = buildStructuredPrompt(input, phase);
+  const responseText = await callOllama(settings.ollamaModel, settings.ollamaUrl, prompt, buildSystemPrompt());
   console.log(`[Ollama] ${input.ticker} (${phase}) raw response length: ${responseText.length}`);
-
   return parseDecisionResponse(responseText, input);
+}
+
+async function getTradeDecisionWithDebate(input: StockAnalysisInput, phase: AnalysisPhase, settings: any): Promise<TradeDecision> {
+  const dataBlock = formatInputData(input);
+  const systemPrompt = buildSystemPrompt();
+
+  // 1차: 강세(Bull) 분석
+  const bullPrompt = `[강세 분석가 역할] 아래 종목 데이터를 검토하고, 매수(BUY) 관점에서 최대한 긍정적인 근거를 찾아 분석하세요.
+상승 가능성, 기술적 반등 신호, 긍정적 뉴스, 저평가 요소 등을 중심으로 분석하세요.
+
+${dataBlock}
+
+반드시 JSON으로 응답: { "bullCase": "매수 근거 3~5문장", "bullConfidence": 0~100, "keyBullFactors": ["요소1", "요소2"] }`;
+
+  const bullResponse = await callOllama(settings.ollamaModel, settings.ollamaUrl, bullPrompt, systemPrompt, 400);
+  console.log(`[Ollama] ${input.ticker} Bull analysis done`);
+
+  // 2차: 약세(Bear) 분석
+  const bearPrompt = `[약세 분석가 역할] 아래 종목 데이터를 검토하고, 매도(SELL)/위험 관점에서 최대한 부정적인 근거를 찾아 분석하세요.
+하락 위험, 기술적 과열 신호, 부정적 뉴스, 고평가 요소 등을 중심으로 분석하세요.
+
+${dataBlock}
+
+반드시 JSON으로 응답: { "bearCase": "매도/위험 근거 3~5문장", "bearConfidence": 0~100, "keyBearFactors": ["요소1", "요소2"] }`;
+
+  const bearResponse = await callOllama(settings.ollamaModel, settings.ollamaUrl, bearPrompt, systemPrompt, 400);
+  console.log(`[Ollama] ${input.ticker} Bear analysis done`);
+
+  // 3차: 종합 판단
+  const phaseInstruction = PHASE_INSTRUCTIONS[phase];
+  const finalPrompt = `${phaseInstruction}
+
+아래는 동일 종목에 대한 강세/약세 분석 결과입니다. 양측의 주장을 균형 있게 검토하여 최종 매매 결정을 내리세요.
+
+[강세 분석]
+${bullResponse}
+
+[약세 분석]
+${bearResponse}
+
+[종목 데이터]
+${dataBlock}
+
+${RESPONSE_SCHEMA}`;
+
+  const finalResponse = await callOllama(settings.ollamaModel, settings.ollamaUrl, finalPrompt, systemPrompt, 1024);
+  console.log(`[Ollama] ${input.ticker} (${phase}) debate final response length: ${finalResponse.length}`);
+
+  return parseDecisionResponse(finalResponse, input);
 }
 
 /** 기존 인터페이스 호환용 래퍼 (scheduler.ts 등에서 사용) */
@@ -237,8 +295,28 @@ let cachedAccuracyReport: string | null = null;
 let reportCacheTime = 0;
 const REPORT_CACHE_TTL = 3600_000; // 1시간
 
-/** 시스템 프롬프트 동적 생성 (정확도 피드백 포함) */
+const INVESTMENT_STYLE_PROMPTS: Record<string, string> = {
+  balanced: '', // 기본 프롬프트 그대로 사용
+  value: `\n\n[투자 스타일: 가치투자]
+- PER, PBR이 낮고 재무적으로 안정적인 기업을 선호하라.
+- 단기 가격 변동보다 기업의 내재가치와 장기 성장성에 집중하라.
+- 안전마진(현재가 대비 목표가 괴리)이 충분한 경우에만 매수를 권고하라.
+- 고평가된 종목은 기술적 신호가 좋아도 보수적으로 판단하라.`,
+  growth: `\n\n[투자 스타일: 성장투자]
+- 매출/이익 성장률이 높은 혁신 기업을 선호하라.
+- 높은 PER도 성장성이 뒷받침되면 허용하라.
+- 시장을 선도하는 트렌드(AI, 바이오, 친환경 등) 관련 종목에 가산점을 부여하라.
+- 성장 모멘텀이 꺾이는 신호(매출 감소, 가이던스 하향)에 민감하게 반응하라.`,
+  momentum: `\n\n[투자 스타일: 모멘텀]
+- 최근 상승 추세, 거래량 급증, 돌파 패턴에 집중하라.
+- RSI가 높아도 추세가 강하면 매수를 유지하라 (RSI 70 이상에서도 추세 지속 가능).
+- 이동평균 정배열 + 거래량 증가 조합에 높은 점수를 부여하라.
+- 추세 이탈(지지선 붕괴, 거래량 감소) 시 즉시 매도를 권고하라.`,
+};
+
+/** 시스템 프롬프트 동적 생성 (투자 스타일 + 정확도 피드백) */
 function buildSystemPrompt(): string {
+  const settings = getSettings();
   const now = Date.now();
   if (now - reportCacheTime > REPORT_CACHE_TTL) {
     try {
@@ -249,10 +327,11 @@ function buildSystemPrompt(): string {
     reportCacheTime = now;
   }
 
-  if (cachedAccuracyReport) {
-    return `${BASE_SYSTEM_PROMPT}\n\n${cachedAccuracyReport}`;
-  }
-  return BASE_SYSTEM_PROMPT;
+  let prompt = BASE_SYSTEM_PROMPT;
+  const stylePrompt = INVESTMENT_STYLE_PROMPTS[settings.investmentStyle] || '';
+  if (stylePrompt) prompt += stylePrompt;
+  if (cachedAccuracyReport) prompt += `\n\n${cachedAccuracyReport}`;
+  return prompt;
 }
 
 // ─── 시점별 프롬프트 빌더 ───────────────────────────────────
@@ -323,11 +402,27 @@ function formatInputData(input: StockAnalysisInput): string {
   // 뉴스
   if (input.newsSummary) {
     text += `\n■ 뉴스요약:\n${input.newsSummary}\n`;
+    if (input.sentimentScore !== undefined) {
+      text += `  감성점수: ${input.sentimentScore > 0 ? '+' : ''}${input.sentimentScore}/100\n`;
+    }
   }
 
   // 시장 동향
   if (input.marketContext) {
     text += `\n■ 시장동향:\n${input.marketContext}\n`;
+  }
+
+  // 포트폴리오 리스크 컨텍스트
+  if (input.portfolioContext) {
+    const pc = input.portfolioContext;
+    text += `\n■ 포트폴리오 현황:
+  - 총 투자금: ${pc.totalInvested.toLocaleString()}원 | 보유종목: ${pc.holdingCount}개
+  - 총 손익률: ${pc.currentProfitLossPercent >= 0 ? '+' : ''}${pc.currentProfitLossPercent.toFixed(2)}%
+`;
+    if (pc.sectorConcentration.length > 0) {
+      text += `  - 섹터 집중도: ${pc.sectorConcentration.map(s => `${s.sector} ${s.percent}%`).join(', ')}\n`;
+    }
+    text += `  ※ 리스크 규칙: 같은 섹터 30% 초과 집중 시 매수 보수적, 총 손실 -10% 초과 시 신규 매수 지양, 10종목 초과 시 추가 매수 지양\n`;
   }
 
   return text;

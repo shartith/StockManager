@@ -16,6 +16,7 @@ import { executeOrder, getCurrentPrice, getHoldingQuantity } from './kisOrder';
 import { createNotification } from './notification';
 import { registerSignalForTracking, evaluatePendingPerformance } from './performanceTracker';
 import { optimizeWeights } from './weightOptimizer';
+import { getPortfolioRiskContext } from './calculator';
 
 type SchedulePhase = 'PRE_OPEN' | 'POST_OPEN' | 'PRE_CLOSE_1H' | 'PRE_CLOSE_30M';
 type Market = 'KRX' | 'NYSE' | 'NASDAQ';
@@ -107,6 +108,10 @@ export function startScheduler() {
     }
   }, { timezone: 'Asia/Seoul' }));
   console.log('[Scheduler] 일일 성과 평가 스케줄 등록 (18:00 KST)');
+
+  // 관심종목 자동 정리: 매일 22:00 KST
+  activeTasks.push(cron.schedule('0 22 * * *', () => cleanupWatchlist(), { timezone: 'Asia/Seoul' }));
+  console.log('[Scheduler] 관심종목 자동 정리 스케줄 등록 (22:00 KST)');
 
   // 가중치 최적화: 매주 일요일 06:00 KST
   activeTasks.push(cron.schedule('0 6 * * 0', () => {
@@ -244,7 +249,7 @@ function getHoldingInfo(stockId: number, currentPrice: number) {
 }
 
 /** 공통: 종목 분석 + LLM 판단 */
-async function analyzeStock(stock: any, market: Market, phase: AnalysisPhase, candles: CandleData[], newsSummary?: string) {
+async function analyzeStock(stock: any, market: Market, phase: AnalysisPhase, candles: CandleData[], newsSummary?: string, sentimentScore?: number) {
   const indicators = analyzeTechnical(candles);
   const holding = getHoldingInfo(stock.id, indicators.currentPrice);
 
@@ -257,6 +262,14 @@ async function analyzeStock(stock: any, market: Market, phase: AnalysisPhase, ca
     holding,
     newsSummary,
   );
+
+  // 감성 점수 추가
+  if (sentimentScore !== undefined) input.sentimentScore = sentimentScore;
+
+  // 포트폴리오 리스크 컨텍스트 추가
+  try {
+    input.portfolioContext = getPortfolioRiskContext();
+  } catch {}
 
   const decision = await getTradeDecision(input, phase);
 
@@ -291,8 +304,11 @@ async function handlePreOpen(market: Market, stocks: any[]) {
       // 1. 뉴스 수집 + AI 요약
       const news = await collectAndCacheNews(stock.ticker, stock.name, market);
       let newsSummary: string | undefined;
+      let sentimentScore: number | undefined;
       if (news.length > 0) {
-        newsSummary = await summarizeNewsWithAI(news, stock.ticker);
+        const sentiment = await summarizeNewsWithAI(news, stock.ticker);
+        newsSummary = sentiment.summary;
+        sentimentScore = sentiment.sentimentScore;
       }
 
       // 2. 캔들 + 기술 분석 + LLM 판단
@@ -300,7 +316,7 @@ async function handlePreOpen(market: Market, stocks: any[]) {
       if (!candles || candles.length < 30) continue;
 
       if (settings.ollamaEnabled) {
-        const decision = await analyzeStock(stock, market, 'PRE_OPEN', candles, newsSummary);
+        const decision = await analyzeStock(stock, market, 'PRE_OPEN', candles, newsSummary, sentimentScore);
         addLog(market, 'PRE_OPEN', 'completed',
           `${stock.ticker}: ${decision.signal} (신뢰도 ${decision.confidence}%) — ${decision.reasoning.slice(0, 60)}`);
       }
@@ -399,7 +415,8 @@ async function handlePreClose1h(market: Market, stocks: any[]) {
       let newsSummary: string | undefined;
       const cachedNews = getCachedNews(stock.ticker);
       if (cachedNews.length > 0) {
-        newsSummary = await summarizeNewsWithAI(cachedNews, stock.ticker);
+        const sentiment = await summarizeNewsWithAI(cachedNews, stock.ticker);
+        newsSummary = sentiment.summary;
       }
 
       if (settings.ollamaEnabled) {
@@ -858,7 +875,8 @@ async function runRecommendationRefresh() {
           let newsSummary: string | undefined;
           const news = await collectAndCacheNews(candidate.ticker, candidate.name, market);
           if (news.length > 0) {
-            newsSummary = await summarizeNewsWithAI(news, candidate.ticker);
+            const sentiment = await summarizeNewsWithAI(news, candidate.ticker);
+            newsSummary = sentiment.summary;
           }
 
           const input = buildAnalysisInput(candidate.ticker, candidate.name, market as any, candles, indicators, undefined, newsSummary);
@@ -889,4 +907,112 @@ async function runRecommendationRefresh() {
 
 function sleep(ms: number) {
   return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+/** 관심종목 자동 정리 */
+function cleanupWatchlist() {
+  console.log('[Scheduler] 관심종목 자동 정리 시작');
+  let removed = 0;
+  let disabled = 0;
+
+  // 규칙 1: 30일간 BUY 신호 없는 종목 삭제
+  // (신호가 1개 이상 존재하지만 최근 30일 내 BUY가 없는 경우)
+  const noBuyItems = queryAll(`
+    SELECT w.id, w.stock_id, s.ticker, s.name
+    FROM watchlist w
+    JOIN stocks s ON s.id = w.stock_id
+    WHERE w.added_at <= datetime('now', '-30 days')
+    AND EXISTS (
+      SELECT 1 FROM trade_signals ts WHERE ts.stock_id = w.stock_id
+    )
+    AND NOT EXISTS (
+      SELECT 1 FROM trade_signals ts
+      WHERE ts.stock_id = w.stock_id
+      AND ts.signal_type = 'BUY'
+      AND ts.created_at >= datetime('now', '-30 days')
+    )
+    AND NOT EXISTS (
+      SELECT 1 FROM transactions t
+      WHERE t.stock_id = w.stock_id
+      GROUP BY t.stock_id
+      HAVING SUM(CASE WHEN t.type = 'BUY' THEN t.quantity ELSE -t.quantity END) > 0
+    )
+  `);
+
+  for (const item of noBuyItems) {
+    execute('DELETE FROM watchlist WHERE id = ?', [item.id]);
+    createNotification({
+      type: 'WATCHLIST',
+      title: '관심종목 자동 제거',
+      message: `${item.ticker} ${item.name}: 30일간 매수 신호 없음`,
+      ticker: item.ticker,
+      actionUrl: '/watchlist',
+    });
+    console.log(`[Scheduler] 관심종목 제거 (30일 BUY 없음): ${item.ticker}`);
+    removed++;
+  }
+
+  // 규칙 2: 최근 3개 신호 평균 신뢰도 40% 미만 → 자동매매 비활성화
+  const autoTradeItems = queryAll(`
+    SELECT w.id, w.stock_id, s.ticker, s.name
+    FROM watchlist w
+    JOIN stocks s ON s.id = w.stock_id
+    WHERE w.auto_trade_enabled = 1
+  `);
+
+  for (const item of autoTradeItems) {
+    const recentSignals = queryAll(
+      'SELECT confidence FROM trade_signals WHERE stock_id = ? ORDER BY created_at DESC LIMIT 3',
+      [item.stock_id]
+    );
+    if (recentSignals.length >= 3) {
+      const avgConfidence = recentSignals.reduce((sum: number, s: any) => sum + Number(s.confidence), 0) / recentSignals.length;
+      if (avgConfidence < 40) {
+        execute('UPDATE watchlist SET auto_trade_enabled = 0 WHERE id = ?', [item.id]);
+        createNotification({
+          type: 'WATCHLIST',
+          title: '자동매매 비활성화',
+          message: `${item.ticker} ${item.name}: 최근 신뢰도 낮음 (평균 ${avgConfidence.toFixed(0)}%)`,
+          ticker: item.ticker,
+          actionUrl: '/watchlist',
+        });
+        console.log(`[Scheduler] 자동매매 비활성화 (신뢰도 ${avgConfidence.toFixed(0)}%): ${item.ticker}`);
+        disabled++;
+      }
+    }
+  }
+
+  // 규칙 3: 추천 점수 0 이하 + 14일 이상 경과 → 삭제 (보유 종목 제외)
+  const lowScoreItems = queryAll(`
+    SELECT w.id, w.stock_id, s.ticker, s.name, r.score
+    FROM watchlist w
+    JOIN stocks s ON s.id = w.stock_id
+    LEFT JOIN recommendations r ON r.ticker = s.ticker AND r.market = w.market AND r.status = 'ACTIVE'
+    WHERE w.added_at <= datetime('now', '-14 days')
+    AND (r.score IS NULL OR r.score <= 0)
+    AND NOT EXISTS (
+      SELECT 1 FROM transactions t
+      WHERE t.stock_id = w.stock_id
+      GROUP BY t.stock_id
+      HAVING SUM(CASE WHEN t.type = 'BUY' THEN t.quantity ELSE -t.quantity END) > 0
+    )
+  `);
+
+  // 규칙 1에서 이미 삭제된 ID 제외
+  const removedIds = new Set(noBuyItems.map((i: any) => i.id));
+  for (const item of lowScoreItems) {
+    if (removedIds.has(item.id)) continue;
+    execute('DELETE FROM watchlist WHERE id = ?', [item.id]);
+    createNotification({
+      type: 'WATCHLIST',
+      title: '관심종목 자동 제거',
+      message: `${item.ticker} ${item.name}: 추천 점수 ${item.score ?? 0}점 이하`,
+      ticker: item.ticker,
+      actionUrl: '/watchlist',
+    });
+    console.log(`[Scheduler] 관심종목 제거 (점수 ${item.score ?? 0}): ${item.ticker}`);
+    removed++;
+  }
+
+  console.log(`[Scheduler] 관심종목 정리 완료: ${removed}개 제거, ${disabled}개 자동매매 비활성화`);
 }

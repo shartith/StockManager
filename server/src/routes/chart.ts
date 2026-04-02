@@ -34,9 +34,8 @@ router.get('/config/form', (_req: Request, res: Response) => {
     ollamaModel: settings.ollamaModel,
     ollamaEnabled: settings.ollamaEnabled,
 
-    externalAiProvider: settings.externalAiProvider,
-    externalAiModel: settings.externalAiModel,
-    hasExternalAiKey: !!settings.externalAiApiKey,
+    investmentStyle: settings.investmentStyle,
+    debateMode: settings.debateMode,
 
     autoTradeEnabled: settings.autoTradeEnabled,
     autoTradeMaxInvestment: settings.autoTradeMaxInvestment,
@@ -52,7 +51,7 @@ router.get('/config/form', (_req: Request, res: Response) => {
 router.post('/config', (req: Request, res: Response) => {
   const { appKey, appSecret, accountNo, accountProductCode, isVirtual, mcpEnabled,
     ollamaUrl, ollamaModel, ollamaEnabled,
-    externalAiProvider, externalAiApiKey, externalAiModel,
+    investmentStyle, debateMode,
     autoTradeEnabled, autoTradeMaxInvestment, autoTradeMaxPerStock, autoTradeMaxDailyTrades,
     scheduleKrx, scheduleNyse,
   } = req.body;
@@ -77,9 +76,8 @@ router.post('/config', (req: Request, res: Response) => {
     ollamaModel: ollamaModel || 'llama3.1',
     ollamaEnabled: !!ollamaEnabled,
 
-    externalAiProvider: externalAiProvider || 'none',
-    ...(externalAiApiKey ? { externalAiApiKey } : {}),
-    externalAiModel: externalAiModel || '',
+    investmentStyle: investmentStyle || 'balanced',
+    debateMode: !!debateMode,
 
     autoTradeEnabled: !!autoTradeEnabled,
     autoTradeMaxInvestment: Number(autoTradeMaxInvestment) || 10000000,

@@ -1,7 +1,7 @@
 /**
- * 외부 데이터 수집 + AI 요약 서비스
+ * 뉴스 수집 + Ollama 로컬 AI 요약 서비스
  * 뉴스 수집: 네이버 금융 (국내), Yahoo Finance (해외)
- * 요약: Claude API 또는 OpenAI API
+ * 요약: Ollama (로컬 LLM)
  */
 
 import { getSettings } from './settings';
@@ -130,64 +130,71 @@ export async function collectAndCacheNews(ticker: string, name: string, market: 
   return news;
 }
 
-/** 외부 AI로 뉴스 요약 (Claude / OpenAI) */
-export async function summarizeNewsWithAI(newsItems: NewsItem[], ticker: string): Promise<string> {
+export interface NewsSentiment {
+  summary: string;
+  sentimentScore: number;  // -100 ~ +100
+  sentimentLabel: 'POSITIVE' | 'NEGATIVE' | 'NEUTRAL';
+}
+
+/** Ollama 로컬 LLM으로 뉴스 요약 + 감성 분석 */
+export async function summarizeNewsWithAI(newsItems: NewsItem[], ticker: string): Promise<NewsSentiment> {
+  const fallback: NewsSentiment = {
+    summary: newsItems?.length ? newsItems.map(n => `- ${n.title}`).join('\n') : '',
+    sentimentScore: 0,
+    sentimentLabel: 'NEUTRAL',
+  };
+
+  if (!newsItems || newsItems.length === 0) return fallback;
+
   const settings = getSettings();
+  if (!settings.ollamaEnabled || !settings.ollamaUrl) return fallback;
 
-  if (settings.externalAiProvider === 'none' || !settings.externalAiApiKey) {
-    // AI 미설정: 제목만 나열
-    return newsItems.map(n => `- ${n.title}`).join('\n');
+  const newsText = newsItems.map((n, i) => `${i + 1}. ${n.title}${n.summary ? '\n   ' + n.summary : ''}`).join('\n');
+  const prompt = `다음은 주식 종목 ${ticker}에 관한 최근 뉴스입니다.
+
+${newsText}
+
+위 뉴스를 분석하여 반드시 아래 JSON 형식으로만 응답하세요:
+{
+  "summary": "투자 판단에 도움이 되는 3~5문장 요약",
+  "sentimentScore": -100에서 +100 사이의 정수 (매우 부정=-100, 중립=0, 매우 긍정=+100),
+  "sentimentLabel": "POSITIVE" 또는 "NEGATIVE" 또는 "NEUTRAL"
+}`;
+
+  try {
+    const res = await fetch(`${settings.ollamaUrl}/api/generate`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        model: settings.ollamaModel || 'qwen3:4b',
+        prompt,
+        stream: false,
+        format: 'json',
+        options: { temperature: 0.3, num_predict: 500 },
+      }),
+    });
+
+    if (!res.ok) return fallback;
+
+    const data: any = await res.json();
+    const text = data.response?.trim() || '';
+
+    try {
+      const jsonMatch = text.match(/\{[\s\S]*\}/);
+      if (jsonMatch) {
+        const parsed = JSON.parse(jsonMatch[0]);
+        return {
+          summary: parsed.summary || fallback.summary,
+          sentimentScore: Math.max(-100, Math.min(100, Number(parsed.sentimentScore) || 0)),
+          sentimentLabel: ['POSITIVE', 'NEGATIVE', 'NEUTRAL'].includes(parsed.sentimentLabel) ? parsed.sentimentLabel : 'NEUTRAL',
+        };
+      }
+    } catch {}
+
+    return { ...fallback, summary: text || fallback.summary };
+  } catch {
+    return fallback;
   }
-
-  const newsText = newsItems.map((n, i) => `${i + 1}. ${n.title}\n   ${n.summary}`).join('\n');
-  const prompt = `다음은 주식 종목 ${ticker}에 관한 최근 뉴스입니다. 투자 판단에 도움이 되도록 핵심 내용을 3~5문장으로 요약하고, 전반적인 시장 심리(긍정/부정/중립)를 판단해주세요.\n\n${newsText}`;
-
-  if (settings.externalAiProvider === 'claude') {
-    return await callClaudeAPI(prompt, settings.externalAiApiKey, settings.externalAiModel);
-  } else if (settings.externalAiProvider === 'openai') {
-    return await callOpenAIAPI(prompt, settings.externalAiApiKey, settings.externalAiModel);
-  }
-
-  return newsItems.map(n => `- ${n.title}`).join('\n');
-}
-
-async function callClaudeAPI(prompt: string, apiKey: string, model: string): Promise<string> {
-  const res = await fetch('https://api.anthropic.com/v1/messages', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'x-api-key': apiKey,
-      'anthropic-version': '2023-06-01',
-    },
-    body: JSON.stringify({
-      model: model || 'claude-sonnet-4-20250514',
-      max_tokens: 500,
-      messages: [{ role: 'user', content: prompt }],
-    }),
-  });
-
-  if (!res.ok) throw new Error(`Claude API 오류: ${res.status}`);
-  const data: any = await res.json();
-  return data.content?.[0]?.text || '요약 실패';
-}
-
-async function callOpenAIAPI(prompt: string, apiKey: string, model: string): Promise<string> {
-  const res = await fetch('https://api.openai.com/v1/chat/completions', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'Authorization': `Bearer ${apiKey}`,
-    },
-    body: JSON.stringify({
-      model: model || 'gpt-4o',
-      messages: [{ role: 'user', content: prompt }],
-      max_tokens: 500,
-    }),
-  });
-
-  if (!res.ok) throw new Error(`OpenAI API 오류: ${res.status}`);
-  const data: any = await res.json();
-  return data.choices?.[0]?.message?.content || '요약 실패';
 }
 
 /** 캐시된 뉴스 조회 (최근 24시간) */

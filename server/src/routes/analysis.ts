@@ -192,15 +192,23 @@ router.post('/:ticker/decision', async (req: Request, res: Response) => {
       };
     }
 
-    // 뉴스 수집 & 요약
+    // 뉴스 수집 & 요약 + 감성 분석
     let newsSummary: string | undefined;
+    let sentimentScore: number | undefined;
+    let sentimentLabel: string | undefined;
     const cachedNews = getCachedNews(ticker);
     if (cachedNews.length > 0) {
-      newsSummary = await summarizeNewsWithAI(cachedNews, ticker);
+      const sentiment = await summarizeNewsWithAI(cachedNews, ticker);
+      newsSummary = sentiment.summary;
+      sentimentScore = sentiment.sentimentScore;
+      sentimentLabel = sentiment.sentimentLabel;
     } else {
       const freshNews = await collectAndCacheNews(ticker, stock.name, market);
       if (freshNews.length > 0) {
-        newsSummary = await summarizeNewsWithAI(freshNews, ticker);
+        const sentiment = await summarizeNewsWithAI(freshNews, ticker);
+        newsSummary = sentiment.summary;
+        sentimentScore = sentiment.sentimentScore;
+        sentimentLabel = sentiment.sentimentLabel;
       }
     }
 
@@ -232,6 +240,8 @@ router.post('/:ticker/decision', async (req: Request, res: Response) => {
       volumeAnalysis: input.volumeAnalysis,
       holding: input.holding,
       newsSummary,
+      sentimentScore,
+      sentimentLabel,
     });
   } catch (err: any) {
     res.status(500).json({ error: err.message || 'LLM 판단 실패' });

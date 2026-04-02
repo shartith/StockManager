@@ -142,3 +142,39 @@ export async function getPortfolioSummary(currentPrices?: Map<string, number>): 
     allocationBy: 'stock' as const,
   };
 }
+
+/** 포트폴리오 리스크 컨텍스트 (LLM 입력용) */
+export function getPortfolioRiskContext(): {
+  totalInvested: number;
+  holdingCount: number;
+  currentProfitLossPercent: number;
+  sectorConcentration: { sector: string; percent: number }[];
+} {
+  const holdings = getPortfolioHoldings();
+  const totalInvested = holdings.reduce((sum, h) => sum + h.totalCost, 0);
+  const holdingCount = holdings.length;
+
+  // 섹터별 집중도
+  const sectorMap = new Map<string, number>();
+  for (const h of holdings) {
+    const sector = queryAll('SELECT sector FROM stocks WHERE id = ?', [h.stockId])[0]?.sector || '기타';
+    sectorMap.set(sector, (sectorMap.get(sector) || 0) + h.totalCost);
+  }
+
+  const sectorConcentration = Array.from(sectorMap.entries())
+    .filter(([sector]) => sector && sector !== '기타' && sector !== '')
+    .map(([sector, value]) => ({
+      sector,
+      percent: totalInvested > 0 ? Math.round((value / totalInvested) * 100) : 0,
+    }))
+    .filter(s => s.percent > 0)
+    .sort((a, b) => b.percent - a.percent)
+    .slice(0, 5);
+
+  return {
+    totalInvested,
+    holdingCount,
+    currentProfitLossPercent: 0, // 시세 없이는 계산 불가 — scheduler에서 채움
+    sectorConcentration,
+  };
+}

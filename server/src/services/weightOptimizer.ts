@@ -22,6 +22,7 @@ const DEFAULT_WEIGHTS: Record<ScoreType, number> = {
   MACD_GOLDEN_CROSS: 1.0,
   PRICE_MOMENTUM: 1.0,
   NEWS_POSITIVE: 1.0,
+  NEWS_SENTIMENT: 1.0,
   TIME_DECAY: 1.0,
 };
 

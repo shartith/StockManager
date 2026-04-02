@@ -35,6 +35,14 @@ brew tap shartith/stockmanager
 brew install stock-manager
 ```
 
+### APT (Ubuntu/Debian)
+
+```bash
+echo "deb [trusted=yes] https://shartith.github.io/apt-stockmanager stable main" | sudo tee /etc/apt/sources.list.d/stock-manager.list
+sudo apt update
+sudo apt install stock-manager
+```
+
 ### 직접 설치
 
 ```bash
@@ -178,6 +186,30 @@ git push origin main
 ```bash
 brew update
 brew upgrade stock-manager
+```
+
+## APT 배포 가이드 (Linux)
+
+### 1. .deb 패키지 빌드 & APT 저장소 업데이트
+
+```bash
+# .deb 빌드 + APT 저장소 갱신 (한 번에)
+bash scripts/update-apt.sh
+```
+
+### 2. 사용자 설치
+
+```bash
+echo "deb [trusted=yes] https://shartith.github.io/apt-stockmanager stable main" | sudo tee /etc/apt/sources.list.d/stock-manager.list
+sudo apt update
+sudo apt install stock-manager
+```
+
+### 3. 사용자 업데이트
+
+```bash
+sudo apt update
+sudo apt upgrade stock-manager
 ```
 
 ## 프로젝트 구조

@@ -278,41 +278,40 @@
         </div>
       </div>
 
-      <!-- 섹션 5: 외부 AI -->
+      <!-- 섹션 5: AI 분석 옵션 -->
       <div class="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
         <div class="px-6 py-4 bg-slate-50 border-b border-slate-200">
-          <h3 class="text-sm font-semibold text-slate-700">외부 AI (뉴스 수집/요약)</h3>
-          <p class="text-xs text-slate-500 mt-0.5">인터넷 정보 수집 및 뉴스 요약에 사용할 외부 AI를 설정합니다.</p>
+          <h3 class="text-sm font-semibold text-slate-700">AI 분석 옵션</h3>
+          <p class="text-xs text-slate-500 mt-0.5">LLM 매매 판단의 투자 스타일과 분석 방식을 설정합니다.</p>
         </div>
         <div class="p-6 space-y-4">
           <div>
-            <label class="block text-sm font-medium text-slate-700 mb-1">AI 제공자</label>
-            <div class="flex gap-3">
-              <button type="button" v-for="opt in [{ v: 'none', l: '미사용' }, { v: 'claude', l: 'Claude' }, { v: 'openai', l: 'OpenAI' }]"
-                :key="opt.v" @click="form.externalAiProvider = opt.v"
-                class="flex-1 py-2 px-3 rounded-lg border-2 text-sm font-medium transition-all"
-                :class="form.externalAiProvider === opt.v ? 'border-blue-400 bg-blue-50 text-blue-700' : 'border-slate-200 text-slate-500 hover:border-slate-300'">
-                {{ opt.l }}
+            <label class="block text-sm font-medium text-slate-700 mb-2">투자 스타일</label>
+            <div class="grid grid-cols-2 md:grid-cols-4 gap-2">
+              <button type="button" v-for="opt in [
+                { v: 'balanced', l: '균형형', d: 'RSI·MACD 등 종합 판단' },
+                { v: 'value', l: '가치투자', d: '저PER·저PBR 안전마진 중시' },
+                { v: 'growth', l: '성장투자', d: '매출 성장·혁신 기업 선호' },
+                { v: 'momentum', l: '모멘텀', d: '추세 추종·돌파 패턴 중심' },
+              ]" :key="opt.v" @click="form.investmentStyle = opt.v"
+                class="py-2.5 px-3 rounded-lg border-2 text-center transition-all"
+                :class="form.investmentStyle === opt.v ? 'border-blue-400 bg-blue-50' : 'border-slate-200 hover:border-slate-300'">
+                <div class="text-sm font-medium" :class="form.investmentStyle === opt.v ? 'text-blue-700' : 'text-slate-700'">{{ opt.l }}</div>
+                <div class="text-xs mt-0.5" :class="form.investmentStyle === opt.v ? 'text-blue-500' : 'text-slate-400'">{{ opt.d }}</div>
               </button>
             </div>
           </div>
-          <template v-if="form.externalAiProvider !== 'none'">
-            <div>
-              <label class="block text-sm font-medium text-slate-700 mb-1">
-                API Key
-                <span v-if="externalAiKeySaved" class="ml-2 text-xs font-normal text-green-600 bg-green-50 px-1.5 py-0.5 rounded">저장됨</span>
-              </label>
-              <input v-model="form.externalAiApiKey" type="password"
-                :placeholder="externalAiKeySaved ? '변경할 경우에만 입력' : 'sk-...'"
-                class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-blue-500" />
-            </div>
-            <div>
-              <label class="block text-sm font-medium text-slate-700 mb-1">모델</label>
-              <input v-model="form.externalAiModel" type="text"
-                :placeholder="form.externalAiProvider === 'claude' ? 'claude-sonnet-4-20250514' : 'gpt-4o'"
-                class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-blue-500" />
-            </div>
-          </template>
+          <div>
+            <label class="flex items-center gap-3 cursor-pointer">
+              <div class="relative inline-block">
+                <input type="checkbox" v-model="form.debateMode" class="sr-only" />
+                <div class="w-9 h-5 rounded-full transition-colors" :class="form.debateMode ? 'bg-blue-600' : 'bg-slate-200'"></div>
+                <div class="absolute top-0.5 left-0.5 w-4 h-4 bg-white rounded-full shadow transition-transform" :class="form.debateMode ? 'translate-x-4' : 'translate-x-0'"></div>
+              </div>
+              <span class="text-sm font-medium text-slate-700">토론 모드 (강세/약세 분석)</span>
+            </label>
+            <p class="text-xs text-slate-500 mt-1 ml-12">LLM이 강세·약세 관점을 각각 분석한 뒤 종합 판단합니다. 정확도가 높아지지만 분석 시간이 3배로 늘어납니다.</p>
+          </div>
         </div>
       </div>
 
@@ -472,9 +471,8 @@ const form = ref({
   ollamaModel: 'llama3.1',
   ollamaEnabled: false,
 
-  externalAiProvider: 'none',
-  externalAiApiKey: '',
-  externalAiModel: '',
+  investmentStyle: 'balanced',
+  debateMode: false,
 
   autoTradeEnabled: false,
   autoTradeMaxInvestment: 10000000,
@@ -497,7 +495,6 @@ function formatCurrency(value: number): string {
 }
 
 const secretSaved = ref(false);
-const externalAiKeySaved = ref(false);
 
 // Ollama 관리
 const ollamaConnected = ref(false);
@@ -642,9 +639,8 @@ async function loadConfig() {
     form.value.ollamaModel = saved.ollamaModel || 'llama3.1';
     form.value.ollamaEnabled = saved.ollamaEnabled ?? false;
 
-    form.value.externalAiProvider = saved.externalAiProvider || 'none';
-    form.value.externalAiModel = saved.externalAiModel || '';
-    externalAiKeySaved.value = saved.hasExternalAiKey ?? false;
+    form.value.investmentStyle = saved.investmentStyle || 'balanced';
+    form.value.debateMode = saved.debateMode ?? false;
 
     form.value.autoTradeEnabled = saved.autoTradeEnabled ?? false;
     form.value.autoTradeMaxInvestment = saved.autoTradeMaxInvestment ?? 10000000;

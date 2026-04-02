@@ -33,6 +33,7 @@ export type ScoreType =
   | 'MACD_GOLDEN_CROSS' // MACD 골든크로스
   | 'PRICE_MOMENTUM'    // 가격 모멘텀 (연속 상승)
   | 'NEWS_POSITIVE'     // 뉴스 호재
+  | 'NEWS_SENTIMENT'    // 뉴스 감성 점수
   | 'TIME_DECAY';       // 시간 감쇠
 
 const WATCHLIST_THRESHOLD = 80;
@@ -54,6 +55,7 @@ export function evaluateAndScore(
   decision: TradeDecision,
   indicators?: TechnicalIndicators,
   volumeAnalysis?: { avgVolume20d: number; todayVsAvg: number; volumeTrend: string },
+  sentimentScore?: number,
 ): ScoreResult {
   const details: { type: ScoreType; value: number; reason: string }[] = [];
   const weights = loadWeights();
@@ -137,6 +139,13 @@ export function evaluateAndScore(
   if (oldScores?.old_total > 0) {
     const decay = -Math.round(oldScores.old_total * 0.2);
     details.push({ type: 'TIME_DECAY', value: decay, reason: '시간 감쇠' });
+  }
+
+  // 9. 뉴스 감성 점수 (긍정 +10, 부정 -10)
+  if (sentimentScore !== undefined && sentimentScore !== 0) {
+    const sentValue = sentimentScore > 30 ? 10 : sentimentScore < -30 ? -10 : Math.round(sentimentScore / 3);
+    const sentLabel = sentimentScore > 30 ? '긍정적' : sentimentScore < -30 ? '부정적' : '중립적';
+    details.push({ type: 'NEWS_SENTIMENT' as ScoreType, value: sentValue, reason: `뉴스 감성 ${sentLabel} (${sentimentScore > 0 ? '+' : ''}${sentimentScore})` });
   }
 
   // 이번 라운드 점수 합산
