@@ -169,6 +169,65 @@ export async function initializeDB(): Promise<SqlJsDatabase> {
   // trade_signals에 성과 추적 플래그
   try { db.run('ALTER TABLE trade_signals ADD COLUMN performance_tracked INTEGER DEFAULT 0'); } catch {}
 
+  // auto_trades에 분할 매수 단계
+  try { db.run('ALTER TABLE auto_trades ADD COLUMN split_stage INTEGER DEFAULT 0'); } catch {}
+
+  // stocks에 DART 고유번호
+  try { db.run('ALTER TABLE stocks ADD COLUMN dart_code TEXT'); } catch {}
+
+  // 시스템 이벤트 로그 (에러, 미대응 상황, 후속조치 필요 기록)
+  db.run(`
+    CREATE TABLE IF NOT EXISTS system_events (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      severity TEXT NOT NULL CHECK(severity IN ('INFO', 'WARN', 'ERROR', 'CRITICAL')),
+      category TEXT NOT NULL,
+      title TEXT NOT NULL,
+      detail TEXT DEFAULT '',
+      ticker TEXT DEFAULT '',
+      resolved INTEGER DEFAULT 0,
+      resolved_at DATETIME,
+      resolution TEXT DEFAULT '',
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    )
+  `);
+
+  // 예약 주문 (목표가 도달 시 자동 실행)
+  db.run(`
+    CREATE TABLE IF NOT EXISTS reserved_orders (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      stock_id INTEGER NOT NULL,
+      ticker TEXT NOT NULL,
+      market TEXT NOT NULL,
+      order_type TEXT NOT NULL CHECK(order_type IN ('BUY', 'SELL')),
+      target_price REAL NOT NULL,
+      condition TEXT NOT NULL CHECK(condition IN ('BELOW', 'ABOVE')),
+      quantity INTEGER DEFAULT 0,
+      status TEXT DEFAULT 'ACTIVE' CHECK(status IN ('ACTIVE', 'EXECUTED', 'CANCELLED', 'EXPIRED')),
+      reason TEXT DEFAULT '',
+      expires_at DATETIME,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      executed_at DATETIME,
+      FOREIGN KEY (stock_id) REFERENCES stocks(id) ON DELETE CASCADE
+    )
+  `);
+
+  // DART 공시 캐시
+  db.run(`
+    CREATE TABLE IF NOT EXISTS dart_disclosures (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      stock_id INTEGER,
+      ticker TEXT NOT NULL,
+      title TEXT NOT NULL,
+      report_date TEXT NOT NULL,
+      disclosure_type TEXT DEFAULT '',
+      url TEXT DEFAULT '',
+      is_important INTEGER DEFAULT 0,
+      notified INTEGER DEFAULT 0,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (stock_id) REFERENCES stocks(id) ON DELETE CASCADE
+    )
+  `);
+
   // 신호 성과 추적
   db.run(`
     CREATE TABLE IF NOT EXISTS signal_performance (
@@ -233,6 +292,17 @@ export async function initializeDB(): Promise<SqlJsDatabase> {
       avg_loss REAL DEFAULT 0,
       profit_factor REAL,
       results_json TEXT DEFAULT '{}',
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    )
+  `);
+
+  // 주간 학습 리포트
+  db.run(`
+    CREATE TABLE IF NOT EXISTS weekly_reports (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      report TEXT NOT NULL,
+      stats_json TEXT DEFAULT '{}',
+      weight_changes_json TEXT DEFAULT '{}',
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP
     )
   `);

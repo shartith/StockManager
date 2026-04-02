@@ -26,6 +26,8 @@ export interface TechnicalIndicators {
   bollingerUpper: number | null;
   bollingerMiddle: number | null;
   bollingerLower: number | null;
+  vwap: number | null;
+  atr14: number | null;
   currentPrice: number;
   signal: 'BUY' | 'SELL' | 'HOLD';
   signalReasons: string[];
@@ -140,6 +142,40 @@ export function calcBollingerBands(closes: number[], period: number = 20, stdDev
   };
 }
 
+/** VWAP (Volume Weighted Average Price) — 거래량 가중 평균가 */
+export function calcVWAP(candles: CandleData[], period: number = 20): number | null {
+  if (candles.length < period) return null;
+  const slice = candles.slice(-period);
+  let sumPV = 0;
+  let sumV = 0;
+  for (const c of slice) {
+    const typical = (c.high + c.low + c.close) / 3;
+    sumPV += typical * c.volume;
+    sumV += c.volume;
+  }
+  return sumV > 0 ? Math.round((sumPV / sumV) * 100) / 100 : null;
+}
+
+/** ATR (Average True Range) — 평균 변동폭 (변동성 지표) */
+export function calcATR(candles: CandleData[], period: number = 14): number | null {
+  if (candles.length < period + 1) return null;
+  const trs: number[] = [];
+  for (let i = 1; i < candles.length; i++) {
+    const high = candles[i].high;
+    const low = candles[i].low;
+    const prevClose = candles[i - 1].close;
+    const tr = Math.max(high - low, Math.abs(high - prevClose), Math.abs(low - prevClose));
+    trs.push(tr);
+  }
+  if (trs.length < period) return null;
+  // EMA 방식 ATR
+  let atr = trs.slice(0, period).reduce((a, b) => a + b, 0) / period;
+  for (let i = period; i < trs.length; i++) {
+    atr = (atr * (period - 1) + trs[i]) / period;
+  }
+  return Math.round(atr * 100) / 100;
+}
+
 /** 종합 기술적 분석 — 캔들 데이터를 받아 모든 지표 + 매매 신호 반환 */
 export function analyzeTechnical(candles: CandleData[]): TechnicalIndicators {
   const closes = candles.map(c => c.close);
@@ -154,6 +190,8 @@ export function analyzeTechnical(candles: CandleData[]): TechnicalIndicators {
   const ema26 = calcEMA(closes, 26);
   const { macd, signal: macdSignal, histogram: macdHistogram } = calcMACD(closes);
   const { upper: bollingerUpper, middle: bollingerMiddle, lower: bollingerLower } = calcBollingerBands(closes);
+  const vwap = calcVWAP(candles, 20);
+  const atr14 = calcATR(candles, 14);
 
   // 매매 신호 판별
   const signalReasons: string[] = [];
@@ -201,6 +239,17 @@ export function analyzeTechnical(candles: CandleData[]): TechnicalIndicators {
     }
   }
 
+  // VWAP 기반 (현재가 vs 거래량 가중 평균)
+  if (vwap !== null) {
+    if (currentPrice > vwap * 1.02) {
+      sellScore += 1;
+      signalReasons.push(`VWAP 상회 (+${((currentPrice / vwap - 1) * 100).toFixed(1)}%)`);
+    } else if (currentPrice < vwap * 0.98) {
+      buyScore += 1;
+      signalReasons.push(`VWAP 하회 (${((currentPrice / vwap - 1) * 100).toFixed(1)}%)`);
+    }
+  }
+
   let signal: 'BUY' | 'SELL' | 'HOLD' = 'HOLD';
   if (buyScore >= 3 && buyScore > sellScore) signal = 'BUY';
   else if (sellScore >= 3 && sellScore > buyScore) signal = 'SELL';
@@ -219,6 +268,8 @@ export function analyzeTechnical(candles: CandleData[]): TechnicalIndicators {
     bollingerUpper,
     bollingerMiddle,
     bollingerLower,
+    vwap,
+    atr14,
     currentPrice,
     signal,
     signalReasons,

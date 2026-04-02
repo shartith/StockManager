@@ -8,6 +8,7 @@ import { getPerformanceSummary } from '../services/performanceTracker';
 import { analyzeSignalAccuracy } from '../services/signalAnalyzer';
 import { loadWeights, optimizeWeights, resetWeights } from '../services/weightOptimizer';
 import { runBacktest, saveBacktestResult, BacktestConfig } from '../services/backtester';
+import { exportStrategy, importStrategy, generateLoraDataset, getLoraDataCount, exportFullConfig, importFullConfig } from '../services/exportImport';
 import { queryAll } from '../db';
 
 const router = Router();
@@ -91,6 +92,117 @@ router.get('/backtest/:id', (req, res) => {
     result.strategy_config_json = JSON.parse(result.strategy_config_json);
   } catch { /* */ }
   res.json(result);
+});
+
+/** 주간 학습 리포트 조회 */
+router.get('/weekly-reports', (req, res) => {
+  const limit = Number(req.query.limit) || 10;
+  const { queryAll } = require('../db');
+  const reports = queryAll(
+    'SELECT id, report, stats_json, weight_changes_json, created_at FROM weekly_reports ORDER BY created_at DESC LIMIT ?',
+    [limit]
+  );
+  res.json(reports.map((r: any) => {
+    try { r.stats_json = JSON.parse(r.stats_json); } catch {}
+    return r;
+  }));
+});
+
+// ─── 전략 내보내기/가져오기 ─────────────────────────────────
+
+/** 전체 설정 백업 (API 키 포함) */
+router.get('/config/backup', (_req, res) => {
+  try {
+    const result = exportFullConfig();
+    const fs = require('fs');
+    const content = JSON.parse(fs.readFileSync(result.filePath, 'utf-8'));
+    res.json({ success: true, config: content });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message || '백업 실패' });
+  }
+});
+
+/** 전체 설정 복원 */
+router.post('/config/restore', (req, res) => {
+  try {
+    const config = req.body;
+    if (!config || !config.settings) {
+      return res.status(400).json({ error: '올바른 백업 파일이 아닙니다' });
+    }
+    const fs = require('fs');
+    const path = require('path');
+    const tmpFile = path.join(require('os').tmpdir(), `restore-${Date.now()}.json`);
+    fs.writeFileSync(tmpFile, JSON.stringify(config), 'utf-8');
+    const result = importFullConfig(tmpFile);
+    fs.unlinkSync(tmpFile);
+    if (result.success) {
+      res.json({ success: true, message: result.message });
+    } else {
+      res.status(400).json({ error: result.message });
+    }
+  } catch (err: any) {
+    res.status(500).json({ error: err.message || '복원 실패' });
+  }
+});
+
+/** 전략 내보내기 */
+router.get('/strategy/export', (_req, res) => {
+  try {
+    const result = exportStrategy();
+    // JSON 파일 내용을 직접 반환
+    const fs = require('fs');
+    const content = JSON.parse(fs.readFileSync(result.filePath, 'utf-8'));
+    res.json({ success: true, filePath: result.filePath, strategy: content });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message || '전략 내보내기 실패' });
+  }
+});
+
+/** 전략 가져오기 (JSON body로 직접 전달) */
+router.post('/strategy/import', (req, res) => {
+  try {
+    const strategy = req.body;
+    if (!strategy || !strategy.version || !strategy.settings || !strategy.weights) {
+      return res.status(400).json({ error: '올바른 전략 JSON이 아닙니다' });
+    }
+
+    // 임시 파일에 저장 후 import
+    const fs = require('fs');
+    const path = require('path');
+    const tmpFile = path.join(require('os').tmpdir(), `strategy-import-${Date.now()}.json`);
+    fs.writeFileSync(tmpFile, JSON.stringify(strategy), 'utf-8');
+
+    const result = importStrategy(tmpFile);
+    fs.unlinkSync(tmpFile);
+
+    if (result.success) {
+      res.json({ success: true, message: result.message });
+    } else {
+      res.status(400).json({ error: result.message });
+    }
+  } catch (err: any) {
+    res.status(500).json({ error: err.message || '전략 가져오기 실패' });
+  }
+});
+
+/** LoRA 데이터 상태 */
+router.get('/lora/status', (_req, res) => {
+  const count = getLoraDataCount();
+  res.json({ count, required: 5000, ready: count >= 5000, percent: Math.round(count / 5000 * 100) });
+});
+
+/** LoRA 데이터 내보내기 */
+router.get('/lora/export', (_req, res) => {
+  try {
+    const result = generateLoraDataset();
+    if (result.filePath) {
+      res.json({ success: true, filePath: result.filePath, count: result.count, message: result.message });
+    } else {
+      res.json({ success: false, count: result.count, message: result.message });
+    }
+  } catch (err: any) {
+    res.status(500).json({ error: err.message || 'LoRA 데이터 생성 실패' });
+  }
 });
 
 export default router;

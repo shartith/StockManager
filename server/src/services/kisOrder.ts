@@ -8,6 +8,7 @@
 import { getAccessToken, getKisConfig } from './kisAuth';
 import { getSettings } from './settings';
 import { queryOne, queryAll, execute } from '../db';
+import { kisApiCall } from './apiQueue';
 
 // ─── 타입 ─────────────────────────────────────────────
 
@@ -114,11 +115,52 @@ export function calculateOrderQuantity(
   price: number,
   market: string,
   maxPerStock: number,
+  splitRatio: number = 100,
 ): number {
   if (price <= 0) return 0;
-  const maxAmount = maxPerStock;
+  const maxAmount = maxPerStock * (splitRatio / 100);
   const quantity = Math.floor(maxAmount / price);
-  return Math.max(quantity, market === 'KRX' ? 1 : 1);
+  return Math.max(quantity, 1);
+}
+
+/** 국내 매수가능금액 조회 (inquire-psbl-order, TTTC8908R) */
+export async function getDomesticOrderableAmount(): Promise<number> {
+  try {
+    const { appKey, appSecret, baseUrl, isVirtual } = getKisConfig();
+    const settings = getSettings();
+    const token = await getAccessToken();
+    const trId = isVirtual ? 'VTTC8908R' : 'TTTC8908R';
+
+    return await kisApiCall(async () => {
+      const params = new URLSearchParams({
+        CANO: settings.kisAccountNo,
+        ACNT_PRDT_CD: settings.kisAccountProductCode || '01',
+        PDNO: '', // 빈값 = 전체
+        ORD_UNPR: '0',
+        ORD_DVSN: '01', // 시장가
+        CMA_EVLU_AMT_ICLD_YN: 'Y',
+        OVRS_ICLD_YN: 'N',
+      });
+      const response = await fetch(
+        `${baseUrl}/uapi/domestic-stock/v1/trading/inquire-psbl-order?${params}`,
+        {
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${token}`,
+            appkey: appKey, appsecret: appSecret,
+            tr_id: trId, custtype: 'P',
+          },
+        }
+      );
+      if (!response.ok) return 0;
+      const data: any = await response.json();
+      if (data.rt_cd !== '0') return 0;
+      // ord_psbl_cash: 주문가능현금, nrcvb_buy_amt: 미수없는매수금액
+      return Number(data.output?.ord_psbl_cash || data.output?.nrcvb_buy_amt || 0);
+    }, 'orderable-domestic');
+  } catch {
+    return 0;
+  }
 }
 
 // ─── 리스크 체크 ──────────────────────────────────────
@@ -185,23 +227,24 @@ async function submitDomesticOrder(
     ORD_UNPR: price > 0 ? String(price) : '0',
   };
 
-  const response = await fetch(
-    `${baseUrl}/uapi/domestic-stock/v1/trading/order-cash`,
-    {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${token}`,
-        appkey: appKey,
-        appsecret: appSecret,
-        tr_id: trId,
-        custtype: 'P',
-      },
-      body: JSON.stringify(body),
-    }
-  );
-
-  const data: any = await response.json();
+  const data: any = await kisApiCall(async () => {
+    const response = await fetch(
+      `${baseUrl}/uapi/domestic-stock/v1/trading/order-cash`,
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+          appkey: appKey,
+          appsecret: appSecret,
+          tr_id: trId,
+          custtype: 'P',
+        },
+        body: JSON.stringify(body),
+      }
+    );
+    return response.json();
+  }, `order-domestic-${orderType}-${ticker}`);
 
   if (data.rt_cd === '0') {
     return {
@@ -251,23 +294,24 @@ async function submitOverseasOrder(
     ORD_SVR_DVSN_CD: '0',
   };
 
-  const response = await fetch(
-    `${baseUrl}/uapi/overseas-stock/v1/trading/order`,
-    {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${token}`,
-        appkey: appKey,
-        appsecret: appSecret,
-        tr_id: trId,
-        custtype: 'P',
-      },
-      body: JSON.stringify(body),
-    }
-  );
-
-  const data: any = await response.json();
+  const data: any = await kisApiCall(async () => {
+    const response = await fetch(
+      `${baseUrl}/uapi/overseas-stock/v1/trading/order`,
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+          appkey: appKey,
+          appsecret: appSecret,
+          tr_id: trId,
+          custtype: 'P',
+        },
+        body: JSON.stringify(body),
+      }
+    );
+    return response.json();
+  }, `order-overseas-${orderType}-${ticker}`);
 
   if (data.rt_cd === '0') {
     return {
@@ -290,23 +334,54 @@ async function submitOverseasOrder(
 export async function executeOrder(req: OrderRequest): Promise<OrderResult> {
   const settings = getSettings();
 
-  // 1. 현재가 조회 (price가 0이면 시장가 주문이지만, 수량 계산을 위해 현재가 필요)
-  let orderPrice = req.price;
-  if (orderPrice <= 0) {
-    const currentPrice = await getCurrentPrice(req.ticker, req.market);
-    if (!currentPrice) {
-      return { success: false, message: '현재가 조회 실패', quantity: 0, price: 0, fee: 0 };
-    }
-    orderPrice = currentPrice;
+  // 1. 현재가 조회 + 스마트 가격 결정
+  const currentPrice = await getCurrentPrice(req.ticker, req.market);
+  if (!currentPrice) {
+    return { success: false, message: '현재가 조회 실패', quantity: 0, price: 0, fee: 0 };
   }
 
-  // 2. 매수 시 수량 계산 (매도 시에는 요청된 수량 사용)
-  let quantity = req.quantity;
-  if (req.orderType === 'BUY' && quantity <= 0) {
-    quantity = calculateOrderQuantity(orderPrice, req.market, settings.autoTradeMaxPerStock);
+  let orderPrice = req.price;
+  let useMarketOrder = false;
+
+  if (orderPrice <= 0) {
+    if (req.orderType === 'BUY') {
+      // 매수: 현재가 -0.5% 지정가 (슬리피지 감소)
+      orderPrice = req.market === 'KRX'
+        ? Math.floor(currentPrice * 0.995)  // KRX: 정수
+        : Math.round(currentPrice * 0.995 * 100) / 100;  // 해외: 소수점 2자리
+    } else {
+      // 매도: 시장가 (빠른 체결 우선)
+      orderPrice = currentPrice;
+      useMarketOrder = true;
+    }
   }
+
+  // 2. 매수 시: 실제 주문가능금액 확인 후 수량 계산
+  let quantity = req.quantity;
+  if (req.orderType === 'BUY') {
+    // 실제 주문가능금액 조회 (dnca_tot_amt가 아닌 ord_psbl_cash)
+    let orderableAmount = settings.autoTradeMaxPerStock;
+    try {
+      if (req.market === 'KRX') {
+        const available = await getDomesticOrderableAmount();
+        if (available > 0) orderableAmount = Math.min(orderableAmount, available);
+      }
+      // 해외는 fetchOverseasDeposit에서 이미 처리됨
+    } catch {}
+
+    if (quantity <= 0) {
+      quantity = calculateOrderQuantity(orderPrice, req.market, orderableAmount);
+    }
+
+    // 주문가능금액 대비 재검증
+    const orderAmount = orderPrice * quantity;
+    if (orderableAmount > 0 && orderAmount > orderableAmount) {
+      quantity = Math.floor(orderableAmount / orderPrice);
+    }
+  }
+
   if (quantity <= 0) {
-    return { success: false, message: '주문 수량 0 — 가격 대비 투자한도 부족', quantity: 0, price: orderPrice, fee: 0 };
+    return { success: false, message: '주문 수량 0 — 주문가능금액 부족 또는 가격 대비 한도 부족', quantity: 0, price: orderPrice, fee: 0 };
   }
 
   // 3. 리스크 체크
@@ -328,10 +403,12 @@ export async function executeOrder(req: OrderRequest): Promise<OrderResult> {
   try {
     let result: { success: boolean; orderNo: string; message: string };
 
+    // 지정가: orderPrice 그대로, 시장가: 0 전달
+    const submitPrice = useMarketOrder ? 0 : orderPrice;
     if (req.market === 'KRX') {
-      result = await submitDomesticOrder(req.ticker, req.orderType, quantity, orderPrice);
+      result = await submitDomesticOrder(req.ticker, req.orderType, quantity, submitPrice);
     } else {
-      result = await submitOverseasOrder(req.ticker, req.market, req.orderType, quantity, orderPrice);
+      result = await submitOverseasOrder(req.ticker, req.market, req.orderType, quantity, submitPrice);
     }
 
     if (result.success) {

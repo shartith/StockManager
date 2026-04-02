@@ -26,9 +26,14 @@ export interface AppSettings {
   ollamaModel: string;
   ollamaEnabled: boolean;
 
+  // DART (금융감독원 공시)
+  dartApiKey: string;
+  dartEnabled: boolean;
+
   // AI 분석 옵션
   investmentStyle: 'balanced' | 'value' | 'growth' | 'momentum';
-  debateMode: boolean;  // 강세/약세 토론 모드
+  debateMode: boolean;
+  stopLossPercent: number;
 
   // 자동매매
   autoTradeEnabled: boolean;
@@ -53,8 +58,12 @@ const DEFAULT_SETTINGS: AppSettings = {
   ollamaModel: 'qwen3:4b',
   ollamaEnabled: false,
 
+  dartApiKey: '',
+  dartEnabled: false,
+
   investmentStyle: 'balanced',
   debateMode: false,
+  stopLossPercent: 3,
 
   autoTradeEnabled: false,
   autoTradeMaxInvestment: 10000000,

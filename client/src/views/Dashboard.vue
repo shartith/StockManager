@@ -53,8 +53,12 @@
               </p>
             </div>
             <div>
-              <p class="text-xs text-slate-500">KRW 예수금</p>
+              <p class="text-xs text-slate-500">예수금</p>
               <p class="font-bold text-slate-800">{{ formatCurrency(balanceData.depositAmount) }}</p>
+            </div>
+            <div>
+              <p class="text-xs text-slate-500">주문가능금액</p>
+              <p class="font-bold text-green-700">{{ formatCurrency(balanceData.orderableAmount || balanceData.depositAmount) }}</p>
             </div>
           </div>
           <!-- 보유 종목 목록 -->
@@ -200,6 +204,93 @@
       </div>
     </div>
 
+    <!-- 시스템 이벤트 (미해결) -->
+    <div v-if="eventCounts && eventCounts.unresolved > 0" class="mb-6">
+      <div class="bg-white rounded-xl border shadow-sm overflow-hidden"
+        :class="eventCounts.critical > 0 ? 'border-red-300' : eventCounts.error > 0 ? 'border-amber-300' : 'border-slate-200'">
+        <div class="flex items-center justify-between px-4 py-3"
+          :class="eventCounts.critical > 0 ? 'bg-red-50' : eventCounts.error > 0 ? 'bg-amber-50' : 'bg-slate-50'">
+          <div class="flex items-center gap-2">
+            <span class="text-sm font-semibold"
+              :class="eventCounts.critical > 0 ? 'text-red-800' : 'text-amber-800'">
+              시스템 이벤트 ({{ eventCounts.unresolved }}건 미해결)
+            </span>
+            <span v-if="eventCounts.critical > 0" class="text-xs px-1.5 py-0.5 bg-red-100 text-red-700 rounded">CRITICAL {{ eventCounts.critical }}</span>
+            <span v-if="eventCounts.error > 0" class="text-xs px-1.5 py-0.5 bg-amber-100 text-amber-700 rounded">ERROR {{ eventCounts.error }}</span>
+          </div>
+          <button @click="showEvents = !showEvents" class="text-xs text-blue-600 hover:underline">
+            {{ showEvents ? '접기' : '펼치기' }}
+          </button>
+        </div>
+        <div v-if="showEvents" class="max-h-64 overflow-y-auto">
+          <div v-for="e in unresolvedEvents" :key="e.id" class="px-4 py-3 border-t border-slate-100 text-sm">
+            <div class="flex items-center justify-between">
+              <div class="flex items-center gap-2">
+                <span class="text-xs px-1.5 py-0.5 rounded font-medium"
+                  :class="{
+                    'bg-red-100 text-red-700': e.severity === 'CRITICAL',
+                    'bg-amber-100 text-amber-700': e.severity === 'ERROR',
+                    'bg-yellow-100 text-yellow-700': e.severity === 'WARN',
+                    'bg-slate-100 text-slate-600': e.severity === 'INFO',
+                  }">{{ e.severity }}</span>
+                <span class="font-medium text-slate-700">{{ e.title }}</span>
+                <span v-if="e.ticker" class="text-xs text-slate-400">({{ e.ticker }})</span>
+              </div>
+              <span class="text-xs text-slate-400">{{ e.created_at?.slice(5, 16) }}</span>
+            </div>
+            <p v-if="e.detail" class="text-xs text-slate-500 mt-1 whitespace-pre-line">{{ e.detail.slice(0, 300) }}</p>
+            <button @click="resolveEventFn(e.id)" class="text-xs text-green-600 hover:underline mt-1">해결 처리</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 시장 동향 -->
+    <div v-if="marketCtx" class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3 mb-6">
+      <div v-if="marketCtx.kospi" class="bg-white rounded-lg border border-slate-200 p-3">
+        <p class="text-xs text-slate-400">KOSPI</p>
+        <p class="text-sm font-bold" :class="marketCtx.kospi.changePercent >= 0 ? 'text-red-600' : 'text-blue-600'">
+          {{ marketCtx.kospi.price.toLocaleString() }}
+          <span class="text-xs font-normal">({{ marketCtx.kospi.changePercent >= 0 ? '+' : '' }}{{ marketCtx.kospi.changePercent }}%)</span>
+        </p>
+      </div>
+      <div v-if="marketCtx.kosdaq" class="bg-white rounded-lg border border-slate-200 p-3">
+        <p class="text-xs text-slate-400">KOSDAQ</p>
+        <p class="text-sm font-bold" :class="marketCtx.kosdaq.changePercent >= 0 ? 'text-red-600' : 'text-blue-600'">
+          {{ marketCtx.kosdaq.price.toLocaleString() }}
+          <span class="text-xs font-normal">({{ marketCtx.kosdaq.changePercent >= 0 ? '+' : '' }}{{ marketCtx.kosdaq.changePercent }}%)</span>
+        </p>
+      </div>
+      <div v-if="marketCtx.sp500" class="bg-white rounded-lg border border-slate-200 p-3">
+        <p class="text-xs text-slate-400">S&P 500</p>
+        <p class="text-sm font-bold" :class="marketCtx.sp500.changePercent >= 0 ? 'text-red-600' : 'text-blue-600'">
+          {{ marketCtx.sp500.price.toLocaleString() }}
+          <span class="text-xs font-normal">({{ marketCtx.sp500.changePercent >= 0 ? '+' : '' }}{{ marketCtx.sp500.changePercent }}%)</span>
+        </p>
+      </div>
+      <div v-if="marketCtx.vix" class="bg-white rounded-lg border border-slate-200 p-3">
+        <p class="text-xs text-slate-400">VIX (공포지수)</p>
+        <p class="text-sm font-bold" :class="marketCtx.vix.price > 25 ? 'text-red-600' : marketCtx.vix.price > 20 ? 'text-amber-600' : 'text-green-600'">
+          {{ marketCtx.vix.price.toFixed(1) }}
+          <span class="text-xs font-normal">{{ marketCtx.vix.price > 30 ? '극도공포' : marketCtx.vix.price > 25 ? '공포' : marketCtx.vix.price > 20 ? '주의' : '안정' }}</span>
+        </p>
+      </div>
+      <div v-if="marketCtx.usdKrw" class="bg-white rounded-lg border border-slate-200 p-3">
+        <p class="text-xs text-slate-400">USD/KRW</p>
+        <p class="text-sm font-bold" :class="marketCtx.usdKrw.changePercent >= 0 ? 'text-red-600' : 'text-blue-600'">
+          {{ marketCtx.usdKrw.price.toLocaleString() }}
+          <span class="text-xs font-normal">({{ marketCtx.usdKrw.changePercent >= 0 ? '+' : '' }}{{ marketCtx.usdKrw.changePercent }}%)</span>
+        </p>
+      </div>
+      <div v-if="marketCtx.dow" class="bg-white rounded-lg border border-slate-200 p-3">
+        <p class="text-xs text-slate-400">다우존스</p>
+        <p class="text-sm font-bold" :class="marketCtx.dow.changePercent >= 0 ? 'text-red-600' : 'text-blue-600'">
+          {{ marketCtx.dow.price.toLocaleString() }}
+          <span class="text-xs font-normal">({{ marketCtx.dow.changePercent >= 0 ? '+' : '' }}{{ marketCtx.dow.changePercent }}%)</span>
+        </p>
+      </div>
+    </div>
+
     <div v-if="store.loading" class="text-slate-500">로딩 중...</div>
     <div v-else-if="store.error" class="text-red-500">{{ store.error }}</div>
 
@@ -294,7 +385,7 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue';
 import { usePortfolioStore } from '@/stores/portfolio';
-import { chartApi, schedulerApi, analysisApi } from '@/api';
+import { chartApi, schedulerApi, analysisApi, systemEventsApi } from '@/api';
 import SummaryCard from '@/components/SummaryCard.vue';
 import AllocationChart from '@/components/AllocationChart.vue';
 import StockChart from '@/components/StockChart.vue';
@@ -307,6 +398,11 @@ const balanceLoading = ref(false);
 const balanceError = ref('');
 const importing = ref(false);
 const importResult = ref<any>(null);
+const marketCtx = ref<any>(null);
+const eventCounts = ref<any>(null);
+const unresolvedEvents = ref<any[]>([]);
+const showEvents = ref(false);
+
 const systemStatus = ref({
   schedulerActive: false,
   taskCount: 0,
@@ -396,9 +492,59 @@ async function loadSystemStatus() {
   } catch { /* */ }
 }
 
+// WebSocket 실시간 시세
+const livePrices = ref<Record<string, number>>({});
+const wsConnected = ref(false);
+
+function connectWebSocket() {
+  const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
+  const ws = new WebSocket(`${protocol}//${location.host}/ws`);
+  ws.onopen = () => { wsConnected.value = true; };
+  ws.onclose = () => {
+    wsConnected.value = false;
+    setTimeout(connectWebSocket, 5000); // 5초 후 재연결
+  };
+  ws.onmessage = (event) => {
+    try {
+      const msg = JSON.parse(event.data);
+      if (msg.type === 'prices') {
+        livePrices.value = { ...livePrices.value, ...msg.data };
+      }
+    } catch {}
+  };
+}
+
+async function loadSystemEvents() {
+  try {
+    const { data: counts } = await systemEventsApi.getCounts();
+    eventCounts.value = counts;
+    if (counts.unresolved > 0) {
+      const { data } = await systemEventsApi.getAll({ unresolved: true, limit: 20 });
+      unresolvedEvents.value = data;
+    }
+  } catch {}
+}
+
+async function resolveEventFn(id: number) {
+  try {
+    await systemEventsApi.resolve(id, '대시보드에서 수동 해결');
+    await loadSystemEvents();
+  } catch {}
+}
+
+async function loadMarketContext() {
+  try {
+    const { data } = await chartApi.getMarketContext();
+    marketCtx.value = data;
+  } catch {}
+}
+
 onMounted(async () => {
   await checkKisConfig();
   store.fetchSummary();
   loadSystemStatus();
+  loadMarketContext();
+  loadSystemEvents();
+  connectWebSocket();
 });
 </script>

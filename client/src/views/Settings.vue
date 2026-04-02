@@ -278,6 +278,40 @@
         </div>
       </div>
 
+      <!-- 섹션: DART (금융감독원 공시) -->
+      <div class="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+        <div class="px-6 py-4 bg-slate-50 border-b border-slate-200">
+          <h3 class="text-sm font-semibold text-slate-700">DART (금융감독원 공시)</h3>
+          <p class="text-xs text-slate-500 mt-0.5">
+            재무제표(매출, 영업이익, ROE)와 실시간 공시 데이터를 조회합니다.
+            <a href="https://opendart.fss.or.kr/" target="_blank" class="text-blue-600 hover:underline ml-1">API 키 발급</a>
+          </p>
+        </div>
+        <div class="p-6 space-y-4">
+          <label class="flex items-center gap-3 cursor-pointer">
+            <div class="relative inline-block">
+              <input type="checkbox" v-model="form.dartEnabled" class="sr-only" />
+              <div class="w-9 h-5 rounded-full transition-colors" :class="form.dartEnabled ? 'bg-blue-600' : 'bg-slate-200'"></div>
+              <div class="absolute top-0.5 left-0.5 w-4 h-4 bg-white rounded-full shadow transition-transform" :class="form.dartEnabled ? 'translate-x-4' : 'translate-x-0'"></div>
+            </div>
+            <span class="text-sm font-medium text-slate-700">DART 활성화</span>
+            <span v-if="dartKeySaved" class="text-xs px-1.5 py-0.5 rounded bg-green-50 text-green-600">API 연결됨</span>
+          </label>
+          <div v-if="form.dartEnabled" class="space-y-3">
+            <div>
+              <label class="block text-sm font-medium text-slate-700 mb-1">
+                DART API Key
+                <span v-if="dartKeySaved" class="ml-2 text-xs font-normal text-green-600 bg-green-50 px-1.5 py-0.5 rounded">저장됨</span>
+              </label>
+              <input v-model="form.dartApiKey" type="password"
+                :placeholder="dartKeySaved ? '변경할 경우에만 입력' : 'DART OpenAPI 인증키 입력'"
+                class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-blue-500" />
+              <p class="text-xs text-slate-400 mt-1">opendart.fss.or.kr에서 발급받은 인증키</p>
+            </div>
+          </div>
+        </div>
+      </div>
+
       <!-- 섹션 5: AI 분석 옵션 -->
       <div class="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
         <div class="px-6 py-4 bg-slate-50 border-b border-slate-200">
@@ -311,6 +345,14 @@
               <span class="text-sm font-medium text-slate-700">토론 모드 (강세/약세 분석)</span>
             </label>
             <p class="text-xs text-slate-500 mt-1 ml-12">LLM이 강세·약세 관점을 각각 분석한 뒤 종합 판단합니다. 정확도가 높아지지만 분석 시간이 3배로 늘어납니다.</p>
+          </div>
+          <div>
+            <label class="block text-sm font-medium text-slate-700 mb-1">손절 기준 (%)</label>
+            <div class="flex items-center gap-3">
+              <input v-model.number="form.stopLossPercent" type="number" min="1" max="20" step="0.5"
+                class="w-24 border border-slate-300 rounded-lg px-3 py-2 text-sm text-center focus:outline-none focus:ring-2 focus:ring-blue-500" />
+              <span class="text-xs text-slate-500">매입가 대비 -{{ form.stopLossPercent }}% 도달 시 자동 손절 매도</span>
+            </div>
           </div>
         </div>
       </div>
@@ -438,6 +480,87 @@
       </div>
     </form>
 
+    <!-- 전략 관리 -->
+    <div class="mt-8 bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+      <div class="px-6 py-4 bg-slate-50 border-b border-slate-200">
+        <h3 class="text-sm font-semibold text-slate-700">전략 내보내기 / 가져오기</h3>
+        <p class="text-xs text-slate-500 mt-0.5">학습된 가중치와 설정을 다른 컴퓨터에 이식하거나, LoRA 학습 데이터를 추출합니다.</p>
+      </div>
+      <div class="p-6 space-y-4">
+        <!-- 전체 설정 백업/복원 (API 키 포함) -->
+        <div class="bg-amber-50 border border-amber-200 rounded-lg p-4">
+          <h4 class="text-sm font-semibold text-amber-800 mb-2">전체 설정 백업/복원 (API 키 포함)</h4>
+          <p class="text-xs text-amber-600 mb-3">다른 컴퓨터에서 동일한 환경으로 운영할 수 있습니다. 파일에 API 키가 포함되므로 안전하게 보관하세요.</p>
+          <div class="flex gap-2 flex-wrap">
+            <button @click="doBackup" :disabled="backupLoading"
+              class="px-4 py-2 bg-amber-600 text-white rounded-lg text-sm hover:bg-amber-700 disabled:opacity-50">
+              {{ backupLoading ? '백업 중...' : '전체 백업 다운로드' }}
+            </button>
+            <div class="flex gap-2">
+              <input type="file" ref="restoreFileInput" accept=".json" @change="onRestoreFileSelect"
+                class="text-sm border border-amber-300 rounded-lg px-3 py-2 file:mr-2 file:py-1 file:px-3 file:rounded file:border-0 file:text-xs file:bg-amber-100 file:text-amber-700" />
+              <button @click="doRestore" :disabled="!restoreFile || restoreLoading"
+                class="px-4 py-2 bg-red-600 text-white rounded-lg text-sm hover:bg-red-700 disabled:opacity-50">
+                {{ restoreLoading ? '복원 중...' : '복원' }}
+              </button>
+            </div>
+          </div>
+          <p v-if="backupMsg" class="text-xs mt-2" :class="backupError ? 'text-red-600' : 'text-green-600'">{{ backupMsg }}</p>
+        </div>
+
+        <!-- 전략 내보내기 (credentials 제외) -->
+        <div class="border-t border-slate-100 pt-4">
+          <div class="flex items-center gap-3">
+            <button @click="doExportStrategy" :disabled="strategyExporting"
+              class="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm hover:bg-blue-700 disabled:opacity-50">
+              {{ strategyExporting ? '내보내는 중...' : '전략 내보내기 (API키 미포함)' }}
+            </button>
+            <span v-if="strategyExportMsg" class="text-xs text-green-600">{{ strategyExportMsg }}</span>
+          </div>
+        </div>
+
+        <!-- 전략 가져오기 -->
+        <div>
+          <label class="block text-sm font-medium text-slate-700 mb-1">전략 가져오기</label>
+          <div class="flex gap-2">
+            <input type="file" ref="strategyFileInput" accept=".json" @change="onStrategyFileSelect"
+              class="flex-1 text-sm border border-slate-300 rounded-lg px-3 py-2 file:mr-3 file:py-1 file:px-3 file:rounded file:border-0 file:text-xs file:bg-blue-50 file:text-blue-700" />
+            <button @click="doImportStrategy" :disabled="!strategyFile || strategyImporting"
+              class="px-4 py-2 bg-green-600 text-white rounded-lg text-sm hover:bg-green-700 disabled:opacity-50">
+              {{ strategyImporting ? '적용 중...' : '적용' }}
+            </button>
+          </div>
+          <p v-if="strategyImportMsg" class="text-xs mt-1" :class="strategyImportError ? 'text-red-600' : 'text-green-600'">
+            {{ strategyImportMsg }}
+          </p>
+        </div>
+
+        <!-- LoRA 학습 데이터 -->
+        <div class="border-t border-slate-100 pt-4">
+          <div class="flex items-center justify-between mb-2">
+            <span class="text-sm font-medium text-slate-700">LoRA 학습 데이터</span>
+            <button @click="loadLoraStatus" class="text-xs text-blue-600 hover:underline">새로고침</button>
+          </div>
+          <div v-if="loraStatus" class="space-y-2">
+            <div class="flex items-center gap-3">
+              <div class="flex-1 bg-slate-100 rounded-full h-3 overflow-hidden">
+                <div class="h-full rounded-full transition-all" :class="loraStatus.ready ? 'bg-green-500' : 'bg-blue-500'"
+                  :style="{ width: Math.min(loraStatus.percent, 100) + '%' }"></div>
+              </div>
+              <span class="text-xs text-slate-500 w-24 text-right">{{ loraStatus.count.toLocaleString() }} / 5,000</span>
+            </div>
+            <p v-if="loraStatus.ready" class="text-xs text-green-600">학습 데이터 준비 완료! 내보내기 가능합니다.</p>
+            <p v-else class="text-xs text-slate-400">데이터가 충분히 쌓이면 자동으로 LoRA 학습 데이터가 생성됩니다.</p>
+            <button v-if="loraStatus.ready" @click="doExportLora" :disabled="loraExporting"
+              class="px-4 py-2 bg-purple-600 text-white rounded-lg text-sm hover:bg-purple-700 disabled:opacity-50">
+              {{ loraExporting ? '생성 중...' : 'LoRA 데이터 내보내기 (JSONL)' }}
+            </button>
+            <p v-if="loraExportMsg" class="text-xs text-green-600">{{ loraExportMsg }}</p>
+          </div>
+        </div>
+      </div>
+    </div>
+
     <!-- KIS API 안내 -->
     <div class="mt-8 p-4 bg-blue-50 rounded-xl border border-blue-200">
       <h4 class="text-sm font-semibold text-blue-800 mb-2">KIS API 발급 방법</h4>
@@ -453,9 +576,138 @@
 
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue';
-import { chartApi, analysisApi } from '@/api';
+import { chartApi, analysisApi, feedbackApi } from '@/api';
 
 const configStatus = ref({ configured: false, isVirtual: true, hasAccount: false });
+
+const dartKeySaved = ref(false);
+
+// 전체 백업/복원
+const backupLoading = ref(false);
+const restoreFile = ref<any>(null);
+const restoreFileInput = ref<HTMLInputElement | null>(null);
+const restoreLoading = ref(false);
+const backupMsg = ref('');
+const backupError = ref(false);
+
+async function doBackup() {
+  backupLoading.value = true;
+  backupMsg.value = '';
+  backupError.value = false;
+  try {
+    const { data } = await feedbackApi.backupConfig();
+    const blob = new Blob([JSON.stringify(data.config, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `stock-manager-backup-${new Date().toISOString().slice(0, 10)}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+    backupMsg.value = '백업 파일 다운로드 완료';
+  } catch (err: any) {
+    backupMsg.value = err.response?.data?.error || '백업 실패';
+    backupError.value = true;
+  }
+  backupLoading.value = false;
+}
+
+function onRestoreFileSelect(e: Event) {
+  restoreFile.value = (e.target as HTMLInputElement).files?.[0] || null;
+}
+
+async function doRestore() {
+  if (!restoreFile.value) return;
+  if (!confirm('현재 설정을 백업 파일의 내용으로 덮어씁니다. 계속하시겠습니까?')) return;
+  restoreLoading.value = true;
+  backupMsg.value = '';
+  backupError.value = false;
+  try {
+    const text = await restoreFile.value.text();
+    const json = JSON.parse(text);
+    const { data } = await feedbackApi.restoreConfig(json.config || json);
+    backupMsg.value = '복원 완료 — 페이지를 새로고침합니다';
+    backupError.value = false;
+    setTimeout(() => location.reload(), 1500);
+  } catch (err: any) {
+    backupMsg.value = err.response?.data?.error || '복원 실패';
+    backupError.value = true;
+  }
+  restoreLoading.value = false;
+}
+
+// 전략 내보내기/가져오기
+const strategyExporting = ref(false);
+const strategyExportMsg = ref('');
+const strategyFile = ref<any>(null);
+const strategyFileInput = ref<HTMLInputElement | null>(null);
+const strategyImporting = ref(false);
+const strategyImportMsg = ref('');
+const strategyImportError = ref(false);
+const loraStatus = ref<any>(null);
+const loraExporting = ref(false);
+const loraExportMsg = ref('');
+
+async function doExportStrategy() {
+  strategyExporting.value = true;
+  strategyExportMsg.value = '';
+  try {
+    const { data } = await feedbackApi.exportStrategy();
+    // 브라우저에서 다운로드
+    const blob = new Blob([JSON.stringify(data.strategy, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `strategy-${new Date().toISOString().slice(0, 10)}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+    strategyExportMsg.value = '다운로드 완료';
+  } catch (err: any) {
+    strategyExportMsg.value = err.response?.data?.error || '내보내기 실패';
+  }
+  strategyExporting.value = false;
+}
+
+function onStrategyFileSelect(e: Event) {
+  const input = e.target as HTMLInputElement;
+  strategyFile.value = input.files?.[0] || null;
+}
+
+async function doImportStrategy() {
+  if (!strategyFile.value) return;
+  strategyImporting.value = true;
+  strategyImportMsg.value = '';
+  strategyImportError.value = false;
+  try {
+    const text = await strategyFile.value.text();
+    const json = JSON.parse(text);
+    const { data } = await feedbackApi.importStrategy(json.strategy || json);
+    strategyImportMsg.value = data.message || '적용 완료';
+    strategyImportError.value = false;
+  } catch (err: any) {
+    strategyImportMsg.value = err.response?.data?.error || '가져오기 실패';
+    strategyImportError.value = true;
+  }
+  strategyImporting.value = false;
+}
+
+async function loadLoraStatus() {
+  try {
+    const { data } = await feedbackApi.getLoraStatus();
+    loraStatus.value = data;
+  } catch {}
+}
+
+async function doExportLora() {
+  loraExporting.value = true;
+  loraExportMsg.value = '';
+  try {
+    const { data } = await feedbackApi.exportLora();
+    loraExportMsg.value = data.message;
+  } catch (err: any) {
+    loraExportMsg.value = err.response?.data?.error || '생성 실패';
+  }
+  loraExporting.value = false;
+}
 const saving = ref(false);
 const saveMessage = ref('');
 const saveError = ref(false);
@@ -471,8 +723,12 @@ const form = ref({
   ollamaModel: 'llama3.1',
   ollamaEnabled: false,
 
+  dartApiKey: '',
+  dartEnabled: false,
+
   investmentStyle: 'balanced',
   debateMode: false,
+  stopLossPercent: 3,
 
   autoTradeEnabled: false,
   autoTradeMaxInvestment: 10000000,
@@ -639,8 +895,12 @@ async function loadConfig() {
     form.value.ollamaModel = saved.ollamaModel || 'llama3.1';
     form.value.ollamaEnabled = saved.ollamaEnabled ?? false;
 
+    form.value.dartEnabled = saved.dartEnabled ?? false;
+    dartKeySaved.value = saved.hasDartKey ?? false;
+
     form.value.investmentStyle = saved.investmentStyle || 'balanced';
     form.value.debateMode = saved.debateMode ?? false;
+    form.value.stopLossPercent = saved.stopLossPercent ?? 3;
 
     form.value.autoTradeEnabled = saved.autoTradeEnabled ?? false;
     form.value.autoTradeMaxInvestment = saved.autoTradeMaxInvestment ?? 10000000;
@@ -675,5 +935,6 @@ async function saveConfig() {
 onMounted(async () => {
   await loadConfig();
   checkOllama();
+  loadLoraStatus();
 });
 </script>

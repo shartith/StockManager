@@ -142,13 +142,44 @@ switch (command) {
       console.log('  No log file found');
     }
     break;
+  case 'export-strategy':
+  case 'import-strategy':
+  case 'export-lora':
+  case 'backup':
+  case 'restore': {
+    process.env.STOCK_MANAGER_DATA = dataDir;
+    const dbModule = require(path.join(appRoot, 'server', 'dist', 'db.js'));
+    dbModule.initializeDB().then(() => {
+      const ei = require(path.join(appRoot, 'server', 'dist', 'services', 'exportImport.js'));
+      let result;
+      if (command === 'export-strategy') {
+        result = ei.exportStrategy();
+        console.log('\n' + result.summary + '\n');
+      } else if (command === 'import-strategy') {
+        const file = process.argv[3];
+        if (!file) { console.log('  Usage: stock-manager import-strategy <file.json>'); return; }
+        result = ei.importStrategy(path.resolve(file));
+        console.log('\n' + (result.success ? result.message : '  ERROR: ' + result.message) + '\n');
+      } else if (command === 'backup') {
+        result = ei.exportFullConfig();
+        console.log('\n' + result.message + '\n');
+      } else if (command === 'restore') {
+        const file = process.argv[3];
+        if (!file) { console.log('  Usage: stock-manager restore <backup-file.json>'); return; }
+        result = ei.importFullConfig(path.resolve(file));
+        console.log('\n' + (result.success ? result.message : '  ERROR: ' + result.message) + '\n');
+      } else {
+        result = ei.generateLoraDataset();
+        console.log('\n' + result.message + '\n');
+      }
+    }).catch((err) => { console.error('DB 초기화 실패:', err.message); });
+    break;
+  }
   case 'run':
   case '_run':
-    // Foreground or internal daemon process
     runServer();
     break;
   case undefined:
-    // No command: 백그라운드 데몬으로 시작
     startDaemon();
     break;
   default:
@@ -163,5 +194,14 @@ switch (command) {
     stock-manager restart      Restart the daemon
     stock-manager status       Show running status
     stock-manager logs [n]     Show last n log lines (default: 50)
+
+  Strategy:
+    stock-manager export-strategy          Export strategy (no credentials)
+    stock-manager import-strategy <file>   Import strategy from JSON
+    stock-manager export-lora              Export LoRA training dataset
+
+  Backup:
+    stock-manager backup                   Full config backup (API keys included)
+    stock-manager restore <file>           Restore full config from backup
 `);
 }

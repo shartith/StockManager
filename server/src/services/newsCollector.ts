@@ -114,11 +114,54 @@ export async function fetchYahooNews(ticker: string): Promise<NewsItem[]> {
   }
 }
 
-/** 뉴스 수집 후 DB에 캐시 */
+/** 공시/실적 키워드 특화 뉴스 수집 (국내 종목용) */
+async function fetchDisclosureNews(ticker: string, name: string): Promise<NewsItem[]> {
+  try {
+    const query = encodeURIComponent(`${name} 공시 실적 배당`);
+    const res = await fetch(`https://news.google.com/rss/search?q=${query}&hl=ko&gl=KR&ceid=KR:ko`);
+    if (!res.ok) return [];
+
+    const text = await res.text();
+    const items: NewsItem[] = [];
+    const itemRegex = /<item>([\s\S]*?)<\/item>/g;
+    let match;
+
+    while ((match = itemRegex.exec(text)) !== null && items.length < 3) {
+      const itemXml = match[1];
+      const title = extractXmlTag(itemXml, 'title');
+      const link = extractXmlTag(itemXml, 'link');
+      if (title) {
+        items.push({
+          ticker,
+          title: stripHtml(title),
+          summary: '[공시/실적]',
+          sourceUrl: link || '',
+          sentiment: '',
+        });
+      }
+    }
+    return items;
+  } catch {
+    return [];
+  }
+}
+
+/** 뉴스 수집 후 DB에 캐시 (공시 뉴스 포함) */
 export async function collectAndCacheNews(ticker: string, name: string, market: string): Promise<NewsItem[]> {
-  const news = market === 'KRX'
-    ? await fetchNaverNews(ticker, name)
-    : await fetchYahooNews(ticker);
+  let news: NewsItem[];
+
+  if (market === 'KRX') {
+    // 국내: 일반 뉴스 + 공시/실적 뉴스
+    const [generalNews, disclosureNews] = await Promise.all([
+      fetchNaverNews(ticker, name),
+      fetchDisclosureNews(ticker, name),
+    ]);
+    // 중복 제거 (제목 기준)
+    const seen = new Set(generalNews.map(n => n.title));
+    news = [...generalNews, ...disclosureNews.filter(n => !seen.has(n.title))];
+  } else {
+    news = await fetchYahooNews(ticker);
+  }
 
   for (const item of news) {
     execute(

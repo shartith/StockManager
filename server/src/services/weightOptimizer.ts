@@ -43,7 +43,7 @@ export function loadWeights(): Record<ScoreType, number> {
 }
 
 /** 가중치 저장 */
-function saveWeights(weights: Record<ScoreType, number>) {
+export function saveWeights(weights: Record<ScoreType, number>) {
   const dir = path.dirname(WEIGHTS_PATH);
   if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
   fs.writeFileSync(WEIGHTS_PATH, JSON.stringify(weights, null, 2), 'utf-8');

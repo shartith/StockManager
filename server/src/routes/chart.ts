@@ -3,6 +3,8 @@ import { getAccessToken, getKisConfig } from '../services/kisAuth';
 import { getSettings, saveSettings } from '../services/settings';
 import { startScheduler } from '../services/scheduler';
 import { queryOne, execute } from '../db';
+import { getMarketContext } from '../services/stockPrice';
+import { getDomesticOrderableAmount } from '../services/kisOrder';
 
 const router = Router();
 
@@ -34,8 +36,12 @@ router.get('/config/form', (_req: Request, res: Response) => {
     ollamaModel: settings.ollamaModel,
     ollamaEnabled: settings.ollamaEnabled,
 
+    dartEnabled: settings.dartEnabled,
+    hasDartKey: !!settings.dartApiKey,
+
     investmentStyle: settings.investmentStyle,
     debateMode: settings.debateMode,
+    stopLossPercent: settings.stopLossPercent,
 
     autoTradeEnabled: settings.autoTradeEnabled,
     autoTradeMaxInvestment: settings.autoTradeMaxInvestment,
@@ -51,6 +57,7 @@ router.get('/config/form', (_req: Request, res: Response) => {
 router.post('/config', (req: Request, res: Response) => {
   const { appKey, appSecret, accountNo, accountProductCode, isVirtual, mcpEnabled,
     ollamaUrl, ollamaModel, ollamaEnabled,
+    dartApiKey, dartEnabled,
     investmentStyle, debateMode,
     autoTradeEnabled, autoTradeMaxInvestment, autoTradeMaxPerStock, autoTradeMaxDailyTrades,
     scheduleKrx, scheduleNyse,
@@ -76,8 +83,12 @@ router.post('/config', (req: Request, res: Response) => {
     ollamaModel: ollamaModel || 'llama3.1',
     ollamaEnabled: !!ollamaEnabled,
 
+    ...(dartApiKey ? { dartApiKey } : {}),
+    dartEnabled: !!dartEnabled,
+
     investmentStyle: investmentStyle || 'balanced',
     debateMode: !!debateMode,
+    stopLossPercent: Number(req.body.stopLossPercent) || 3,
 
     autoTradeEnabled: !!autoTradeEnabled,
     autoTradeMaxInvestment: Number(autoTradeMaxInvestment) || 10000000,
@@ -96,6 +107,16 @@ router.post('/config', (req: Request, res: Response) => {
   startScheduler();
 
   res.json({ message: '설정 저장 완료' });
+});
+
+// 시장 동향 (KOSPI/VIX/환율)
+router.get('/market-context', async (_req: Request, res: Response) => {
+  try {
+    const ctx = await getMarketContext();
+    res.json(ctx);
+  } catch {
+    res.json({});
+  }
 });
 
 // 해외 종목 여부 판별
@@ -187,14 +208,16 @@ router.get('/candle/:ticker', async (req: Request, res: Response) => {
         }))
         .sort((a: any, b: any) => (a.time > b.time ? 1 : -1));
 
-      // output1: 해외 종목 현재 시세
+      // output1: 해외 종목 현재 시세 (last가 없으면 마지막 캔들 close로 fallback)
       const info = data.output1 || {};
+      const lastCandle = candles[candles.length - 1];
+      const overseasCurrentPrice = Number(info.last) || lastCandle?.close || 0;
 
       res.json({
         ticker,
         period,
         name: info.rsym ? ticker : ticker,
-        currentPrice: Number(info.last || 0),
+        currentPrice: overseasCurrentPrice,
         changeRate: Number(info.rate || 0),
         changeAmount: Number(info.diff || 0),
         candles,
@@ -474,10 +497,14 @@ router.get('/balance', async (_req: Request, res: Response) => {
     }
 
     // 국내 API(TTTC8434R)의 output2는 KRW 국내 자산만 포함
-    // dnca_tot_amt = KRW 예수금 (외화 미포함)
-    // 한투 앱의 "예수금"은 KRW 예수금 + 외화예수금(KRW환산)을 합산한 값
+    // dnca_tot_amt = D+2 예수금 (실제 주문가능금액과 다를 수 있음)
+    // 정확한 주문가능금액은 inquire-psbl-order(TTTC8908R)로 별도 조회
     const krwDeposit = Number(summary.dnca_tot_amt || 0);
-    const withdrawableAmount = krwDeposit;
+    let orderableAmount = krwDeposit;
+    try {
+      const available = await getDomesticOrderableAmount();
+      if (available > 0) orderableAmount = available;
+    } catch {}
 
     res.json({
       holdings,
@@ -486,7 +513,7 @@ router.get('/balance', async (_req: Request, res: Response) => {
       totalProfitLoss: Number(summary.evlu_pfls_smtl_amt || 0),
       totalProfitLossRate: Number(summary.tot_evlu_pfls_rt || 0),
       depositAmount: krwDeposit,
-      withdrawableAmount,
+      orderableAmount,
       overseasHoldings: overseas.holdings,
       overseasTotalPurchaseAmount: overseas.totalPurchaseAmount,
       overseasTotalEvalAmount: overseas.totalEvalAmount,

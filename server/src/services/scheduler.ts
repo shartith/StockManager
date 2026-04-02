@@ -12,13 +12,21 @@ import { getTradeDecision, buildAnalysisInput, AnalysisPhase } from './ollama';
 import { collectAndCacheNews, getCachedNews, summarizeNewsWithAI } from './newsCollector';
 import { getAccessToken, getKisConfig } from './kisAuth';
 import { evaluateAndScore } from './scoring';
-import { executeOrder, getCurrentPrice, getHoldingQuantity } from './kisOrder';
+import { executeOrder, getCurrentPrice, getHoldingQuantity, calculateOrderQuantity } from './kisOrder';
 import { createNotification } from './notification';
 import { registerSignalForTracking, evaluatePendingPerformance } from './performanceTracker';
 import { optimizeWeights } from './weightOptimizer';
 import { getPortfolioRiskContext } from './calculator';
+import { getMultipleStockPrices, getMarketContext, formatMarketContext } from './stockPrice';
+import { kisApiCall } from './apiQueue';
+import { getKisFundamentals } from './stockPrice';
+import { getInvestorFlow } from './investorFlow';
+import { getLoraDataCount, generateLoraDataset } from './exportImport';
+import { getDartDisclosures } from './dartApi';
+import { logSystemEvent } from './systemEvent';
+import { manageUnfilledOrders, checkReservedOrders, createReservedOrder } from './orderManager';
 
-type SchedulePhase = 'PRE_OPEN' | 'POST_OPEN' | 'PRE_CLOSE_1H' | 'PRE_CLOSE_30M';
+type SchedulePhase = 'PRE_OPEN' | 'POST_OPEN' | 'PRE_CLOSE_1H' | 'PRE_CLOSE_30M' | 'MARKET_OPEN' | 'INTRADAY' | 'PROFIT_TAKING';
 type Market = 'KRX' | 'NYSE' | 'NASDAQ';
 
 const activeTasks: any[] = [];
@@ -50,84 +58,63 @@ export function getSchedulerLogs(): ScheduleLog[] {
   return recentLogs;
 }
 
+// 가격 캐시 (연속 모니터링용 — 전회 시세와 비교)
+const priceCache = new Map<string, number>();
+
 /** 스케줄러 시작 */
 export function startScheduler() {
-  stopScheduler(); // 기존 스케줄 정리
-
+  stopScheduler();
   const settings = getSettings();
 
-  // KRX 스케줄 (timezone: Asia/Seoul, 월~금)
+  // ── KRX 연속 모니터링 (Asia/Seoul, 월~금) ──
   if (settings.scheduleKrx.enabled) {
-    const krx = settings.scheduleKrx;
-    if (krx.preOpen) {
-      activeTasks.push(cron.schedule('30 8 * * 1-5', () => runPhase('KRX', 'PRE_OPEN'), { timezone: 'Asia/Seoul' }));
-    }
-    if (krx.postOpen) {
-      activeTasks.push(cron.schedule('30 9 * * 1-5', () => runPhase('KRX', 'POST_OPEN'), { timezone: 'Asia/Seoul' }));
-    }
-    if (krx.preClose1h) {
-      activeTasks.push(cron.schedule('30 14 * * 1-5', () => runPhase('KRX', 'PRE_CLOSE_1H'), { timezone: 'Asia/Seoul' }));
-    }
-    if (krx.preClose30m) {
-      activeTasks.push(cron.schedule('0 15 * * 1-5', () => runPhase('KRX', 'PRE_CLOSE_30M'), { timezone: 'Asia/Seoul' }));
-    }
-    console.log('[Scheduler] KRX 스케줄 등록 완료');
+    // 장 시작 10분 관망 후: 뉴스 수집 + 갭 분석 + 초기 매수
+    activeTasks.push(cron.schedule('10 9 * * 1-5', () => runMarketOpen('KRX'), { timezone: 'Asia/Seoul' }));
+    // 장 중: 10분 간격 연속 모니터링 (09:20~14:50)
+    activeTasks.push(cron.schedule('*/10 9-14 * * 1-5', () => runContinuousMonitor('KRX'), { timezone: 'Asia/Seoul' }));
+    // 장 마감 30분 전: 수익 실현 매도
+    activeTasks.push(cron.schedule('0 15 * * 1-5', () => runProfitTaking('KRX'), { timezone: 'Asia/Seoul' }));
+    console.log('[Scheduler] KRX 연속 모니터링 등록 (09:10 관망 후 → 10분 간격 → 15:00 수익실현)');
   }
 
-  // NYSE 스케줄 (timezone: America/New_York, 월~금 — 서머타임 자동)
+  // ── NYSE/NASDAQ 연속 모니터링 (America/New_York, 월~금) ──
   if (settings.scheduleNyse.enabled) {
-    const nyse = settings.scheduleNyse;
-    if (nyse.preOpen) {
-      activeTasks.push(cron.schedule('0 9 * * 1-5', () => runPhase('NYSE', 'PRE_OPEN'), { timezone: 'America/New_York' }));
-    }
-    if (nyse.postOpen) {
-      activeTasks.push(cron.schedule('0 10 * * 1-5', () => runPhase('NYSE', 'POST_OPEN'), { timezone: 'America/New_York' }));
-    }
-    if (nyse.preClose1h) {
-      activeTasks.push(cron.schedule('0 15 * * 1-5', () => runPhase('NYSE', 'PRE_CLOSE_1H'), { timezone: 'America/New_York' }));
-    }
-    if (nyse.preClose30m) {
-      activeTasks.push(cron.schedule('30 15 * * 1-5', () => runPhase('NYSE', 'PRE_CLOSE_30M'), { timezone: 'America/New_York' }));
-    }
-    console.log('[Scheduler] NYSE 스케줄 등록 완료');
+    // 장 시작 10분 관망 후: 뉴스 + 갭 분석 + 초기 매수
+    activeTasks.push(cron.schedule('40 9 * * 1-5', () => runMarketOpen('NYSE'), { timezone: 'America/New_York' }));
+    // 장 중: 10분 간격 연속 모니터링 (09:50~15:20)
+    activeTasks.push(cron.schedule('*/10 9-15 * * 1-5', () => runContinuousMonitor('NYSE'), { timezone: 'America/New_York' }));
+    // 장 마감 30분 전: 수익 실현 매도
+    activeTasks.push(cron.schedule('30 15 * * 1-5', () => runProfitTaking('NYSE'), { timezone: 'America/New_York' }));
+    console.log('[Scheduler] NYSE 연속 모니터링 등록 (09:40 관망 후 → 10분 간격 → 15:30 수익실현)');
   }
 
-  // 추천종목 자동 갱신: 매 시간 정각 (24시간, 시장/요일 무관)
+  // ── 추천종목 자동 갱신 (매 시간) ──
   if (settings.ollamaEnabled) {
     activeTasks.push(cron.schedule('0 * * * *', () => runRecommendationRefresh(), { timezone: 'Asia/Seoul' }));
     console.log('[Scheduler] 추천종목 자동 갱신 스케줄 등록 (매 1시간)');
   }
 
-  // 성과 평가: 매일 18:00 KST (월~금)
+  // ── DART 공시 감시 (10분 간격, KRX 장 시간) ──
+  if (settings.dartEnabled && settings.dartApiKey) {
+    activeTasks.push(cron.schedule('*/10 9-15 * * 1-5', () => checkDartDisclosures(), { timezone: 'Asia/Seoul' }));
+    console.log('[Scheduler] DART 공시 감시 스케줄 등록 (10분 간격, 09~15시)');
+  }
+
+  // ── 일일 성과 평가 (18:00 KST, 평일) ──
   activeTasks.push(cron.schedule('0 18 * * 1-5', async () => {
-    console.log('[Scheduler] 일일 성과 평가 시작');
-    try {
-      await evaluatePendingPerformance();
-    } catch (err: any) {
+    try { await evaluatePendingPerformance(); } catch (err: any) {
       console.log(`[Scheduler] 성과 평가 오류: ${err.message}`);
     }
   }, { timezone: 'Asia/Seoul' }));
   console.log('[Scheduler] 일일 성과 평가 스케줄 등록 (18:00 KST)');
 
-  // 관심종목 자동 정리: 매일 22:00 KST
+  // ── 관심종목 자동 정리 (22:00 KST, 매일) ──
   activeTasks.push(cron.schedule('0 22 * * *', () => cleanupWatchlist(), { timezone: 'Asia/Seoul' }));
   console.log('[Scheduler] 관심종목 자동 정리 스케줄 등록 (22:00 KST)');
 
-  // 가중치 최적화: 매주 일요일 06:00 KST
-  activeTasks.push(cron.schedule('0 6 * * 0', () => {
-    console.log('[Scheduler] 주간 가중치 최적화 시작');
-    try {
-      const result = optimizeWeights();
-      if (result.adjusted.length > 0) {
-        console.log(`[Scheduler] 가중치 조정: ${result.adjusted.length}개`);
-      } else {
-        console.log(`[Scheduler] 가중치 조정 없음: ${result.skipped || '변경 불필요'}`);
-      }
-    } catch (err: any) {
-      console.log(`[Scheduler] 가중치 최적화 오류: ${err.message}`);
-    }
-  }, { timezone: 'Asia/Seoul' }));
-  console.log('[Scheduler] 주간 가중치 최적화 스케줄 등록 (일요일 06:00 KST)');
+  // ── 주말 학습 (토요일 06:00 KST) ──
+  activeTasks.push(cron.schedule('0 6 * * 6', () => runWeekendLearning(), { timezone: 'Asia/Seoul' }));
+  console.log('[Scheduler] 주말 학습 스케줄 등록 (토요일 06:00 KST)');
 
   if (activeTasks.length > 0) {
     console.log(`[Scheduler] 총 ${activeTasks.length}개 스케줄 활성화`);
@@ -156,7 +143,32 @@ export function getSchedulerStatus() {
   };
 }
 
-/** 각 시점 실행 로직 */
+// ─── 유틸리티 함수 ──────────────────────────────────────
+
+/** 시장별 관련 마켓 코드 목록 (NYSE → NASDAQ/AMEX 포함) */
+function getMarketList(market: Market): string[] {
+  return market === 'NYSE' ? ['NYSE', 'NASDAQ', 'NASD', 'AMEX'] : [market];
+}
+
+/** 모니터링 대상 종목 조회 (관심종목 + 보유종목) */
+function getMonitorTargets(market: Market): any[] {
+  const markets = getMarketList(market);
+  const ph = markets.map(() => '?').join(',');
+  return queryAll(`
+    SELECT DISTINCT s.id, s.ticker, s.name, s.market FROM stocks s
+    LEFT JOIN watchlist w ON w.stock_id = s.id
+    LEFT JOIN transactions t ON t.stock_id = s.id
+    WHERE s.market IN (${ph})
+    GROUP BY s.id
+    HAVING COUNT(w.id) > 0 OR SUM(CASE WHEN t.type = 'BUY' THEN t.quantity ELSE -t.quantity END) > 0
+  `, markets);
+}
+
+// ─── 이전 4단계 핸들러는 연속 모니터링으로 대체됨 ────────────────
+// runPhase, handlePreOpen, handlePostOpen, handlePreClose1h, handlePreClose30m → 제거
+// 대체: runMarketOpen, runContinuousMonitor, runProfitTaking
+
+// [레거시] runPhase + 4단계 핸들러 — 연속 모니터링으로 대체됨 (호환성 유지)
 async function runPhase(market: Market, phase: SchedulePhase) {
   addLog(market, phase, 'started', `${phase} 시작`);
 
@@ -249,7 +261,7 @@ function getHoldingInfo(stockId: number, currentPrice: number) {
 }
 
 /** 공통: 종목 분석 + LLM 판단 */
-async function analyzeStock(stock: any, market: Market, phase: AnalysisPhase, candles: CandleData[], newsSummary?: string, sentimentScore?: number) {
+async function analyzeStock(stock: any, market: Market, phase: AnalysisPhase, candles: CandleData[], newsSummary?: string, sentimentScore?: number, marketContextStr?: string, intradayData?: { trend: 'UP' | 'DOWN' | 'FLAT'; shortRsi: number | null }) {
   const indicators = analyzeTechnical(candles);
   const holding = getHoldingInfo(stock.id, indicators.currentPrice);
 
@@ -266,12 +278,59 @@ async function analyzeStock(stock: any, market: Market, phase: AnalysisPhase, ca
   // 감성 점수 추가
   if (sentimentScore !== undefined) input.sentimentScore = sentimentScore;
 
+  // 시장 컨텍스트 추가
+  if (marketContextStr) input.marketContext = marketContextStr;
+
+  // 분봉 단기 추세 추가
+  if (intradayData) input.intradayTrend = intradayData;
+
+  // 갭 분석 추가
+  if (candles.length >= 2) {
+    const prevClose = candles[candles.length - 2].close;
+    const todayOpen = candles[candles.length - 1].open;
+    const gapPercent = Math.round(((todayOpen - prevClose) / prevClose) * 10000) / 100;
+    input.gapAnalysis = {
+      prevClose, todayOpen, gapPercent,
+      gapType: gapPercent >= 1 ? 'GAP_UP' : gapPercent <= -1 ? 'GAP_DOWN' : 'FLAT',
+    };
+  }
+
+  // 재무 데이터 + 수급 데이터 추가
+  try {
+    const fundamentals = await getKisFundamentals(stock.ticker);
+    if (fundamentals && (fundamentals.per || fundamentals.pbr)) input.fundamentals = fundamentals;
+  } catch {}
+  try {
+    const flow = await getInvestorFlow(stock.ticker, stock.market || market);
+    if (flow) input.investorFlow = flow;
+  } catch {}
+
   // 포트폴리오 리스크 컨텍스트 추가
   try {
     input.portfolioContext = getPortfolioRiskContext();
   } catch {}
 
-  const decision = await getTradeDecision(input, phase);
+  let decision;
+  try {
+    decision = await getTradeDecision(input, phase);
+  } catch (llmErr: any) {
+    // Ollama 다운 → 기술적 분석만으로 fallback 판단
+    await logSystemEvent('WARN', 'OLLAMA_DOWN',
+      `LLM 연결 실패 — 기술적 분석 fallback: ${stock.ticker}`,
+      llmErr.message, stock.ticker);
+
+    const techSignal = input.indicators.technicalSignal;
+    decision = {
+      signal: techSignal,
+      confidence: techSignal === 'HOLD' ? 30 : 50, // fallback은 낮은 신뢰도
+      targetPrice: null, stopLossPrice: null, entryPrice: null,
+      suggestedRatio: 30, urgency: 'NO_RUSH' as const,
+      reasoning: `[LLM 미연결 fallback] 기술적 분석 기반: ${input.indicators.technicalReasons.join(', ')}`,
+      keyFactors: input.indicators.technicalReasons,
+      risks: ['LLM 미연결로 인한 제한적 분석'],
+      holdingPeriod: 'SHORT_TERM' as const,
+    };
+  }
 
   // trade_signals에 저장
   const { lastId: signalId } = execute(
@@ -290,6 +349,15 @@ async function analyzeStock(stock: any, market: Market, phase: AnalysisPhase, ca
   // 성과 추적 등록
   if (signalId > 0) {
     registerSignalForTracking(signalId);
+  }
+
+  // WAIT_DIP 판단 → 예약 매수 생성
+  if (decision.signal === 'BUY' && decision.urgency === 'WAIT_DIP' && decision.entryPrice) {
+    createReservedOrder(
+      stock.id, stock.ticker, stock.market || market,
+      'BUY', decision.entryPrice, 'BELOW', 0,
+      `LLM WAIT_DIP: ${decision.reasoning?.slice(0, 100)}`
+    );
   }
 
   return decision;
@@ -336,18 +404,27 @@ async function handlePostOpen(market: Market, stocks: any[]) {
     return;
   }
 
-  // 자동매매 활성화된 관심종목의 오늘 BUY 신호 조회
+  // 오늘 BUY 신호 조회: 관심종목(auto_trade) + 보유종목 모두 포함
+  const markets = market === 'NYSE' ? ['NYSE', 'NASDAQ', 'NASD', 'AMEX'] : [market];
+  const ph = markets.map(() => '?').join(',');
   const buySignals = queryAll(
     `SELECT ts.*, s.ticker, s.name, s.market
      FROM trade_signals ts
      JOIN stocks s ON s.id = ts.stock_id
-     JOIN watchlist w ON w.stock_id = s.id AND w.auto_trade_enabled = 1
      WHERE ts.signal_type = 'BUY'
      AND ts.confidence >= 60
      AND date(ts.created_at) = date('now')
-     AND s.market = ?
+     AND s.market IN (${ph})
+     AND (
+       EXISTS (SELECT 1 FROM watchlist w WHERE w.stock_id = s.id AND w.auto_trade_enabled = 1)
+       OR EXISTS (
+         SELECT 1 FROM transactions t WHERE t.stock_id = s.id
+         GROUP BY t.stock_id
+         HAVING SUM(CASE WHEN t.type = 'BUY' THEN t.quantity ELSE -t.quantity END) > 0
+       )
+     )
      ORDER BY ts.confidence DESC`,
-    [market]
+    markets
   );
 
   for (const signal of buySignals) {
@@ -388,7 +465,7 @@ async function handlePostOpen(market: Market, stocks: any[]) {
       addLog(market, 'POST_OPEN', 'error', `매수 오류: ${signal.ticker} — ${err.message}`);
     }
 
-    await sleep(500); // KIS API rate limit
+    // Rate limit은 apiQueue에서 관리
   }
 }
 
@@ -440,18 +517,24 @@ async function handlePreClose30m(market: Market, stocks: any[]) {
     return;
   }
 
-  // 자동매매 활성화된 관심종목의 오늘 SELL 신호 조회
+  // 오늘 SELL 신호 조회: 보유종목 전체 대상
+  const sellMarkets = market === 'NYSE' ? ['NYSE', 'NASDAQ', 'NASD', 'AMEX'] : [market];
+  const sellPh = sellMarkets.map(() => '?').join(',');
   const sellSignals = queryAll(
     `SELECT ts.*, s.ticker, s.name, s.market
      FROM trade_signals ts
      JOIN stocks s ON s.id = ts.stock_id
-     JOIN watchlist w ON w.stock_id = s.id AND w.auto_trade_enabled = 1
      WHERE ts.signal_type = 'SELL'
      AND ts.confidence >= 60
      AND date(ts.created_at) = date('now')
-     AND s.market = ?
+     AND s.market IN (${sellPh})
+     AND EXISTS (
+       SELECT 1 FROM transactions t WHERE t.stock_id = s.id
+       GROUP BY t.stock_id
+       HAVING SUM(CASE WHEN t.type = 'BUY' THEN t.quantity ELSE -t.quantity END) > 0
+     )
      ORDER BY ts.confidence DESC`,
-    [market]
+    sellMarkets
   );
 
   for (const signal of sellSignals) {
@@ -640,6 +723,73 @@ async function fetchOverseasCandles(
       volume: Number(item.tvol),
     }))
     .sort((a: CandleData, b: CandleData) => (a.time > b.time ? 1 : -1));
+}
+
+/** 국내주식 분봉(5분봉) 조회 — 장중 단기 추세 분석용 */
+async function fetchIntradayCandles(ticker: string, market: string): Promise<{ trend: 'UP' | 'DOWN' | 'FLAT'; shortRsi: number | null; data: CandleData[] }> {
+  const defaultResult = { trend: 'FLAT' as const, shortRsi: null, data: [] };
+  if (market !== 'KRX') return defaultResult; // 해외는 분봉 미지원
+
+  try {
+    const { appKey, appSecret, baseUrl, isVirtual } = getKisConfig();
+    const token = await getAccessToken();
+    const now = new Date();
+    const timeStr = now.getHours().toString().padStart(2, '0') + now.getMinutes().toString().padStart(2, '0') + '00';
+
+    const params = new URLSearchParams({
+      fid_cond_mrkt_div_code: 'J',
+      fid_input_iscd: ticker,
+      fid_input_hour_1: timeStr,
+      fid_pw_data_incu_yn: 'N',
+      fid_etc_cls_code: '5', // 5분봉
+    });
+
+    const trId = isVirtual ? 'FHKST03010200' : 'FHKST03010200';
+    const response = await fetch(
+      `${baseUrl}/uapi/domestic-stock/v1/quotations/inquire-time-itemchartprice?${params}`,
+      {
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+          appkey: appKey, appsecret: appSecret,
+          tr_id: trId, custtype: 'P',
+        },
+      }
+    );
+
+    if (!response.ok) return defaultResult;
+    const data: any = await response.json();
+    if (data.rt_cd !== '0') return defaultResult;
+
+    const candles: CandleData[] = (data.output2 || [])
+      .filter((item: any) => item.stck_cntg_hour && Number(item.stck_oprc) > 0)
+      .slice(0, 30)
+      .map((item: any) => ({
+        time: item.stck_cntg_hour,
+        open: Number(item.stck_oprc),
+        high: Number(item.stck_hgpr),
+        low: Number(item.stck_lwpr),
+        close: Number(item.stck_prpr),
+        volume: Number(item.cntg_vol),
+      }));
+
+    if (candles.length < 10) return defaultResult;
+
+    // 단기 추세 판단: 최근 5개 vs 이전 5개 평균 close 비교
+    const recent5 = candles.slice(0, 5).reduce((s, c) => s + c.close, 0) / 5;
+    const prev5 = candles.slice(5, 10).reduce((s, c) => s + c.close, 0) / 5;
+    const trendRatio = (recent5 - prev5) / prev5 * 100;
+    const trend = trendRatio > 0.3 ? 'UP' : trendRatio < -0.3 ? 'DOWN' : 'FLAT';
+
+    // 단기 RSI (14개 분봉 기준)
+    const closes = candles.map(c => c.close).reverse();
+    const { calcRSI } = require('./technicalAnalysis');
+    const shortRsi = closes.length >= 15 ? calcRSI(closes, 14) : null;
+
+    return { trend, shortRsi, data: candles };
+  } catch {
+    return defaultResult;
+  }
 }
 
 /** 국내주식 거래량 상위 종목 검색 */
@@ -905,8 +1055,606 @@ async function runRecommendationRefresh() {
   }
 }
 
+/** DART 공시 실시간 감시 */
+async function checkDartDisclosures() {
+  const settings = getSettings();
+  if (!settings.dartEnabled || !settings.dartApiKey) return;
+
+  // 관심종목 + 보유종목의 KRX 종목만
+  const stocks = queryAll(`
+    SELECT DISTINCT s.id, s.ticker, s.name FROM stocks s
+    LEFT JOIN watchlist w ON w.stock_id = s.id
+    LEFT JOIN transactions t ON t.stock_id = s.id
+    WHERE s.market = 'KRX' AND length(s.ticker) = 6
+    GROUP BY s.id
+    HAVING COUNT(w.id) > 0 OR SUM(CASE WHEN t.type = 'BUY' THEN t.quantity ELSE -t.quantity END) > 0
+  `);
+
+  for (const stock of stocks) {
+    try {
+      const disclosures = await getDartDisclosures(stock.ticker, 1); // 최근 1일
+      for (const d of disclosures) {
+        // 이미 저장된 공시인지 확인 (제목+날짜 기준)
+        const existing = queryOne(
+          'SELECT id FROM dart_disclosures WHERE ticker = ? AND title = ? AND report_date = ?',
+          [stock.ticker, d.title, d.reportDate]
+        );
+        if (existing) continue;
+
+        // 새 공시 저장
+        execute(
+          'INSERT INTO dart_disclosures (stock_id, ticker, title, report_date, disclosure_type, url, is_important) VALUES (?, ?, ?, ?, ?, ?, ?)',
+          [stock.id, stock.ticker, d.title, d.reportDate, d.disclosureType, d.url, d.isImportant ? 1 : 0]
+        );
+
+        // 뉴스 캐시에도 추가 (LLM 분석에 반영)
+        execute(
+          'INSERT INTO news_cache (ticker, title, summary, source_url, sentiment) VALUES (?, ?, ?, ?, ?)',
+          [stock.ticker, `[공시] ${d.title}`, d.isImportant ? '주요공시' : '일반공시', d.url, '']
+        );
+
+        // 중요 공시면 알림
+        if (d.isImportant) {
+          createNotification({
+            type: 'DART' as any,
+            title: `공시 감지: ${stock.ticker}`,
+            message: `${stock.name}: ${d.title}`,
+            ticker: stock.ticker,
+            market: 'KRX',
+            actionUrl: d.url,
+          });
+          console.log(`[DART] 중요 공시: ${stock.ticker} ${stock.name} — ${d.title}`);
+        }
+      }
+      await sleep(200); // DART API rate limit
+    } catch {}
+  }
+}
+
 function sleep(ms: number) {
   return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+// ─── 실시간 연속 매매 시스템 ─────────────────────────────────
+
+/** 장 시작 전: 뉴스 수집 + 초기 분석 + 즉시 매수 */
+async function runMarketOpen(market: Market) {
+  addLog(market, 'PRE_OPEN', 'started', '장 시작 10분 관망 후 분석 시작');
+  const settings = getSettings();
+
+  // 글로벌 시장 컨텍스트 조회
+  let marketContextStr: string | undefined;
+  try {
+    const ctx = await getMarketContext();
+    marketContextStr = formatMarketContext(ctx, market);
+    if (marketContextStr) console.log(`[Scheduler] [${market}] 시장 동향:\n  ${marketContextStr}`);
+  } catch {}
+
+  const markets = market === 'NYSE' ? ['NYSE', 'NASDAQ', 'NASD', 'AMEX'] : [market];
+  const ph = markets.map(() => '?').join(',');
+
+  const stocks = queryAll(`
+    SELECT DISTINCT s.id, s.ticker, s.name, s.market FROM stocks s
+    LEFT JOIN watchlist w ON w.stock_id = s.id
+    LEFT JOIN transactions t ON t.stock_id = s.id
+    WHERE (w.market IN (${ph}) OR s.market IN (${ph}))
+    GROUP BY s.id
+    HAVING COUNT(w.id) > 0 OR SUM(CASE WHEN t.type = 'BUY' THEN t.quantity ELSE -t.quantity END) > 0
+  `, [...markets, ...markets]);
+
+  if (stocks.length === 0) {
+    addLog(market, 'PRE_OPEN', 'completed', '분석 대상 종목 없음');
+    return;
+  }
+
+  let buyCount = 0;
+  for (const stock of stocks) {
+    try {
+      const news = await collectAndCacheNews(stock.ticker, stock.name, stock.market || market);
+      let newsSummary: string | undefined;
+      let sentimentScore: number | undefined;
+      if (news.length > 0) {
+        const sentiment = await summarizeNewsWithAI(news, stock.ticker);
+        newsSummary = sentiment.summary;
+        sentimentScore = sentiment.sentimentScore;
+      }
+
+      const candles = await fetchCandleData(stock.ticker, market);
+      if (!candles || candles.length < 30) continue;
+
+      if (settings.ollamaEnabled) {
+        const decision = await analyzeStock(stock, market, 'MARKET_OPEN', candles, newsSummary, sentimentScore, marketContextStr);
+
+        // 1차 분할 매수 (30%) — 시초가 관망 후 즉시
+        if (decision.signal === 'BUY' && decision.confidence >= 60 && settings.autoTradeEnabled) {
+          const alreadyOrdered = queryOne(
+            "SELECT id FROM auto_trades WHERE stock_id = ? AND order_type = 'BUY' AND date(created_at) = date('now')",
+            [stock.id]
+          );
+          if (!alreadyOrdered) {
+            try {
+              // 30% 수량만 매수 (1차 분할)
+              const price = await getCurrentPrice(stock.ticker, stock.market as any);
+              if (price && price > 0) {
+                const fullQty = calculateOrderQuantity(price, stock.market, settings.autoTradeMaxPerStock);
+                const splitQty = Math.max(1, Math.floor(fullQty * 0.3));
+                const result = await executeOrder({
+                  stockId: stock.id, ticker: stock.ticker, market: stock.market as any,
+                  orderType: 'BUY', quantity: splitQty, price: 0, signalId: 0,
+                });
+                if (result.success) {
+                  // split_stage=1 기록
+                  execute("UPDATE auto_trades SET split_stage = 1 WHERE stock_id = ? AND order_type = 'BUY' AND date(created_at) = date('now') AND status = 'FILLED'", [stock.id]);
+                  buyCount++;
+                  addLog(market, 'PRE_OPEN', 'completed',
+                    `1차 분할매수(30%): ${stock.ticker} ${splitQty}주 @ ${result.price?.toLocaleString()} (신뢰도 ${decision.confidence}%)`);
+                  createNotification({
+                    type: 'AUTO_TRADE', title: '1차 분할 매수 (30%)',
+                    message: `${stock.ticker} (${stock.name}) ${splitQty}주 매수 — 2차(40%) 10분 후 추세 확인`,
+                    ticker: stock.ticker, market, actionUrl: '/transactions',
+                  });
+                }
+              }
+            } catch {}
+            // Rate limit은 apiQueue에서 관리
+          }
+        }
+      }
+      await sleep(100);
+    } catch (err: any) {
+      addLog(market, 'PRE_OPEN', 'error', `${stock.ticker} 분석 오류: ${err.message}`);
+    }
+  }
+  addLog(market, 'PRE_OPEN', 'completed', `장 시작 분석 완료: ${stocks.length}종목 분석, ${buyCount}건 매수`);
+}
+
+/** 위험 감지 즉시 매도 판단 */
+function checkEmergencySell(holding: any, currentPrice: number, stockId: number): { sell: boolean; reason: string } {
+  const settings = getSettings();
+  const stopLoss = -(settings.stopLossPercent || 3);
+
+  // 1. 손절: 매입가 대비 -N% 이상 (기본 -3%)
+  if (holding.unrealizedPnLPercent <= stopLoss) {
+    return { sell: true, reason: `손절 (${holding.unrealizedPnLPercent.toFixed(1)}%, 기준 ${stopLoss}%)` };
+  }
+
+  // 2. 최근 신호의 stopLossPrice 이탈
+  const lastSignal = queryOne(
+    'SELECT indicators_json FROM trade_signals WHERE stock_id = ? ORDER BY created_at DESC LIMIT 1',
+    [stockId]
+  );
+  if (lastSignal?.indicators_json) {
+    try {
+      const indicators = JSON.parse(lastSignal.indicators_json);
+      if (indicators.stopLossPrice && currentPrice <= indicators.stopLossPrice) {
+        return { sell: true, reason: `손절가 이탈 (${currentPrice} <= ${indicators.stopLossPrice})` };
+      }
+    } catch {}
+  }
+
+  return { sell: false, reason: '' };
+}
+
+/** 장 중 10분 간격 연속 모니터링 — 급변 감지 + 즉시 매매 */
+async function runContinuousMonitor(market: Market) {
+  const settings = getSettings();
+  const markets = market === 'NYSE' ? ['NYSE', 'NASDAQ', 'NASD', 'AMEX'] : [market];
+  const ph = markets.map(() => '?').join(',');
+
+  // 모니터링 대상: 관심종목 + 보유종목
+  const stocks = queryAll(`
+    SELECT DISTINCT s.id, s.ticker, s.name, s.market FROM stocks s
+    LEFT JOIN watchlist w ON w.stock_id = s.id
+    LEFT JOIN transactions t ON t.stock_id = s.id
+    WHERE s.market IN (${ph})
+    GROUP BY s.id
+    HAVING COUNT(w.id) > 0 OR SUM(CASE WHEN t.type = 'BUY' THEN t.quantity ELSE -t.quantity END) > 0
+  `, markets);
+
+  if (stocks.length === 0) return;
+
+  // === 분할 매수 2차/3차 체크 ===
+  if (settings.autoTradeEnabled) {
+    const pendingSplits = queryAll(`
+      SELECT at.*, s.ticker, s.name, s.market, at.split_stage, at.price as buy_price
+      FROM auto_trades at
+      JOIN stocks s ON s.id = at.stock_id
+      WHERE at.order_type = 'BUY' AND at.status = 'FILLED'
+      AND date(at.created_at) = date('now')
+      AND at.split_stage IN (1, 2)
+      AND s.market IN (${ph})
+    `, markets);
+
+    for (const split of pendingSplits) {
+      try {
+        const currentPrice = await getCurrentPrice(split.ticker, split.market as any);
+        if (!currentPrice) continue;
+
+        // 가격이 매수가 이하면 분할 취소 (추세 이탈)
+        if (currentPrice < split.buy_price * 0.98) {
+          addLog(market, 'POST_OPEN', 'completed', `분할매수 취소: ${split.ticker} — 가격 하락 (${split.buy_price}→${currentPrice})`);
+          continue;
+        }
+
+        const nextStage = split.split_stage + 1;
+        const ratio = nextStage === 2 ? 0.4 : 0.3; // 2차 40%, 3차 30%
+        const fullQty = calculateOrderQuantity(currentPrice, split.market, settings.autoTradeMaxPerStock);
+        const splitQty = Math.max(1, Math.floor(fullQty * ratio));
+
+        const result = await executeOrder({
+          stockId: split.stock_id, ticker: split.ticker, market: split.market as any,
+          orderType: 'BUY', quantity: splitQty, price: 0, signalId: 0,
+        });
+
+        if (result.success) {
+          // 최신 auto_trade 레코드에 split_stage 기록
+          execute(
+            "UPDATE auto_trades SET split_stage = ? WHERE stock_id = ? AND order_type = 'BUY' AND date(created_at) = date('now') AND status = 'FILLED' ORDER BY id DESC LIMIT 1",
+            [nextStage, split.stock_id]
+          );
+          addLog(market, 'POST_OPEN', 'completed',
+            `${nextStage}차 분할매수(${Math.round(ratio * 100)}%): ${split.ticker} ${splitQty}주 @ ${currentPrice.toLocaleString()}`);
+          createNotification({
+            type: 'AUTO_TRADE', title: `${nextStage}차 분할 매수 (${Math.round(ratio * 100)}%)`,
+            message: `${split.ticker} ${splitQty}주 추가 매수 — 추세 유지 확인`,
+            ticker: split.ticker, market, actionUrl: '/transactions',
+          });
+        }
+        // Rate limit은 apiQueue에서 관리
+      } catch {}
+    }
+  }
+
+  // 시세 일괄 조회
+  const tickers = stocks.map((s: any) => s.ticker);
+  const tickerMarkets = new Map<string, string>();
+  stocks.forEach((s: any) => tickerMarkets.set(s.ticker, s.market));
+
+  let prices: Map<string, number>;
+  try {
+    prices = await getMultipleStockPrices(tickers, tickerMarkets);
+  } catch { return; }
+
+  // WebSocket으로 실시간 시세 브로드캐스트
+  if (prices.size > 0) {
+    const broadcast = (global as any).__wsBroadcast;
+    if (broadcast) {
+      const priceData: Record<string, number> = {};
+      prices.forEach((price, ticker) => { priceData[ticker] = price; });
+      broadcast({ type: 'prices', market, data: priceData, timestamp: new Date().toISOString() });
+    }
+  }
+
+  let actions = 0;
+  for (const stock of stocks) {
+    const currentPrice = prices.get(stock.ticker);
+    if (!currentPrice) continue;
+
+    const holding = getHoldingInfo(stock.id, currentPrice);
+
+    // === 보유 종목: 위험 감지 → LLM 없이 즉시 매도 ===
+    if (holding && holding.quantity > 0 && settings.autoTradeEnabled) {
+      const emergency = checkEmergencySell(holding, currentPrice, stock.id);
+      if (emergency.sell) {
+        try {
+          const result = await executeOrder({
+            stockId: stock.id, ticker: stock.ticker, market: stock.market as any,
+            orderType: 'SELL', quantity: holding.quantity, price: 0, signalId: 0,
+          });
+          if (result.success) {
+            actions++;
+            addLog(market, 'POST_OPEN', 'completed', `긴급 매도: ${stock.ticker} ${holding.quantity}주 — ${emergency.reason}`);
+            createNotification({
+              type: 'AUTO_TRADE', title: '긴급 매도 실행',
+              message: `${stock.ticker} (${stock.name}) ${holding.quantity}주 긴급 매도 — ${emergency.reason}`,
+              ticker: stock.ticker, market, actionUrl: '/transactions',
+            });
+          }
+        } catch {}
+        // Rate limit은 apiQueue에서 관리
+        continue;
+      }
+    }
+
+    // === 가격 변동률 체크 (전회 대비 2% 이상이면 LLM 분석) ===
+    const prevPrice = priceCache.get(stock.ticker);
+    const changeRate = prevPrice ? Math.abs((currentPrice - prevPrice) / prevPrice * 100) : 999;
+    priceCache.set(stock.ticker, currentPrice);
+
+    if (changeRate < 2) continue; // 변동 적으면 스킵
+
+    if (!settings.ollamaEnabled) continue;
+
+    try {
+      const candles = await fetchCandleData(stock.ticker, market);
+      if (!candles || candles.length < 30) continue;
+
+      // 분봉 단기 추세 조회 (KRX만)
+      const intraday = await fetchIntradayCandles(stock.ticker, stock.market || market);
+
+      const decision = await analyzeStock(stock, market, 'INTRADAY', candles, undefined, undefined, undefined, intraday);
+
+      if (settings.autoTradeEnabled) {
+        if (decision.signal === 'BUY' && decision.confidence >= 60) {
+          const alreadyOrdered = queryOne(
+            "SELECT id FROM auto_trades WHERE stock_id = ? AND order_type = 'BUY' AND date(created_at) = date('now')",
+            [stock.id]
+          );
+          if (!alreadyOrdered) {
+            const result = await executeOrder({
+              stockId: stock.id, ticker: stock.ticker, market: stock.market as any,
+              orderType: 'BUY', quantity: 0, price: 0, signalId: 0,
+            });
+            if (result.success) {
+              actions++;
+              addLog(market, 'POST_OPEN', 'completed',
+                `장중 매수: ${stock.ticker} ${result.quantity}주 (변동 ${changeRate.toFixed(1)}%, 신뢰도 ${decision.confidence}%)`);
+              createNotification({
+                type: 'AUTO_TRADE', title: '장중 매수',
+                message: `${stock.ticker} ${result.quantity}주 매수 (가격 ${changeRate.toFixed(1)}% 변동 감지, 신뢰도 ${decision.confidence}%)`,
+                ticker: stock.ticker, market, actionUrl: '/transactions',
+              });
+            }
+            // Rate limit은 apiQueue에서 관리
+          }
+        } else if (decision.signal === 'SELL' && decision.confidence >= 60 && holding && holding.quantity > 0) {
+          const result = await executeOrder({
+            stockId: stock.id, ticker: stock.ticker, market: stock.market as any,
+            orderType: 'SELL', quantity: holding.quantity, price: 0, signalId: 0,
+          });
+          if (result.success) {
+            actions++;
+            addLog(market, 'POST_OPEN', 'completed',
+              `장중 매도: ${stock.ticker} ${holding.quantity}주 (변동 ${changeRate.toFixed(1)}%, 신뢰도 ${decision.confidence}%)`);
+            createNotification({
+              type: 'AUTO_TRADE', title: '장중 매도',
+              message: `${stock.ticker} ${holding.quantity}주 매도 (가격 ${changeRate.toFixed(1)}% 변동 감지, 신뢰도 ${decision.confidence}%)`,
+              ticker: stock.ticker, market, actionUrl: '/transactions',
+            });
+          }
+          // Rate limit은 apiQueue에서 관리
+        }
+      }
+    } catch (err: any) {
+      addLog(market, 'POST_OPEN', 'error', `${stock.ticker} 장중 분석 오류: ${err.message}`);
+    }
+    await sleep(100);
+  }
+
+  if (actions > 0) {
+    console.log(`[Scheduler] [${market}] 장중 모니터링: ${actions}건 매매 실행`);
+  }
+
+  // 미체결 주문 관리 (국내만)
+  if (market === 'KRX') {
+    try { await manageUnfilledOrders(); } catch {}
+  }
+
+  // 예약 주문 체크
+  try { await checkReservedOrders(prices); } catch {}
+}
+
+/** 장 마감 30분 전: 수익 종목 이익 실현 매도 */
+async function runProfitTaking(market: Market) {
+  addLog(market, 'PRE_CLOSE_30M', 'started', '수익 실현 매도 시작');
+  const settings = getSettings();
+  if (!settings.autoTradeEnabled) {
+    addLog(market, 'PRE_CLOSE_30M', 'completed', '자동매매 비활성화 — 스킵');
+    return;
+  }
+
+  const markets = market === 'NYSE' ? ['NYSE', 'NASDAQ', 'NASD', 'AMEX'] : [market];
+  const ph = markets.map(() => '?').join(',');
+
+  const holdingStocks = queryAll(`
+    SELECT s.id, s.ticker, s.name, s.market
+    FROM stocks s
+    JOIN transactions t ON t.stock_id = s.id
+    WHERE s.market IN (${ph})
+    GROUP BY s.id
+    HAVING SUM(CASE WHEN t.type = 'BUY' THEN t.quantity ELSE -t.quantity END) > 0
+  `, markets);
+
+  let sellCount = 0;
+  for (const stock of holdingStocks) {
+    try {
+      const currentPrice = await getCurrentPrice(stock.ticker, stock.market as any);
+      if (!currentPrice) continue;
+
+      const holding = getHoldingInfo(stock.id, currentPrice);
+      if (!holding || holding.quantity <= 0) continue;
+
+      const profitRate = holding.unrealizedPnLPercent;
+
+      if (profitRate >= 10) {
+        // 10% 이상 수익: 50% 부분 매도
+        const sellQty = Math.floor(holding.quantity * 0.5);
+        if (sellQty > 0) {
+          const result = await executeOrder({
+            stockId: stock.id, ticker: stock.ticker, market: stock.market as any,
+            orderType: 'SELL', quantity: sellQty, price: 0, signalId: 0,
+          });
+          if (result.success) {
+            sellCount++;
+            addLog(market, 'PRE_CLOSE_30M', 'completed',
+              `수익실현 50% 매도: ${stock.ticker} ${sellQty}주 (수익률 +${profitRate.toFixed(1)}%)`);
+            createNotification({
+              type: 'AUTO_TRADE', title: '수익 실현 매도',
+              message: `${stock.ticker} ${sellQty}주 부분 매도 (수익률 +${profitRate.toFixed(1)}%, 50% 이익 확보)`,
+              ticker: stock.ticker, market, actionUrl: '/transactions',
+            });
+          }
+          // Rate limit은 apiQueue에서 관리
+        }
+      } else if (profitRate >= 5 && settings.ollamaEnabled) {
+        // 5~10% 수익: LLM 판단
+        const candles = await fetchCandleData(stock.ticker, market);
+        if (!candles || candles.length < 30) continue;
+
+        const decision = await analyzeStock(stock, market, 'PROFIT_TAKING', candles);
+        if (decision.signal === 'SELL') {
+          const ratio = decision.suggestedRatio || 30;
+          const sellQty = Math.floor(holding.quantity * ratio / 100);
+          if (sellQty > 0) {
+            const result = await executeOrder({
+              stockId: stock.id, ticker: stock.ticker, market: stock.market as any,
+              orderType: 'SELL', quantity: sellQty, price: 0, signalId: 0,
+            });
+            if (result.success) {
+              sellCount++;
+              addLog(market, 'PRE_CLOSE_30M', 'completed',
+                `LLM 매도: ${stock.ticker} ${sellQty}주 (수익률 +${profitRate.toFixed(1)}%, ${ratio}%)`);
+            }
+            // Rate limit은 apiQueue에서 관리
+          }
+        }
+      }
+    } catch (err: any) {
+      addLog(market, 'PRE_CLOSE_30M', 'error', `${stock.ticker} 수익실현 오류: ${err.message}`);
+    }
+  }
+
+  // 일일 리포트
+  const todaySignals = queryAll(
+    "SELECT signal_type, COUNT(*) as cnt FROM trade_signals WHERE date(created_at) = date('now') AND stock_id IN (SELECT id FROM stocks WHERE market IN (" + ph + ")) GROUP BY signal_type",
+    markets
+  );
+  const todayTrades = queryAll(
+    "SELECT order_type, COUNT(*) as cnt FROM auto_trades WHERE date(created_at) = date('now') AND status = 'FILLED' GROUP BY order_type",
+    []
+  );
+  const signalSummary = todaySignals.map((s: any) => `${s.signal_type}: ${s.cnt}건`).join(', ');
+  const tradeSummary = todayTrades.map((t: any) => `${t.order_type}: ${t.cnt}건`).join(', ');
+
+  addLog(market, 'PRE_CLOSE_30M', 'completed', `일일 마감 — 신호: ${signalSummary || '없음'} / 체결: ${tradeSummary || '없음'} / 수익실현: ${sellCount}건`);
+  createNotification({
+    type: 'DAILY_REPORT', title: `${market} 일일 리포트`,
+    message: `신호: ${signalSummary || '없음'}\n체결: ${tradeSummary || '없음'}\n수익 실현: ${sellCount}건`,
+    market, actionUrl: '/portfolio',
+  });
+}
+
+/** 주말 학습: 성과 평가 + 가중치 최적화 + 리포트 생성 */
+async function runWeekendLearning() {
+  console.log('[Scheduler] 주말 학습 시작');
+
+  // 1. 미평가 신호 성과 평가
+  try { await evaluatePendingPerformance(); } catch {}
+
+  // 2. 가중치 최적화
+  let weightChanges = '';
+  try {
+    const result = optimizeWeights();
+    if (result.adjusted.length > 0) {
+      weightChanges = result.adjusted.map((a: any) => `${a.type}: ${a.oldWeight.toFixed(2)}→${a.newWeight.toFixed(2)}`).join(', ');
+    }
+  } catch {}
+
+  // 2.5 이번 주 매매 종목 백테스트
+  let backtestSummary = '';
+  try {
+    const { runBacktest } = require('./backtester');
+    const tradedTickers = queryAll(
+      "SELECT DISTINCT s.ticker, s.market FROM auto_trades at JOIN stocks s ON s.id = at.stock_id WHERE at.status = 'FILLED' AND at.created_at >= datetime('now', '-7 days')"
+    );
+    const btResults: string[] = [];
+    for (const t of tradedTickers.slice(0, 5)) { // 최대 5종목
+      try {
+        const candles = await fetchCandleData(t.ticker, t.market === 'KRX' ? 'KRX' : 'NYSE');
+        if (candles && candles.length >= 60) {
+          const result = runBacktest({ name: `auto-${t.ticker}`, ticker: t.ticker, candles, initialCapital: 2000000 });
+          btResults.push(`${t.ticker}: 승률 ${(result.winRate * 100).toFixed(0)}%, 수익률 ${result.totalReturn.toFixed(1)}%`);
+        }
+      } catch {}
+    }
+    if (btResults.length > 0) backtestSummary = btResults.join(' | ');
+
+    // A/B 전략 비교 (현재 가중치 vs 균등 가중치)
+    if (tradedTickers.length > 0) {
+      const { runABCompare } = require('./backtester');
+      const { loadWeights } = require('./weightOptimizer');
+      const currentWeights = loadWeights();
+      const equalWeights: any = {};
+      for (const key of Object.keys(currentWeights)) equalWeights[key] = 1.0;
+
+      const firstTicker = tradedTickers[0];
+      const candles = await fetchCandleData(firstTicker.ticker, firstTicker.market === 'KRX' ? 'KRX' : 'NYSE');
+      if (candles && candles.length >= 60) {
+        const abResult = runABCompare(candles, firstTicker.ticker, currentWeights, equalWeights, '최적화 전략', '기본 전략');
+        backtestSummary += ` | A/B비교(${firstTicker.ticker}): ${abResult.winner === 'A' ? '최적화 승' : abResult.winner === 'B' ? '기본 승' : '무승부'}`;
+        console.log(`[Scheduler] A/B 백테스트: ${abResult.summary}`);
+      }
+    }
+  } catch {}
+
+  // 3. 주간 통계 수집
+  const weekStats: any = {
+    totalSignals: queryOne("SELECT COUNT(*) as cnt FROM trade_signals WHERE created_at >= datetime('now', '-7 days')")?.cnt || 0,
+    buySignals: queryOne("SELECT COUNT(*) as cnt FROM trade_signals WHERE signal_type='BUY' AND created_at >= datetime('now', '-7 days')")?.cnt || 0,
+    sellSignals: queryOne("SELECT COUNT(*) as cnt FROM trade_signals WHERE signal_type='SELL' AND created_at >= datetime('now', '-7 days')")?.cnt || 0,
+    tradesExecuted: queryOne("SELECT COUNT(*) as cnt FROM auto_trades WHERE status='FILLED' AND created_at >= datetime('now', '-7 days')")?.cnt || 0,
+    avgConfidence: queryOne("SELECT AVG(confidence) as avg FROM trade_signals WHERE created_at >= datetime('now', '-7 days')")?.avg || 0,
+    weightChanges,
+    backtestSummary,
+  };
+
+  // 4. Ollama로 학습 리포트 생성
+  const settings = getSettings();
+  let report = `주간 요약: 신호 ${weekStats.totalSignals}건 (BUY ${weekStats.buySignals}/SELL ${weekStats.sellSignals}), 체결 ${weekStats.tradesExecuted}건, 평균신뢰도 ${Math.round(weekStats.avgConfidence)}%`;
+
+  if (settings.ollamaEnabled) {
+    try {
+      const prompt = `이번 주 자동매매 트레이딩 결과를 분석하고 다음 주 전략을 제안하세요:
+- 총 매매 신호: ${weekStats.totalSignals}건 (BUY ${weekStats.buySignals}건, SELL ${weekStats.sellSignals}건)
+- 실제 체결: ${weekStats.tradesExecuted}건
+- 평균 신뢰도: ${Math.round(weekStats.avgConfidence)}%
+- 가중치 변경: ${weekStats.weightChanges || '없음'}
+
+3~5문장으로 이번 주 성과를 평가하고, 다음 주 개선할 점 3가지를 제안하세요.`;
+
+      const res = await fetch(`${settings.ollamaUrl}/api/generate`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          model: settings.ollamaModel, prompt, stream: false,
+          options: { temperature: 0.5, num_predict: 800 },
+        }),
+      });
+      if (res.ok) {
+        const data: any = await res.json();
+        if (data.response?.trim()) report = data.response.trim();
+      }
+    } catch {}
+  }
+
+  // 5. DB 저장 + 알림
+  execute('INSERT INTO weekly_reports (report, stats_json, weight_changes_json) VALUES (?, ?, ?)',
+    [report, JSON.stringify(weekStats), weekStats.weightChanges]);
+
+  createNotification({
+    type: 'LEARNING' as any, title: '주간 학습 완료',
+    message: report.slice(0, 200) + (report.length > 200 ? '...' : ''),
+    actionUrl: '/feedback',
+  });
+
+  // 6. LoRA 학습 데이터 자동 체크/생성
+  const loraCount = getLoraDataCount();
+  if (loraCount >= 5000) {
+    try {
+      const loraResult = generateLoraDataset();
+      console.log(`[Scheduler] ${loraResult.message}`);
+      createNotification({
+        type: 'LEARNING' as any,
+        title: 'LoRA 학습 데이터 생성',
+        message: `${loraResult.count}건의 학습 데이터가 생성되었습니다. ${loraResult.filePath}`,
+        actionUrl: '/feedback',
+      });
+    } catch {}
+  } else {
+    console.log(`[Scheduler] LoRA 학습 데이터: ${loraCount}/5,000건 (${Math.round(loraCount / 5000 * 100)}%)`);
+  }
+
+  console.log('[Scheduler] 주말 학습 완료');
 }
 
 /** 관심종목 자동 정리 */

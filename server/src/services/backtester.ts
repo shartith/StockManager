@@ -230,3 +230,61 @@ function emptyResult(): BacktestResult {
     totalTrades: 0, winningTrades: 0, losingTrades: 0,
   };
 }
+
+// ─── A/B 전략 비교 백테스트 ─────────────────────────────
+
+export interface ABCompareResult {
+  strategyA: { name: string; result: BacktestResult };
+  strategyB: { name: string; result: BacktestResult };
+  winner: 'A' | 'B' | 'TIE';
+  comparison: {
+    returnDiff: number;       // 수익률 차이 (A - B)
+    winRateDiff: number;      // 승률 차이
+    drawdownDiff: number;     // 최대낙폭 차이
+    sharpeDiff: number | null; // 샤프비율 차이
+  };
+  summary: string;
+}
+
+/**
+ * 두 전략을 동일 데이터로 백테스트하여 비교
+ * @param candles 동일 캔들 데이터
+ * @param weightsA 전략 A 가중치
+ * @param weightsB 전략 B 가중치
+ */
+export function runABCompare(
+  candles: CandleData[],
+  ticker: string,
+  weightsA: Record<ScoreType, number>,
+  weightsB: Record<ScoreType, number>,
+  nameA: string = '현재 전략',
+  nameB: string = '대안 전략',
+): ABCompareResult {
+  const configBase = { ticker, candles, initialCapital: 2000000 };
+
+  const resultA = runBacktest({ ...configBase, name: nameA, weights: weightsA });
+  const resultB = runBacktest({ ...configBase, name: nameB, weights: weightsB });
+
+  const returnDiff = resultA.totalReturn - resultB.totalReturn;
+  const winRateDiff = resultA.winRate - resultB.winRate;
+  const drawdownDiff = resultA.maxDrawdown - resultB.maxDrawdown;
+  const sharpeDiff = (resultA.sharpeRatio !== null && resultB.sharpeRatio !== null)
+    ? resultA.sharpeRatio - resultB.sharpeRatio : null;
+
+  // 종합 점수: 수익률 50% + 승률 30% + 낙폭 20%
+  const scoreA = resultA.totalReturn * 0.5 + resultA.winRate * 30 - resultA.maxDrawdown * 0.2;
+  const scoreB = resultB.totalReturn * 0.5 + resultB.winRate * 30 - resultB.maxDrawdown * 0.2;
+  const winner = Math.abs(scoreA - scoreB) < 0.5 ? 'TIE' : scoreA > scoreB ? 'A' : 'B';
+
+  const summary = `${nameA}: 수익 ${resultA.totalReturn.toFixed(1)}%, 승률 ${(resultA.winRate * 100).toFixed(0)}%, 낙폭 ${resultA.maxDrawdown.toFixed(1)}%\n` +
+    `${nameB}: 수익 ${resultB.totalReturn.toFixed(1)}%, 승률 ${(resultB.winRate * 100).toFixed(0)}%, 낙폭 ${resultB.maxDrawdown.toFixed(1)}%\n` +
+    `승자: ${winner === 'TIE' ? '무승부' : winner === 'A' ? nameA : nameB}`;
+
+  return {
+    strategyA: { name: nameA, result: resultA },
+    strategyB: { name: nameB, result: resultB },
+    winner,
+    comparison: { returnDiff, winRateDiff, drawdownDiff, sharpeDiff },
+    summary,
+  };
+}

@@ -375,6 +375,30 @@
         </div>
       </div>
     </div>
+
+    <!-- 주간 학습 리포트 -->
+    <div class="bg-white rounded-xl border border-slate-200 shadow-sm p-5 mt-6">
+      <div class="flex items-center justify-between mb-4">
+        <h3 class="font-semibold text-slate-800">주간 학습 리포트</h3>
+        <button @click="loadWeeklyReports" class="text-xs text-blue-600 hover:underline">새로고침</button>
+      </div>
+      <div v-if="weeklyReports.length === 0" class="text-center py-8 text-slate-400 text-sm">
+        아직 생성된 주간 리포트가 없습니다 (토요일 06:00 자동 생성)
+      </div>
+      <div v-else class="space-y-3">
+        <div v-for="r in weeklyReports" :key="r.id" class="border border-slate-100 rounded-lg p-4">
+          <div class="flex items-center justify-between mb-2">
+            <span class="text-xs text-slate-400">{{ r.created_at?.slice(0, 10) }}</span>
+            <div v-if="r.stats_json" class="flex gap-3 text-xs text-slate-500">
+              <span>신호 {{ r.stats_json.totalSignals || 0 }}건</span>
+              <span>체결 {{ r.stats_json.tradesExecuted || 0 }}건</span>
+              <span>신뢰도 {{ Math.round(r.stats_json.avgConfidence || 0) }}%</span>
+            </div>
+          </div>
+          <p class="text-sm text-slate-700 whitespace-pre-line">{{ r.report }}</p>
+        </div>
+      </div>
+    </div>
   </div>
 </template>
 
@@ -392,6 +416,14 @@ const tabs = [
 const activeTab = ref('performance');
 const analysisDays = ref(90);
 const loading = ref(false);
+const weeklyReports = ref<any[]>([]);
+
+async function loadWeeklyReports() {
+  try {
+    const { data } = await feedbackApi.getWeeklyReports({ limit: 5 });
+    weeklyReports.value = data;
+  } catch {}
+}
 
 // 성과 데이터
 const perf = ref<any>({});
@@ -506,5 +538,8 @@ watch(selectedBacktest, async (bt) => {
   }
 });
 
-onMounted(loadAll);
+onMounted(() => {
+  loadAll();
+  loadWeeklyReports();
+});
 </script>

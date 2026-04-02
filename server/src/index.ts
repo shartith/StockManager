@@ -1,6 +1,8 @@
 import express from 'express';
 import cors from 'cors';
 import path from 'path';
+import { WebSocketServer, WebSocket } from 'ws';
+import http from 'http';
 import { initializeDB } from './db';
 import stocksRouter from './routes/stocks';
 import transactionsRouter from './routes/transactions';
@@ -15,6 +17,7 @@ import notificationsRouter from './routes/notifications';
 import feedbackRouter from './routes/feedback';
 import { getSettings } from './services/settings';
 import { startScheduler, getSchedulerStatus } from './services/scheduler';
+import { getRecentEvents, getUnresolvedEvents, getEventCounts, resolveEvent } from './services/systemEvent';
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -50,12 +53,50 @@ app.get('/api/scheduler/status', (_req, res) => {
   res.json(getSchedulerStatus());
 });
 
+// 시스템 이벤트 로그 API
+app.get('/api/system-events', (req, res) => {
+  const unresolved = req.query.unresolved === 'true';
+  const limit = Number(req.query.limit) || 100;
+  res.json(unresolved ? getUnresolvedEvents(limit) : getRecentEvents(limit));
+});
+
+app.get('/api/system-events/counts', (_req, res) => {
+  res.json(getEventCounts());
+});
+
+app.post('/api/system-events/:id/resolve', (req, res) => {
+  const id = Number(req.params.id);
+  const { resolution } = req.body;
+  resolveEvent(id, resolution || '수동 해결');
+  res.json({ success: true });
+});
+
 async function start() {
   // 저장된 설정 로드 (환경변수 동기화 포함)
   getSettings();
   await initializeDB();
   startScheduler();
-  app.listen(PORT, () => {
+
+  // HTTP + WebSocket 서버
+  const server = http.createServer(app);
+  const wss = new WebSocketServer({ server, path: '/ws' });
+
+  const wsClients = new Set<WebSocket>();
+  wss.on('connection', (ws) => {
+    wsClients.add(ws);
+    ws.on('close', () => wsClients.delete(ws));
+    ws.send(JSON.stringify({ type: 'connected', message: 'Stock Manager WebSocket' }));
+  });
+
+  // 글로벌 브로드캐스트 함수 (scheduler 등에서 사용)
+  (global as any).__wsBroadcast = (data: any) => {
+    const msg = JSON.stringify(data);
+    for (const client of wsClients) {
+      if (client.readyState === WebSocket.OPEN) client.send(msg);
+    }
+  };
+
+  server.listen(PORT, () => {
     console.log(`Server running on http://localhost:${PORT}`);
   });
 }

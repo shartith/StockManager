@@ -9,6 +9,7 @@ router.get('/', (req: Request, res: Response) => {
   let sql = `
     SELECT w.*, s.ticker, s.name, s.market as stock_market, s.sector,
       (SELECT ts.signal_type FROM trade_signals ts WHERE ts.stock_id = w.stock_id ORDER BY ts.created_at DESC LIMIT 1) as latestSignal,
+      (SELECT ts.confidence FROM trade_signals ts WHERE ts.stock_id = w.stock_id ORDER BY ts.created_at DESC LIMIT 1) as latestConfidence,
       (SELECT ts.created_at FROM trade_signals ts WHERE ts.stock_id = w.stock_id ORDER BY ts.created_at DESC LIMIT 1) as latestSignalAt
     FROM watchlist w
     JOIN stocks s ON s.id = w.stock_id

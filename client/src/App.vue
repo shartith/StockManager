@@ -1,5 +1,5 @@
 <template>
-  <div class="min-h-screen bg-slate-50">
+  <div :class="darkMode ? 'dark' : ''" class="min-h-screen bg-slate-50 dark:bg-slate-950 dark:text-slate-200">
     <!-- 사이드바 -->
     <aside class="fixed top-0 left-0 w-56 h-full bg-slate-900 text-white flex flex-col z-10">
       <div class="p-5 border-b border-slate-700">
@@ -38,17 +38,22 @@
           <span class="text-lg">⚙️</span>
           <span>설정</span>
         </router-link>
+        <button @click="toggleDarkMode"
+          class="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm transition-colors text-slate-300 hover:bg-slate-800">
+          <span class="text-lg">{{ darkMode ? '☀️' : '🌙' }}</span>
+          <span>{{ darkMode ? '라이트 모드' : '다크 모드' }}</span>
+        </button>
       </div>
     </aside>
 
     <!-- 메인 콘텐츠 -->
-    <main class="ml-56 p-6">
+    <main class="ml-56 p-6 dark:bg-slate-950">
       <router-view />
     </main>
 
     <!-- 알림 패널 -->
     <div v-if="showNotifications" class="fixed inset-0 z-40" @click="showNotifications = false">
-      <div class="fixed top-0 right-0 w-96 h-full bg-white shadow-2xl z-50 flex flex-col" @click.stop>
+      <div class="fixed top-0 right-0 w-96 h-full bg-white dark:bg-slate-900 shadow-2xl z-50 flex flex-col" @click.stop>
         <div class="flex items-center justify-between p-4 border-b">
           <h3 class="font-bold text-slate-800">알림</h3>
           <div class="flex gap-2">
@@ -85,6 +90,13 @@ import { notificationsApi } from '@/api';
 
 const router = useRouter();
 const showNotifications = ref(false);
+
+// 다크모드
+const darkMode = ref(localStorage.getItem('darkMode') === 'true');
+function toggleDarkMode() {
+  darkMode.value = !darkMode.value;
+  localStorage.setItem('darkMode', String(darkMode.value));
+}
 const unreadCount = ref(0);
 const notifications = ref<any[]>([]);
 let pollTimer: ReturnType<typeof setInterval> | null = null;

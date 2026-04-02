@@ -28,6 +28,7 @@ export const transactionsApi = {
 // 포트폴리오 API
 export const portfolioApi = {
   getSummary: () => api.get('/portfolio/summary'),
+  getInsight: () => api.get('/portfolio/insight'),
   getHistory: () => api.get('/portfolio/history'),
 };
 
@@ -56,6 +57,7 @@ export const chartApi = {
   getCandle: (ticker: string, params?: { period?: string; startDate?: string; endDate?: string }) =>
     api.get(`/chart/candle/${ticker}`, { params }),
   getBalance: () => api.get('/chart/balance'),
+  getMarketContext: () => api.get('/chart/market-context'),
   importBalance: () => api.post('/chart/balance/import'),
 };
 
@@ -116,6 +118,20 @@ export const feedbackApi = {
   runBacktest: (data: any) => api.post('/feedback/backtest', data),
   getBacktestList: (params?: { limit?: number }) => api.get('/feedback/backtest', { params }),
   getBacktestDetail: (id: number) => api.get(`/feedback/backtest/${id}`),
+  getWeeklyReports: (params?: { limit?: number }) => api.get('/feedback/weekly-reports', { params }),
+  backupConfig: () => api.get('/feedback/config/backup'),
+  restoreConfig: (data: any) => api.post('/feedback/config/restore', data),
+  exportStrategy: () => api.get('/feedback/strategy/export'),
+  importStrategy: (data: any) => api.post('/feedback/strategy/import', data),
+  getLoraStatus: () => api.get('/feedback/lora/status'),
+  exportLora: () => api.get('/feedback/lora/export'),
+};
+
+// 시스템 이벤트 API
+export const systemEventsApi = {
+  getAll: (params?: { limit?: number; unresolved?: boolean }) => api.get('/system-events', { params }),
+  getCounts: () => api.get('/system-events/counts'),
+  resolve: (id: number, resolution?: string) => api.post(`/system-events/${id}/resolve`, { resolution }),
 };
 
 export default api;

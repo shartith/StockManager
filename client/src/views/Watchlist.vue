@@ -72,10 +72,13 @@
               </label>
             </td>
             <td class="text-center px-4 py-3">
-              <span v-if="item.latestSignal" class="text-xs px-2 py-0.5 rounded-full font-medium"
-                :class="item.latestSignal === 'BUY' ? 'bg-red-50 text-red-700' : item.latestSignal === 'SELL' ? 'bg-blue-50 text-blue-700' : 'bg-slate-100 text-slate-600'">
-                {{ item.latestSignal === 'BUY' ? '매수' : item.latestSignal === 'SELL' ? '매도' : '관망' }}
-              </span>
+              <template v-if="item.latestSignal">
+                <span class="text-xs px-2 py-0.5 rounded-full font-medium"
+                  :class="item.latestSignal === 'BUY' ? 'bg-red-50 text-red-700' : item.latestSignal === 'SELL' ? 'bg-blue-50 text-blue-700' : 'bg-slate-100 text-slate-600'">
+                  {{ item.latestSignal === 'BUY' ? '매수' : item.latestSignal === 'SELL' ? '매도' : '관망' }}
+                </span>
+                <p v-if="item.latestConfidence" class="text-xs text-slate-400 mt-0.5">{{ Math.round(item.latestConfidence) }}%</p>
+              </template>
               <span v-else class="text-xs text-slate-300">-</span>
             </td>
             <td class="text-center px-4 py-3">

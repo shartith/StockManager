@@ -52,6 +52,7 @@
           <col style="width: 90px" />
           <col style="width: 100px" />
           <col style="width: 80px" />
+          <col style="width: 80px" />
         </colgroup>
         <thead>
           <tr class="text-left text-xs text-slate-500 border-b border-slate-100 bg-slate-50">
@@ -63,6 +64,7 @@
             <th class="px-4 py-3 whitespace-nowrap text-right">투자금</th>
             <th class="px-4 py-3 whitespace-nowrap text-right">평가금</th>
             <th class="px-4 py-3 whitespace-nowrap text-right">손익</th>
+            <th class="px-4 py-3 whitespace-nowrap text-center">AI 판단</th>
             <th class="px-4 py-3 whitespace-nowrap text-center">매매</th>
           </tr>
         </thead>
@@ -104,8 +106,22 @@
               </template>
               <span v-else class="text-slate-400">-</span>
             </td>
+            <td class="px-4 py-3 text-center">
+              <template v-if="h.latestSignal">
+                <span class="text-xs px-2 py-0.5 rounded-full font-medium"
+                  :class="h.latestSignal === 'BUY' ? 'bg-red-50 text-red-700' : h.latestSignal === 'SELL' ? 'bg-blue-50 text-blue-700' : 'bg-slate-100 text-slate-600'">
+                  {{ h.latestSignal === 'BUY' ? '매수' : h.latestSignal === 'SELL' ? '매도' : '관망' }}
+                </span>
+                <p v-if="h.latestConfidence" class="text-xs text-slate-400 mt-0.5">{{ h.latestConfidence }}%</p>
+              </template>
+              <span v-else class="text-xs text-slate-300">-</span>
+            </td>
             <td class="px-4 py-3">
               <div class="flex flex-col gap-1 items-center">
+                <router-link :to="`/chart?ticker=${h.ticker}`"
+                  class="w-16 px-2 py-1 rounded text-xs font-medium bg-slate-50 text-slate-700 hover:bg-slate-100 transition text-center">
+                  분석
+                </router-link>
                 <button @click="openTradeModal(h, 'BUY')"
                   class="w-16 px-2 py-1 rounded text-xs font-medium bg-red-50 text-red-700 hover:bg-red-100 transition">
                   추가매수
@@ -137,6 +153,39 @@
           <span class="w-3 h-3 rounded-full" :class="ALLOC_COLORS[i % ALLOC_COLORS.length]"></span>
           <span class="text-sm text-slate-600">{{ a.label }}</span>
           <span class="text-sm font-medium text-slate-800">{{ a.percent }}%</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- 포트폴리오 인사이트 (MPT + 상관관계) -->
+    <div v-if="portfolioInsight" class="mt-6 space-y-4">
+      <!-- 상관관계 경고 -->
+      <div v-if="portfolioInsight.highCorrelationPairs?.length > 0" class="bg-amber-50 border border-amber-200 rounded-xl p-4">
+        <h4 class="text-sm font-semibold text-amber-800 mb-2">높은 상관관계 종목</h4>
+        <div v-for="p in portfolioInsight.highCorrelationPairs" :key="p.pair" class="text-xs text-amber-700">
+          {{ p.pair }} (r={{ p.correlation }}) — 사실상 동일 포지션, 분산 부족
+        </div>
+      </div>
+
+      <!-- MPT 최적 비중 -->
+      <div v-if="portfolioInsight.optimalWeights?.some((w: any) => w.action !== 'HOLD')" class="bg-white rounded-xl border border-slate-200 p-4">
+        <h4 class="text-sm font-semibold text-slate-800 mb-3">MPT 최적 비중 제안</h4>
+        <div class="space-y-2">
+          <div v-for="w in portfolioInsight.optimalWeights.filter((w: any) => w.action !== 'HOLD')" :key="w.ticker"
+            class="flex items-center justify-between text-sm">
+            <span class="font-medium text-slate-700">{{ w.ticker }}</span>
+            <div class="flex items-center gap-2">
+              <span class="text-slate-400">{{ w.currentPercent }}%</span>
+              <span class="text-slate-300">→</span>
+              <span class="font-medium" :class="w.action === 'INCREASE' ? 'text-red-600' : 'text-blue-600'">
+                {{ w.optimalPercent }}%
+              </span>
+              <span class="text-xs px-1.5 py-0.5 rounded"
+                :class="w.action === 'INCREASE' ? 'bg-red-50 text-red-700' : 'bg-blue-50 text-blue-700'">
+                {{ w.action === 'INCREASE' ? '비중 확대' : '비중 축소' }}
+              </span>
+            </div>
+          </div>
         </div>
       </div>
     </div>
@@ -247,6 +296,7 @@ import { portfolioApi, transactionsApi } from '@/api';
 
 const summary = ref<any>(null);
 const loading = ref(false);
+const portfolioInsight = ref<any>(null);
 
 // 매매 모달
 const showTradeModal = ref(false);
@@ -327,6 +377,10 @@ async function loadPortfolio() {
   try {
     const { data } = await portfolioApi.getSummary();
     summary.value = data;
+  } catch { /* */ }
+  try {
+    const { data } = await portfolioApi.getInsight();
+    portfolioInsight.value = data;
   } catch { /* */ }
   loading.value = false;
 }
