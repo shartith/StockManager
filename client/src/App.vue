@@ -194,7 +194,8 @@ function handleNotificationClick(n: any) {
 }
 
 function formatNotifDate(dt: string) {
-  return new Date(dt).toLocaleDateString('ko-KR', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+  const d = new Date(dt.includes('Z') ? dt : dt + 'Z');
+  return d.toLocaleString('ko-KR', { timeZone: 'Asia/Seoul', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
 }
 
 onMounted(() => {

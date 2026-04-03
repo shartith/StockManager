@@ -68,7 +68,8 @@ async function getKisOverseasPrice(ticker: string, token: string, exchCode: stri
 async function getYahooStockPrice(ticker: string): Promise<number | null> {
   try {
     const response = await fetch(
-      `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(ticker)}?interval=1d&range=1d`
+      `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(ticker)}?interval=1d&range=1d`,
+      { headers: { 'User-Agent': 'StockManager/3.0' } }
     );
     if (!response.ok) return null;
     const data: any = await response.json();
@@ -297,13 +298,15 @@ const CONTEXT_CACHE_TTL = 30 * 60 * 1000; // 30분
 async function fetchYahooQuote(symbol: string): Promise<{ price: number; changePercent: number } | null> {
   try {
     const res = await fetch(
-      `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?interval=1d&range=2d`
+      `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?interval=1d&range=1d`,
+      { headers: { 'User-Agent': 'StockManager/3.0' } }
     );
     if (!res.ok) return null;
     const data: any = await res.json();
     const meta = data?.chart?.result?.[0]?.meta;
     if (!meta) return null;
     const price = meta.regularMarketPrice;
+    // range=1d일 때 chartPreviousClose = 전일 종가 (정확)
     const prevClose = meta.chartPreviousClose || meta.previousClose;
     const changePercent = prevClose ? Math.round(((price - prevClose) / prevClose) * 10000) / 100 : 0;
     return { price, changePercent };

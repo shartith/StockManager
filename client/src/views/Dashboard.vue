@@ -237,7 +237,7 @@
                 <span class="font-medium text-slate-700">{{ e.title }}</span>
                 <span v-if="e.ticker" class="text-xs text-slate-400">({{ e.ticker }})</span>
               </div>
-              <span class="text-xs text-slate-400">{{ e.created_at?.slice(5, 16) }}</span>
+              <span class="text-xs text-slate-400">{{ formatKST(e.created_at) }}</span>
             </div>
             <p v-if="e.detail" class="text-xs text-slate-500 mt-1 whitespace-pre-line">{{ e.detail.slice(0, 300) }}</p>
             <button @click="resolveEventFn(e.id)" class="text-xs text-green-600 hover:underline mt-1">해결 처리</button>
@@ -412,6 +412,12 @@ const systemStatus = ref({
   todaySell: 0,
   todayHold: 0,
 });
+
+function formatKST(dt: string): string {
+  if (!dt) return '';
+  const d = new Date(dt.includes('Z') ? dt : dt + 'Z');
+  return d.toLocaleString('ko-KR', { timeZone: 'Asia/Seoul', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' });
+}
 
 function formatCurrency(value: number): string {
   return new Intl.NumberFormat('ko-KR', { style: 'currency', currency: 'KRW', maximumFractionDigits: 0 }).format(value);

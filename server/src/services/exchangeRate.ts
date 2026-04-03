@@ -7,7 +7,8 @@ const CACHE_DURATION = 30 * 60 * 1000; // 30분 캐시
 async function fetchUsdKrwRate(): Promise<number | null> {
   try {
     const response = await fetch(
-      'https://query1.finance.yahoo.com/v8/finance/chart/KRW=X?interval=1d&range=1d'
+      'https://query1.finance.yahoo.com/v8/finance/chart/KRW=X?interval=1d&range=1d',
+      { headers: { 'User-Agent': 'StockManager/3.0' } }
     );
     if (!response.ok) return null;
     const data: any = await response.json();
