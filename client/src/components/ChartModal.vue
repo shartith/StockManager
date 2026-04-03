@@ -30,10 +30,10 @@
       <!-- 차트 -->
       <div v-if="loading" class="flex items-center justify-center h-96 text-slate-400 text-sm">차트 로딩 중...</div>
       <div v-else-if="error" class="flex items-center justify-center h-96 text-red-500 text-sm">{{ error }}</div>
-      <template v-else>
-        <div ref="chartEl" style="height: 360px;"></div>
-        <div ref="volEl" style="height: 80px;" class="border-t border-slate-100"></div>
-      </template>
+      <div v-show="chartData && !loading && !error">
+        <div ref="chartEl" style="height: 360px; width: 100%;"></div>
+        <div ref="volEl" style="height: 80px; width: 100%;" class="border-t border-slate-100"></div>
+      </div>
     </div>
   </div>
 </template>
@@ -67,23 +67,28 @@ async function fetchChart() {
   if (!props.ticker) return;
   loading.value = true;
   error.value = '';
-  chartData.value = null;
 
   try {
     const { data } = await chartApi.getCandle(props.ticker, { period: period.value });
     chartData.value = data;
+    loading.value = false;
+    // DOM이 완전히 렌더링된 후 차트 생성 (모달 크기 확보)
     await nextTick();
-    renderChart(data.candles);
+    setTimeout(() => renderChart(data.candles), 100);
   } catch (err: any) {
     error.value = err.response?.data?.error || '차트 조회 실패';
-  } finally {
     loading.value = false;
   }
 }
 
+let volChart: IChartApi | null = null;
+
 function renderChart(candles: any[]) {
   if (!chartEl.value || !volEl.value) return;
   if (chart) { chart.remove(); chart = null; }
+  if (volChart) { volChart.remove(); volChart = null; }
+
+  const w = chartEl.value.clientWidth || 800;
 
   const opts = {
     layout: { background: { type: ColorType.Solid, color: '#ffffff' }, textColor: '#64748b', fontSize: 11 },
@@ -93,7 +98,7 @@ function renderChart(candles: any[]) {
     crosshair: { mode: 1 as any },
   };
 
-  chart = createChart(chartEl.value, { ...opts, width: chartEl.value.clientWidth, height: 360 });
+  chart = createChart(chartEl.value, { ...opts, width: w, height: 360 });
   const cs = chart.addSeries(CandlestickSeries, {
     upColor: '#ef4444', downColor: '#3b82f6',
     borderUpColor: '#ef4444', borderDownColor: '#3b82f6',
@@ -101,21 +106,30 @@ function renderChart(candles: any[]) {
   });
   cs.setData(candles);
 
-  const vc = createChart(volEl.value, { ...opts, width: volEl.value.clientWidth, height: 80, timeScale: { visible: false } });
-  const vs = vc.addSeries(HistogramSeries, { priceFormat: { type: 'volume' }, priceScaleId: '' });
+  volChart = createChart(volEl.value, { ...opts, width: w, height: 80, timeScale: { visible: false } });
+  const vs = volChart.addSeries(HistogramSeries, { priceFormat: { type: 'volume' }, priceScaleId: '' });
   vs.priceScale().applyOptions({ scaleMargins: { top: 0.1, bottom: 0 } });
   vs.setData(candles.map((c: any) => ({
     time: c.time, value: c.volume,
     color: c.close >= c.open ? 'rgba(239,68,68,0.5)' : 'rgba(59,130,246,0.5)',
   })));
 
+  const vc = volChart;
   chart.timeScale().subscribeVisibleLogicalRangeChange(r => { if (r) vc.timeScale().setVisibleLogicalRange(r); });
   vc.timeScale().subscribeVisibleLogicalRangeChange(r => { if (r && chart) chart.timeScale().setVisibleLogicalRange(r); });
   chart.timeScale().fitContent();
 }
 
-watch(() => props.visible, (v) => { if (v && props.ticker) fetchChart(); });
+function destroyCharts() {
+  if (chart) { chart.remove(); chart = null; }
+  if (volChart) { volChart.remove(); volChart = null; }
+}
+
+watch(() => props.visible, (v) => {
+  if (v && props.ticker) { period.value = 'D'; fetchChart(); }
+  else { destroyCharts(); }
+});
 watch(() => props.ticker, () => { if (props.visible) fetchChart(); });
 
-onUnmounted(() => { if (chart) chart.remove(); });
+onUnmounted(() => destroyCharts());
 </script>

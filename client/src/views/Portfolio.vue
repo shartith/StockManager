@@ -118,10 +118,14 @@
             </td>
             <td class="px-4 py-3">
               <div class="flex flex-col gap-1 items-center">
-                <router-link :to="`/chart?ticker=${h.ticker}`"
-                  class="w-16 px-2 py-1 rounded text-xs font-medium bg-slate-50 text-slate-700 hover:bg-slate-100 transition text-center">
+                <button @click="openChart(h.ticker)"
+                  class="w-16 px-2 py-1 rounded text-xs font-medium bg-slate-50 text-slate-700 hover:bg-slate-100 transition">
+                  차트
+                </button>
+                <button @click="runAnalysis(h)"
+                  class="w-16 px-2 py-1 rounded text-xs font-medium bg-purple-50 text-purple-700 hover:bg-purple-100 transition">
                   분석
-                </router-link>
+                </button>
                 <button @click="openTradeModal(h, 'BUY')"
                   class="w-16 px-2 py-1 rounded text-xs font-medium bg-red-50 text-red-700 hover:bg-red-100 transition">
                   추가매수
@@ -187,6 +191,61 @@
             </div>
           </div>
         </div>
+      </div>
+    </div>
+
+    <!-- 차트 모달 -->
+    <ChartModal :visible="chartModalVisible" :ticker="chartModalTicker" @close="chartModalVisible = false" />
+
+    <!-- 분석 모달 -->
+    <div v-if="analysisModalVisible" class="fixed inset-0 bg-black/50 flex items-center justify-center z-50" @click.self="analysisModalVisible = false">
+      <div class="bg-white rounded-xl shadow-2xl w-full max-w-2xl mx-4 max-h-[80vh] overflow-y-auto">
+        <div class="flex items-center justify-between px-5 py-3 border-b border-slate-200 sticky top-0 bg-white">
+          <span class="font-bold text-slate-800">{{ analysisTarget?.name || analysisTarget?.ticker }} 분석</span>
+          <button @click="analysisModalVisible = false" class="text-slate-400 hover:text-slate-600 text-xl">&times;</button>
+        </div>
+        <div v-if="analysisLoading" class="p-8 text-center text-slate-400">분석 중...</div>
+        <div v-else-if="analysisResult" class="p-5 space-y-4">
+          <!-- 기술적 지표 -->
+          <div class="grid grid-cols-2 md:grid-cols-4 gap-3">
+            <div class="bg-slate-50 rounded-lg p-3 text-center">
+              <p class="text-xs text-slate-500">RSI(14)</p>
+              <p class="font-bold" :class="analysisResult.indicators?.rsi14 < 30 ? 'text-red-600' : analysisResult.indicators?.rsi14 > 70 ? 'text-blue-600' : 'text-slate-800'">
+                {{ analysisResult.indicators?.rsi14?.toFixed(1) ?? '-' }}
+              </p>
+            </div>
+            <div class="bg-slate-50 rounded-lg p-3 text-center">
+              <p class="text-xs text-slate-500">MACD</p>
+              <p class="font-bold text-slate-800">{{ analysisResult.indicators?.macd?.toFixed(1) ?? '-' }}</p>
+            </div>
+            <div class="bg-slate-50 rounded-lg p-3 text-center">
+              <p class="text-xs text-slate-500">VWAP</p>
+              <p class="font-bold text-slate-800">{{ analysisResult.indicators?.vwap?.toLocaleString() ?? '-' }}</p>
+            </div>
+            <div class="bg-slate-50 rounded-lg p-3 text-center">
+              <p class="text-xs text-slate-500">ATR(14)</p>
+              <p class="font-bold text-slate-800">{{ analysisResult.indicators?.atr14?.toFixed(0) ?? '-' }}</p>
+            </div>
+          </div>
+          <!-- 종합 신호 -->
+          <div class="rounded-lg p-4"
+            :class="analysisResult.indicators?.signal === 'BUY' ? 'bg-red-50 border border-red-200' : analysisResult.indicators?.signal === 'SELL' ? 'bg-blue-50 border border-blue-200' : 'bg-slate-50 border border-slate-200'">
+            <p class="text-sm font-bold"
+              :class="analysisResult.indicators?.signal === 'BUY' ? 'text-red-700' : analysisResult.indicators?.signal === 'SELL' ? 'text-blue-700' : 'text-slate-700'">
+              종합 신호: {{ analysisResult.indicators?.signal === 'BUY' ? '매수' : analysisResult.indicators?.signal === 'SELL' ? '매도' : '관망' }}
+            </p>
+            <ul class="text-xs text-slate-600 mt-2 space-y-0.5">
+              <li v-for="r in (analysisResult.indicators?.signalReasons || [])" :key="r">{{ r }}</li>
+            </ul>
+          </div>
+          <!-- 상세 지표 -->
+          <div class="text-xs text-slate-500 space-y-1">
+            <p>SMA: 5={{ analysisResult.indicators?.sma5?.toLocaleString() }} | 20={{ analysisResult.indicators?.sma20?.toLocaleString() }} | 60={{ analysisResult.indicators?.sma60?.toLocaleString() }}</p>
+            <p>볼린저: 상={{ analysisResult.indicators?.bollingerUpper?.toLocaleString() }} | 하={{ analysisResult.indicators?.bollingerLower?.toLocaleString() }}</p>
+            <p>데이터: {{ analysisResult.dataPoints }}개 캔들</p>
+          </div>
+        </div>
+        <div v-else-if="analysisError" class="p-8 text-center text-red-500 text-sm">{{ analysisError }}</div>
       </div>
     </div>
 
@@ -292,7 +351,38 @@
 
 <script setup lang="ts">
 import { ref, onMounted } from 'vue';
-import { portfolioApi, transactionsApi } from '@/api';
+import { portfolioApi, transactionsApi, analysisApi } from '@/api';
+import ChartModal from '@/components/ChartModal.vue';
+
+// 차트 모달
+const chartModalVisible = ref(false);
+const chartModalTicker = ref('');
+function openChart(ticker: string) {
+  chartModalTicker.value = ticker;
+  chartModalVisible.value = true;
+}
+
+// 분석 모달
+const analysisModalVisible = ref(false);
+const analysisTarget = ref<any>(null);
+const analysisResult = ref<any>(null);
+const analysisLoading = ref(false);
+const analysisError = ref('');
+
+async function runAnalysis(holding: any) {
+  analysisTarget.value = holding;
+  analysisModalVisible.value = true;
+  analysisLoading.value = true;
+  analysisResult.value = null;
+  analysisError.value = '';
+  try {
+    const { data } = await analysisApi.getAnalysis(holding.ticker);
+    analysisResult.value = data;
+  } catch (err: any) {
+    analysisError.value = err.response?.data?.error || '분석 실패';
+  }
+  analysisLoading.value = false;
+}
 
 const summary = ref<any>(null);
 const loading = ref(false);
