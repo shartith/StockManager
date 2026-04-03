@@ -155,8 +155,13 @@ export async function getDomesticOrderableAmount(): Promise<number> {
       if (!response.ok) return 0;
       const data: any = await response.json();
       if (data.rt_cd !== '0') return 0;
-      // ord_psbl_cash: 주문가능현금, nrcvb_buy_amt: 미수없는매수금액
-      return Number(data.output?.ord_psbl_cash || data.output?.nrcvb_buy_amt || 0);
+      const output = data.output || {};
+      // nrcvb_buy_amt: 미수없는매수금액 (실제 주문가능금액 — 담보 포함)
+      // max_buy_amt: 최대매수금액
+      // ord_psbl_cash: 주문가능현금 (현금만)
+      const orderable = Number(output.nrcvb_buy_amt || output.max_buy_amt || output.ord_psbl_cash || 0);
+      console.log(`[KIS] 주문가능: nrcvb=${output.nrcvb_buy_amt}, max=${output.max_buy_amt}, cash=${output.ord_psbl_cash} → ${orderable}`);
+      return orderable;
     }, 'orderable-domestic');
   } catch {
     return 0;

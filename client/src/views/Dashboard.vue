@@ -53,12 +53,13 @@
               </p>
             </div>
             <div>
-              <p class="text-xs text-slate-500">예수금</p>
+              <p class="text-xs text-slate-500">원화예수금</p>
               <p class="font-bold text-slate-800">{{ formatCurrency(balanceData.depositAmount) }}</p>
             </div>
             <div>
               <p class="text-xs text-slate-500">주문가능금액</p>
-              <p class="font-bold text-green-700">{{ formatCurrency(balanceData.orderableAmount || balanceData.depositAmount) }}</p>
+              <p class="font-bold text-green-700">{{ formatCurrency(balanceData.orderableAmount || 0) }}</p>
+              <p v-if="balanceData.orderableAmount && balanceData.orderableAmount !== balanceData.depositAmount" class="text-xs text-slate-400">담보 포함</p>
             </div>
           </div>
           <!-- 보유 종목 목록 -->
