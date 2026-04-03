@@ -60,22 +60,26 @@ app.get('/api/version', async (_req, res) => {
   res.json({ currentVersion, latestVersion, updateAvailable });
 });
 
-// 업데이트 실행 (brew upgrade)
+// 업데이트 실행 (brew upgrade + 자동 재시작)
 app.post('/api/update', (_req, res) => {
-  const { execSync } = require('child_process');
+  const { exec } = require('child_process');
   try {
-    // 먼저 응답 보내고 업데이트 실행 (서버가 재시작되므로)
-    res.json({ success: true, message: '업데이트를 시작합니다. 잠시 후 페이지가 새로고침됩니다.' });
+    res.json({ success: true, message: '업데이트를 시작합니다. 약 1~2분 후 페이지를 새로고침하세요.' });
 
-    // 비동기로 업데이트 실행 (현재 요청 완료 후)
+    // 비동기로: stop → brew upgrade → start
     setTimeout(() => {
-      try {
-        execSync('brew update && brew upgrade stock-manager', { timeout: 120000 });
-        // 서버 재시작
-        process.exit(0); // launchd/systemd가 자동 재시작
-      } catch (err: any) {
-        console.log(`[Update] 업데이트 실패: ${err.message}`);
-      }
+      const stockManagerBin = process.argv[1] || 'stock-manager';
+      const cmd = `brew update && brew upgrade stock-manager && node "${stockManagerBin}" start`;
+      console.log(`[Update] 실행: ${cmd}`);
+
+      exec(cmd, { timeout: 180000 }, (err: any, stdout: string, stderr: string) => {
+        if (err) console.log(`[Update] 오류: ${err.message}`);
+        if (stdout) console.log(`[Update] ${stdout}`);
+        if (stderr) console.log(`[Update] ${stderr}`);
+      });
+
+      // 현재 서버는 2초 후 종료 (새 서버가 start로 시작됨)
+      setTimeout(() => process.exit(0), 2000);
     }, 1000);
   } catch (err: any) {
     res.status(500).json({ error: err.message });

@@ -115,12 +115,28 @@ async function runUpdate() {
   updating.value = true;
   try {
     await versionApi.update();
-    // 서버 재시작 대기 후 새로고침
-    setTimeout(() => { location.reload(); }, 30000);
-  } catch {
-    updating.value = false;
-    alert('업데이트 실패. 터미널에서 수동으로 실행하세요:\nstock-manager stop && brew upgrade stock-manager && stock-manager start');
-  }
+  } catch {}
+
+  // 서버가 다시 올라올 때까지 5초 간격 polling
+  const pollRestart = () => {
+    const interval = setInterval(async () => {
+      try {
+        const res = await fetch('/api/health');
+        if (res.ok) {
+          clearInterval(interval);
+          location.reload();
+        }
+      } catch {}
+    }, 5000);
+    // 3분 후 타임아웃
+    setTimeout(() => {
+      clearInterval(interval);
+      updating.value = false;
+      alert('서버 재시작 대기 시간 초과.\n터미널에서 확인하세요: stock-manager status');
+    }, 180000);
+  };
+  // 10초 후 polling 시작 (brew upgrade 시간 확보)
+  setTimeout(pollRestart, 10000);
 }
 
 // 다크모드
