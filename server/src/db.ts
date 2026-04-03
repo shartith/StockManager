@@ -175,6 +175,12 @@ export async function initializeDB(): Promise<SqlJsDatabase> {
   // stocks에 DART 고유번호
   try { db.run('ALTER TABLE stocks ADD COLUMN dart_code TEXT'); } catch {}
 
+  // stocks에 카테고리/태그
+  try { db.run('ALTER TABLE stocks ADD COLUMN category TEXT DEFAULT ""'); } catch {}
+
+  // recommendations에 카테고리
+  try { db.run('ALTER TABLE recommendations ADD COLUMN category TEXT DEFAULT ""'); } catch {}
+
   // 시스템 이벤트 로그 (에러, 미대응 상황, 후속조치 필요 기록)
   db.run(`
     CREATE TABLE IF NOT EXISTS system_events (

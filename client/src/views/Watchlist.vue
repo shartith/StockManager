@@ -82,10 +82,16 @@
               <span v-else class="text-xs text-slate-300">-</span>
             </td>
             <td class="text-center px-4 py-3">
-              <button @click="analyze(item)" :disabled="analyzing === item.id"
-                class="text-xs px-3 py-1.5 bg-blue-50 text-blue-700 rounded hover:bg-blue-100 disabled:opacity-50 transition whitespace-nowrap">
-                {{ analyzing === item.id ? '분석중...' : '분석' }}
-              </button>
+              <div class="flex gap-1 justify-center">
+                <button @click="openChart(item.ticker)"
+                  class="text-xs px-3 py-1.5 bg-slate-50 text-slate-700 rounded hover:bg-slate-100 transition whitespace-nowrap">
+                  차트
+                </button>
+                <button @click="analyze(item)" :disabled="analyzing === item.id"
+                  class="text-xs px-3 py-1.5 bg-blue-50 text-blue-700 rounded hover:bg-blue-100 disabled:opacity-50 transition whitespace-nowrap">
+                  {{ analyzing === item.id ? '분석중...' : '분석' }}
+                </button>
+              </div>
             </td>
             <td class="text-center px-4 py-3">
               <button @click="removeWatch(item.id)" class="text-xs px-3 py-1.5 text-red-500 hover:text-red-700 whitespace-nowrap">삭제</button>
@@ -138,12 +144,22 @@
         </div>
       </div>
     </div>
+    <!-- 차트 모달 -->
+    <ChartModal :visible="chartModalVisible" :ticker="chartModalTicker" @close="chartModalVisible = false" />
   </div>
 </template>
 
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue';
 import { watchlistApi, analysisApi, schedulerApi } from '@/api';
+import ChartModal from '@/components/ChartModal.vue';
+
+const chartModalVisible = ref(false);
+const chartModalTicker = ref('');
+function openChart(ticker: string) {
+  chartModalTicker.value = ticker;
+  chartModalVisible.value = true;
+}
 
 const loading = ref(false);
 const watchlist = ref<any[]>([]);

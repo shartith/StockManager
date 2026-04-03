@@ -13,52 +13,78 @@
       </div>
     </div>
 
-    <!-- 검색 바 -->
-    <div class="bg-white rounded-xl border border-slate-200 shadow-sm p-4 mb-4">
-      <div class="flex gap-3">
-        <div class="flex-1 relative">
-          <input
-            v-model="searchTicker"
-            @keyup.enter="loadChart"
-            type="text"
-            placeholder="종목코드 입력 (예: 005930, 035720)"
-            class="w-full border border-slate-300 rounded-lg px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 font-mono"
-          />
+    <div class="flex gap-4">
+      <!-- 왼쪽: 종목 리스트 -->
+      <div class="w-56 flex-shrink-0">
+        <div class="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden sticky top-4">
+          <!-- 보유 종목 -->
+          <div v-if="holdingStocks.length > 0">
+            <div class="px-3 py-2 bg-blue-50 border-b border-slate-200">
+              <span class="text-xs font-semibold text-blue-700">보유 종목</span>
+            </div>
+            <div class="max-h-48 overflow-y-auto">
+              <button v-for="s in holdingStocks" :key="'h-'+s.ticker" @click="quickLoad(s.ticker)"
+                class="w-full text-left px-3 py-2 text-xs hover:bg-blue-50 transition border-b border-slate-50"
+                :class="searchTicker === s.ticker ? 'bg-blue-50 font-bold' : ''">
+                <div class="font-medium text-slate-700 truncate">{{ s.ticker }}</div>
+                <div class="text-slate-400 truncate">{{ s.name }}</div>
+              </button>
+            </div>
+          </div>
+          <!-- 관심 종목 -->
+          <div v-if="watchlistStocks.length > 0">
+            <div class="px-3 py-2 bg-amber-50 border-b border-t border-slate-200">
+              <span class="text-xs font-semibold text-amber-700">관심 종목</span>
+            </div>
+            <div class="max-h-64 overflow-y-auto">
+              <button v-for="s in watchlistStocks" :key="'w-'+s.ticker" @click="quickLoad(s.ticker)"
+                class="w-full text-left px-3 py-2 text-xs hover:bg-amber-50 transition border-b border-slate-50"
+                :class="searchTicker === s.ticker ? 'bg-amber-50 font-bold' : ''">
+                <div class="font-medium text-slate-700 truncate">{{ s.ticker }}</div>
+                <div class="text-slate-400 truncate">{{ s.name }}</div>
+              </button>
+            </div>
+          </div>
+          <div v-if="holdingStocks.length === 0 && watchlistStocks.length === 0" class="p-4 text-center text-xs text-slate-400">
+            종목 없음
+          </div>
         </div>
-        <!-- 기간 선택 -->
-        <div class="flex bg-slate-100 rounded-lg p-1">
-          <button
-            v-for="p in periods"
-            :key="p.value"
-            @click="selectPeriod(p.value)"
-            class="px-3 py-1.5 rounded text-xs font-medium transition-colors"
-            :class="period === p.value ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500 hover:text-slate-700'"
-          >
-            {{ p.label }}
-          </button>
-        </div>
-        <button
-          @click="loadChart"
-          :disabled="loading || !searchTicker.trim()"
-          class="bg-blue-600 text-white px-5 py-2.5 rounded-lg text-sm font-medium hover:bg-blue-700 disabled:opacity-50 transition"
-        >
-          {{ loading ? '조회 중...' : '조회' }}
-        </button>
       </div>
 
-      <!-- 보유 종목 퀵 버튼 -->
-      <div v-if="holdingTickers.length > 0" class="flex gap-2 mt-3 flex-wrap">
-        <span class="text-xs text-slate-400">보유 종목:</span>
-        <button
-          v-for="t in holdingTickers"
-          :key="t"
-          @click="quickLoad(t)"
-          class="text-xs px-2 py-0.5 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded transition"
-        >
-          {{ t }}
-        </button>
-      </div>
-    </div>
+      <!-- 오른쪽: 차트 영역 -->
+      <div class="flex-1 min-w-0">
+        <!-- 검색 바 -->
+        <div class="bg-white rounded-xl border border-slate-200 shadow-sm p-4 mb-4">
+          <div class="flex gap-3">
+            <div class="flex-1 relative">
+              <input
+                v-model="searchTicker"
+                @keyup.enter="loadChart"
+                type="text"
+                placeholder="종목코드 입력 (예: 005930, 035720, AAPL)"
+                class="w-full border border-slate-300 rounded-lg px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 font-mono"
+              />
+            </div>
+            <div class="flex bg-slate-100 rounded-lg p-1">
+              <button
+                v-for="p in periods"
+                :key="p.value"
+                @click="selectPeriod(p.value)"
+                class="px-3 py-1.5 rounded text-xs font-medium transition-colors"
+                :class="period === p.value ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500 hover:text-slate-700'"
+              >
+                {{ p.label }}
+              </button>
+            </div>
+            <button
+              @click="loadChart"
+              :disabled="loading || !searchTicker.trim()"
+              class="bg-blue-600 text-white px-5 py-2.5 rounded-lg text-sm font-medium hover:bg-blue-700 disabled:opacity-50 transition"
+            >
+              {{ loading ? '조회 중...' : '조회' }}
+            </button>
+          </div>
+        </div>
 
     <!-- 에러 메시지 -->
     <div v-if="error" class="bg-red-50 border border-red-200 rounded-xl p-4 mb-4 text-sm text-red-700">
@@ -103,16 +129,20 @@
     <!-- 초기 상태 -->
     <div v-else-if="!loading && !error" class="text-center py-20 text-slate-400">
       <p class="text-4xl mb-4">📈</p>
-      <p class="text-lg font-medium">종목코드를 입력하고 조회하세요</p>
-      <p class="text-sm mt-2">예: 005930 (삼성전자), 035720 (카카오), 000660 (SK하이닉스)</p>
+      <p class="text-lg font-medium">종목코드를 입력하거나 왼쪽 목록에서 선택하세요</p>
+      <p class="text-sm mt-2">예: 005930 (삼성전자), AAPL (애플), NVDA (엔비디아)</p>
     </div>
+
+      </div><!-- flex-1 -->
+    </div><!-- flex -->
   </div>
 </template>
 
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted, watch, nextTick } from 'vue';
+import { useRoute } from 'vue-router';
 import { createChart, IChartApi, ISeriesApi, CandlestickSeries, HistogramSeries, ColorType } from 'lightweight-charts';
-import { chartApi, stocksApi } from '@/api';
+import { chartApi, stocksApi, watchlistApi } from '@/api';
 
 const searchTicker = ref('');
 const period = ref('D');
@@ -120,7 +150,8 @@ const loading = ref(false);
 const error = ref('');
 const chartData = ref<any>(null);
 const apiConfigured = ref(true);
-const holdingTickers = ref<string[]>([]);
+const holdingStocks = ref<any[]>([]);
+const watchlistStocks = ref<any[]>([]);
 
 const chartContainer = ref<HTMLElement>();
 const volumeContainer = ref<HTMLElement>();
@@ -272,18 +303,30 @@ async function checkConfig() {
   }
 }
 
-async function loadHoldingTickers() {
+async function loadStockLists() {
   try {
     const { data } = await stocksApi.getAll();
-    holdingTickers.value = data.map((s: any) => s.ticker);
-  } catch {
-    // silent
-  }
+    holdingStocks.value = data.map((s: any) => ({ ticker: s.ticker, name: s.name }));
+  } catch {}
+  try {
+    const { data } = await watchlistApi.getAll();
+    const holdingSet = new Set(holdingStocks.value.map(s => s.ticker));
+    watchlistStocks.value = data
+      .filter((w: any) => !holdingSet.has(w.ticker))
+      .map((w: any) => ({ ticker: w.ticker, name: w.name }));
+  } catch {}
 }
 
 onMounted(() => {
   checkConfig();
-  loadHoldingTickers();
+  loadStockLists();
+
+  // URL에서 ticker 파라미터 자동 로드 (?ticker=005930)
+  const route = useRoute();
+  if (route.query.ticker) {
+    searchTicker.value = String(route.query.ticker);
+    loadChart();
+  }
   window.addEventListener('resize', handleResize);
 });
 

@@ -1,5 +1,6 @@
 import { Router, Request, Response } from 'express';
 import { getAccessToken, getKisConfig } from '../services/kisAuth';
+import { getSettings } from '../services/settings';
 import { analyzeTechnical, CandleData } from '../services/technicalAnalysis';
 import { checkOllamaStatus, getTradeDecision, buildAnalysisInput, AnalysisPhase } from '../services/ollama';
 import { collectAndCacheNews, getCachedNews, summarizeNewsWithAI } from '../services/newsCollector';
@@ -8,76 +9,86 @@ import { queryOne, queryAll, execute } from '../db';
 const router = Router();
 
 /** 종목 기술적 분석 */
+/** 시장 판별 */
+function detectMarket(ticker: string): { overseas: boolean; exchCode: string; market: string } {
+  const stock: any = queryOne('SELECT market FROM stocks WHERE ticker = ?', [ticker]);
+  const market = stock?.market || '';
+  const overseasMarkets: Record<string, string> = { NASDAQ: 'NAS', NYSE: 'NYS', NASD: 'NAS', AMEX: 'AMS' };
+  if (overseasMarkets[market]) return { overseas: true, exchCode: overseasMarkets[market], market };
+  if (/^[A-Z]{1,5}$/.test(ticker)) return { overseas: true, exchCode: 'NAS', market: 'NASDAQ' };
+  return { overseas: false, exchCode: '', market: market || 'KRX' };
+}
+
+/** 캔들 데이터 조회 (국내/해외 자동 분기) */
+async function fetchAnalysisCandles(ticker: string): Promise<CandleData[]> {
+  const { appKey, appSecret, baseUrl } = getKisConfig();
+  const settings = getSettings();
+  const token = await getAccessToken();
+  const { overseas, exchCode } = detectMarket(ticker);
+
+  const today = new Date();
+  const end = today.toISOString().slice(0, 10).replace(/-/g, '');
+  const startDate = new Date(today);
+  startDate.setFullYear(startDate.getFullYear() - 1);
+  const start = startDate.toISOString().slice(0, 10).replace(/-/g, '');
+
+  if (overseas) {
+    const trId = settings.kisVirtual ? 'VHHDFS76240000' : 'HHDFS76240000';
+    const params = new URLSearchParams({ AUTH: '', EXCD: exchCode, SYMB: ticker, GUBN: '0', BYMD: end, MODP: '1' });
+    const response = await fetch(`${baseUrl}/uapi/overseas-price/v1/quotations/dailyprice?${params}`, {
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}`, appkey: appKey, appsecret: appSecret, tr_id: trId, custtype: 'P' },
+    });
+    if (!response.ok) return [];
+    const data: any = await response.json();
+    if (data.rt_cd !== '0') return [];
+    return (data.output2 || [])
+      .filter((item: any) => item.xymd && Number(item.open) > 0)
+      .map((item: any) => ({
+        time: `${item.xymd.slice(0, 4)}-${item.xymd.slice(4, 6)}-${item.xymd.slice(6, 8)}`,
+        open: Number(item.open), high: Number(item.high), low: Number(item.low), close: Number(item.clos), volume: Number(item.tvol),
+      }))
+      .sort((a: CandleData, b: CandleData) => (a.time > b.time ? 1 : -1));
+  }
+
+  // 국내
+  const params = new URLSearchParams({ fid_cond_mrkt_div_code: 'J', fid_input_iscd: ticker, fid_input_date_1: start, fid_input_date_2: end, fid_period_div_code: 'D', fid_org_adj_prc: '0' });
+  const response = await fetch(`${baseUrl}/uapi/domestic-stock/v1/quotations/inquire-daily-itemchartprice?${params}`, {
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}`, appkey: appKey, appsecret: appSecret, tr_id: 'FHKST03010100', custtype: 'P' },
+  });
+  if (!response.ok) return [];
+  const data: any = await response.json();
+  if (data.rt_cd !== '0') return [];
+  return (data.output2 || [])
+    .filter((item: any) => item.stck_bsop_date && Number(item.stck_oprc) > 0)
+    .map((item: any) => ({
+      time: `${item.stck_bsop_date.slice(0, 4)}-${item.stck_bsop_date.slice(4, 6)}-${item.stck_bsop_date.slice(6, 8)}`,
+      open: Number(item.stck_oprc), high: Number(item.stck_hgpr), low: Number(item.stck_lwpr), close: Number(item.stck_clpr), volume: Number(item.acml_vol),
+    }))
+    .sort((a: CandleData, b: CandleData) => (a.time > b.time ? 1 : -1));
+}
+
 router.get('/:ticker', async (req: Request, res: Response) => {
   const ticker = req.params.ticker as string;
-  const { appKey, appSecret, baseUrl } = getKisConfig();
+  const { appKey, appSecret } = getKisConfig();
 
   if (!appKey || !appSecret) {
     return res.status(400).json({ error: 'KIS API 설정이 필요합니다.', code: 'NO_CONFIG' });
   }
 
   try {
-    const token = await getAccessToken();
-    const today = new Date();
-    const end = today.toISOString().slice(0, 10).replace(/-/g, '');
-    const startDate = new Date(today);
-    startDate.setFullYear(startDate.getFullYear() - 1);
-    const start = startDate.toISOString().slice(0, 10).replace(/-/g, '');
-
-    const params = new URLSearchParams({
-      fid_cond_mrkt_div_code: 'J',
-      fid_input_iscd: ticker,
-      fid_input_date_1: start,
-      fid_input_date_2: end,
-      fid_period_div_code: 'D',
-      fid_org_adj_prc: '0',
-    });
-
-    const response = await fetch(
-      `${baseUrl}/uapi/domestic-stock/v1/quotations/inquire-daily-itemchartprice?${params}`,
-      {
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${token}`,
-          appkey: appKey,
-          appsecret: appSecret,
-          tr_id: 'FHKST03010100',
-          custtype: 'P',
-        },
-      }
-    );
-
-    if (!response.ok) {
-      return res.status(response.status).json({ error: 'KIS API 오류' });
-    }
-
-    const data: any = await response.json();
-    if (data.rt_cd !== '0') {
-      return res.status(400).json({ error: data.msg1 });
-    }
-
-    const candles: CandleData[] = (data.output2 || [])
-      .filter((item: any) => item.stck_bsop_date && Number(item.stck_oprc) > 0)
-      .map((item: any) => ({
-        time: `${item.stck_bsop_date.slice(0, 4)}-${item.stck_bsop_date.slice(4, 6)}-${item.stck_bsop_date.slice(6, 8)}`,
-        open: Number(item.stck_oprc),
-        high: Number(item.stck_hgpr),
-        low: Number(item.stck_lwpr),
-        close: Number(item.stck_clpr),
-        volume: Number(item.acml_vol),
-      }))
-      .sort((a: CandleData, b: CandleData) => (a.time > b.time ? 1 : -1));
-
+    const candles = await fetchAnalysisCandles(ticker);
     if (candles.length < 30) {
       return res.status(400).json({ error: '분석에 충분한 데이터가 없습니다 (최소 30일)' });
     }
 
     const indicators = analyzeTechnical(candles);
-    const info = data.output1 || {};
+    const stock = queryOne('SELECT name FROM stocks WHERE ticker = ?', [ticker]);
+    const { market: detectedMarket } = detectMarket(ticker);
 
     res.json({
       ticker,
-      name: info.hts_kor_isnm || ticker,
+      name: stock?.name || ticker,
+      market: detectedMarket,
       indicators,
       dataPoints: candles.length,
     });
@@ -106,57 +117,7 @@ router.post('/:ticker/decision', async (req: Request, res: Response) => {
       return res.status(400).json({ error: 'KIS API 설정이 필요합니다.' });
     }
 
-    const token = await getAccessToken();
-    const today = new Date();
-    const end = today.toISOString().slice(0, 10).replace(/-/g, '');
-    const startDate = new Date(today);
-    startDate.setFullYear(startDate.getFullYear() - 1);
-    const start = startDate.toISOString().slice(0, 10).replace(/-/g, '');
-
-    const params = new URLSearchParams({
-      fid_cond_mrkt_div_code: 'J',
-      fid_input_iscd: ticker,
-      fid_input_date_1: start,
-      fid_input_date_2: end,
-      fid_period_div_code: 'D',
-      fid_org_adj_prc: '0',
-    });
-
-    const candleRes = await fetch(
-      `${baseUrl}/uapi/domestic-stock/v1/quotations/inquire-daily-itemchartprice?${params}`,
-      {
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${token}`,
-          appkey: appKey,
-          appsecret: appSecret,
-          tr_id: 'FHKST03010100',
-          custtype: 'P',
-        },
-      }
-    );
-
-    if (!candleRes.ok) {
-      return res.status(candleRes.status).json({ error: 'KIS API 오류' });
-    }
-
-    const candleData: any = await candleRes.json();
-    if (candleData.rt_cd !== '0') {
-      return res.status(400).json({ error: candleData.msg1 });
-    }
-
-    const candles: CandleData[] = (candleData.output2 || [])
-      .filter((item: any) => item.stck_bsop_date && Number(item.stck_oprc) > 0)
-      .map((item: any) => ({
-        time: `${item.stck_bsop_date.slice(0, 4)}-${item.stck_bsop_date.slice(4, 6)}-${item.stck_bsop_date.slice(6, 8)}`,
-        open: Number(item.stck_oprc),
-        high: Number(item.stck_hgpr),
-        low: Number(item.stck_lwpr),
-        close: Number(item.stck_clpr),
-        volume: Number(item.acml_vol),
-      }))
-      .sort((a: CandleData, b: CandleData) => (a.time > b.time ? 1 : -1));
-
+    const candles = await fetchAnalysisCandles(ticker);
     if (candles.length < 30) {
       return res.status(400).json({ error: '분석에 충분한 데이터가 없습니다 (최소 30일)' });
     }

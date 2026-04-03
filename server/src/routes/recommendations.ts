@@ -8,18 +8,49 @@ import { getSettings } from '../services/settings';
 
 const router = Router();
 
+/** 종목명/섹터 기반 카테고리 자동 분류 */
+function classifyCategory(name: string, sector: string = ''): string {
+  const text = `${name} ${sector}`.toLowerCase();
+  const categories: Record<string, string[]> = {
+    'AI/반도체': ['ai', '인공지능', '반도체', 'semiconductor', 'gpu', 'nvidia', 'amd', '엔비디아', '삼성전자', 'sk하이닉스', 'chip'],
+    '항공우주/방위': ['항공', '우주', '방위', '방산', 'aerospace', 'defense', 'space', '한화에어로', '록히드', 'lockheed', 'boeing'],
+    '바이오/헬스': ['바이오', '제약', '헬스', 'bio', 'pharma', 'health', '셀트리온', '삼성바이오', 'pfizer', 'moderna'],
+    '2차전지/에너지': ['2차전지', '배터리', '에너지', '태양광', '친환경', 'battery', 'energy', 'solar', 'ev', '전기차', 'lg에너지', 'tesla'],
+    '금융': ['금융', '은행', '증권', '보험', 'bank', 'finance', 'insurance', 'financial'],
+    '플랫폼/IT': ['플랫폼', '소프트웨어', 'it', '클라우드', 'saas', 'platform', 'software', 'cloud', '카카오', '네이버', 'google', 'meta', 'apple', 'microsoft'],
+    '자동차': ['자동차', '모빌리티', 'auto', 'motor', 'car', '현대차', '기아', 'toyota'],
+    '소비재/유통': ['소비', '유통', '식품', '음료', 'retail', 'consumer', 'food', '이마트', '쿠팡'],
+    '엔터/미디어': ['엔터', '미디어', '게임', '콘텐츠', 'entertainment', 'media', 'game', 'content', '하이브', 'disney', 'netflix'],
+    'ETF/지수': ['etf', 'kodex', 'tiger', 'index', '인덱스', '레버리지', '인버스'],
+  };
+
+  for (const [category, keywords] of Object.entries(categories)) {
+    if (keywords.some(kw => text.includes(kw))) return category;
+  }
+  return '기타';
+}
+
 /** 추천 종목 목록 조회 */
 router.get('/', (req: Request, res: Response) => {
-  const { market, status } = req.query;
+  const { market, status, category } = req.query;
   let sql = 'SELECT * FROM recommendations WHERE 1=1';
   const params: any[] = [];
 
   if (market) { sql += ' AND market = ?'; params.push(market); }
+  if (category) { sql += ' AND category = ?'; params.push(category); }
   if (status) { sql += ' AND status = ?'; params.push(status); }
   else { sql += " AND status = 'ACTIVE'"; }
 
   sql += ' ORDER BY created_at DESC LIMIT 50';
   res.json(queryAll(sql, params));
+});
+
+/** 카테고리 목록 조회 */
+router.get('/categories', (_req: Request, res: Response) => {
+  const cats = queryAll(
+    "SELECT category, COUNT(*) as count FROM recommendations WHERE status = 'ACTIVE' AND category != '' GROUP BY category ORDER BY count DESC"
+  );
+  res.json(cats);
 });
 
 /** 추천 종목 추가 */
@@ -30,8 +61,8 @@ router.post('/', (req: Request, res: Response) => {
   }
 
   const { lastId } = execute(
-    'INSERT INTO recommendations (ticker, name, market, source, reason, signal_type, confidence, expires_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
-    [ticker, name, market || 'KRX', source || '', reason || '', signal_type || 'BUY', confidence || 0, expires_at || null]
+    'INSERT INTO recommendations (ticker, name, market, source, reason, signal_type, confidence, expires_at, category) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
+    [ticker, name, market || 'KRX', source || '', reason || '', signal_type || 'BUY', confidence || 0, expires_at || null, classifyCategory(name)]
   );
 
   res.json({ id: lastId, message: '추천 종목 추가 완료' });
@@ -173,8 +204,8 @@ router.post('/generate', async (req: Request, res: Response) => {
         const reason = `${decision.reasoning} [목표가: ${decision.targetPrice?.toLocaleString() ?? '-'}, 손절가: ${decision.stopLossPrice?.toLocaleString() ?? '-'}]`;
         const expiresAt = new Date(Date.now() + 7 * 86400000).toISOString().split('T')[0];
         execute(
-          'INSERT INTO recommendations (ticker, name, market, source, reason, signal_type, confidence, expires_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
-          [candidate.ticker, candidate.name, market, 'ollama-auto', reason, 'BUY', decision.confidence, expiresAt]
+          'INSERT INTO recommendations (ticker, name, market, source, reason, signal_type, confidence, expires_at, category) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
+          [candidate.ticker, candidate.name, market, 'ollama-auto', reason, 'BUY', decision.confidence, expiresAt, classifyCategory(candidate.name)]
         );
         activeTickers.add(candidate.ticker);
         slotsAvailable--;

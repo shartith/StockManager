@@ -103,6 +103,10 @@
             </div>
           </div>
           <div class="flex flex-col gap-2 flex-shrink-0">
+            <button @click="openChart(rec.ticker)"
+              class="w-24 text-xs px-3 py-2 bg-slate-50 text-slate-700 rounded-lg hover:bg-slate-100 transition text-center whitespace-nowrap">
+              차트
+            </button>
             <button @click="addToWatchlist(rec)" class="w-24 text-xs px-3 py-2 bg-blue-50 text-blue-700 rounded-lg hover:bg-blue-100 transition text-center whitespace-nowrap">
               관심종목 추가
             </button>
@@ -121,12 +125,22 @@
         </div>
       </div>
     </div>
+    <!-- 차트 모달 -->
+    <ChartModal :visible="chartModalVisible" :ticker="chartModalTicker" @close="chartModalVisible = false" />
   </div>
 </template>
 
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue';
 import { recommendationsApi } from '@/api';
+import ChartModal from '@/components/ChartModal.vue';
+
+const chartModalVisible = ref(false);
+const chartModalTicker = ref('');
+function openChart(ticker: string) {
+  chartModalTicker.value = ticker;
+  chartModalVisible.value = true;
+}
 
 const loading = ref(false);
 const recommendations = ref<any[]>([]);
