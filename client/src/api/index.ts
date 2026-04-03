@@ -127,6 +127,12 @@ export const feedbackApi = {
   exportLora: () => api.get('/feedback/lora/export'),
 };
 
+// 버전 / 업데이트 API
+export const versionApi = {
+  check: () => api.get('/version'),
+  update: () => api.post('/update'),
+};
+
 // 시스템 이벤트 API
 export const systemEventsApi = {
   getAll: (params?: { limit?: number; unresolved?: boolean }) => api.get('/system-events', { params }),

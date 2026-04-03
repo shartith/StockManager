@@ -43,6 +43,14 @@
           <span class="text-lg">{{ darkMode ? '☀️' : '🌙' }}</span>
           <span>{{ darkMode ? '라이트 모드' : '다크 모드' }}</span>
         </button>
+        <!-- 버전 + 업데이트 -->
+        <div class="px-3 py-2 text-xs text-slate-500">
+          <span>v{{ versionInfo.currentVersion }}</span>
+          <button v-if="versionInfo.updateAvailable" @click="runUpdate" :disabled="updating"
+            class="ml-2 px-2 py-0.5 bg-green-600 text-white rounded text-xs hover:bg-green-700 disabled:opacity-50">
+            {{ updating ? '업데이트 중...' : `v${versionInfo.latestVersion} 업데이트` }}
+          </button>
+        </div>
       </div>
     </aside>
 
@@ -86,10 +94,34 @@
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted } from 'vue';
 import { useRouter } from 'vue-router';
-import { notificationsApi } from '@/api';
+import { notificationsApi, versionApi } from '@/api';
 
 const router = useRouter();
 const showNotifications = ref(false);
+
+// 버전 + 업데이트
+const versionInfo = ref({ currentVersion: '-', latestVersion: '-', updateAvailable: false });
+const updating = ref(false);
+
+async function checkVersion() {
+  try {
+    const { data } = await versionApi.check();
+    versionInfo.value = data;
+  } catch {}
+}
+
+async function runUpdate() {
+  if (!confirm('Stock Manager를 최신 버전으로 업데이트합니다.\n서버가 재시작되며 약 1~2분 소요됩니다.\n계속하시겠습니까?')) return;
+  updating.value = true;
+  try {
+    await versionApi.update();
+    // 서버 재시작 대기 후 새로고침
+    setTimeout(() => { location.reload(); }, 30000);
+  } catch {
+    updating.value = false;
+    alert('업데이트 실패. 터미널에서 수동으로 실행하세요:\nstock-manager stop && brew upgrade stock-manager && stock-manager start');
+  }
+}
 
 // 다크모드
 const darkMode = ref(localStorage.getItem('darkMode') === 'true');
@@ -167,6 +199,7 @@ function formatNotifDate(dt: string) {
 
 onMounted(() => {
   fetchUnreadCount();
+  checkVersion();
   pollTimer = setInterval(fetchUnreadCount, 60000);
 });
 

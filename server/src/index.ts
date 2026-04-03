@@ -41,6 +41,47 @@ app.get('/api/health', (_req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });
 });
 
+// 버전 + 업데이트 확인
+const currentVersion = require(path.join(__dirname, '../../package.json')).version;
+
+app.get('/api/version', async (_req, res) => {
+  let latestVersion = currentVersion;
+  let updateAvailable = false;
+  try {
+    const response = await fetch('https://api.github.com/repos/shartith/StockManager/releases/latest', {
+      headers: { 'User-Agent': 'StockManager' },
+    });
+    if (response.ok) {
+      const data: any = await response.json();
+      latestVersion = (data.tag_name || '').replace(/^v/, '');
+      updateAvailable = latestVersion !== currentVersion && latestVersion > currentVersion;
+    }
+  } catch {}
+  res.json({ currentVersion, latestVersion, updateAvailable });
+});
+
+// 업데이트 실행 (brew upgrade)
+app.post('/api/update', (_req, res) => {
+  const { execSync } = require('child_process');
+  try {
+    // 먼저 응답 보내고 업데이트 실행 (서버가 재시작되므로)
+    res.json({ success: true, message: '업데이트를 시작합니다. 잠시 후 페이지가 새로고침됩니다.' });
+
+    // 비동기로 업데이트 실행 (현재 요청 완료 후)
+    setTimeout(() => {
+      try {
+        execSync('brew update && brew upgrade stock-manager', { timeout: 120000 });
+        // 서버 재시작
+        process.exit(0); // launchd/systemd가 자동 재시작
+      } catch (err: any) {
+        console.log(`[Update] 업데이트 실패: ${err.message}`);
+      }
+    }, 1000);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // 프로덕션: 클라이언트 정적 파일 서빙
 const clientDist = process.env.STOCK_MANAGER_CLIENT || path.join(__dirname, '../../client/dist');
 app.use(express.static(clientDist));
