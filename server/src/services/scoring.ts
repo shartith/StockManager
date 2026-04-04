@@ -126,9 +126,24 @@ export async function evaluateAndScore(
     }
   }
 
-  // 7. 가격 모멘텀 — LLM urgency가 IMMEDIATE이면 +10
+  // 7. 가격 모멘텀 — 강한 상승 추세 감지
   if (decision.urgency === 'IMMEDIATE') {
     details.push({ type: 'PRICE_MOMENTUM', value: Math.round(10 * (weights.PRICE_MOMENTUM || 1)), reason: '즉시 매수 권고' });
+  }
+  // 5일 연속 양봉 또는 5일 수익률 >5% → 추가 모멘텀 점수
+  if (indicators) {
+    const sma5 = (indicators as any).sma5 ?? (indicators as any).SMA5;
+    const sma20 = (indicators as any).sma20 ?? (indicators as any).SMA20;
+    const currentPrice = (indicators as any).currentPrice ?? (indicators as any).close;
+    if (sma5 && sma20 && currentPrice) {
+      // 5일 이평선이 20일 이평선 위 + 현재가가 5일 이평선 위 → 강한 상승 추세
+      if (currentPrice > sma5 && sma5 > sma20) {
+        const momentum = Math.round(((currentPrice - sma20) / sma20) * 100);
+        if (momentum >= 5) {
+          details.push({ type: 'PRICE_MOMENTUM', value: Math.round(15 * (weights.PRICE_MOMENTUM || 1)), reason: `강한 상승 모멘텀 (+${momentum}% vs SMA20)` });
+        }
+      }
+    }
   }
 
   // 8. 시간 감쇠 — 7일 이상 점수는 감쇠

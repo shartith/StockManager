@@ -58,6 +58,52 @@ export async function fetchDomesticVolumeRank(appKey: string, appSecret: string,
   }
 }
 
+/** 국내주식 등락률 상위 종목 검색 (상승률 기반) */
+export async function fetchDomesticFluctuationRank(appKey: string, appSecret: string, baseUrl: string): Promise<{ticker: string; name: string}[]> {
+  try {
+    const token = await getAccessToken();
+    const params = new URLSearchParams({
+      fid_cond_mrkt_div_code: 'J',
+      fid_cond_scr_div_code: '20170',  // 등락률 순위
+      fid_input_iscd: '0000',
+      fid_div_cls_code: '0',
+      fid_blng_cls_code: '0',
+      fid_trgt_cls_code: '111111111',
+      fid_trgt_exls_cls_code: '000000',
+      fid_input_price_1: '0',
+      fid_input_price_2: '0',
+      fid_vol_cnt: '0',
+      fid_input_date_1: '',
+    });
+
+    const response = await fetch(
+      `${baseUrl}/uapi/domestic-stock/v1/quotations/volume-rank?${params}`,
+      {
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+          appkey: appKey,
+          appsecret: appSecret,
+          tr_id: 'FHPST01710000',
+          custtype: 'P',
+        },
+      }
+    );
+
+    if (!response.ok) return [];
+    const data: any = await response.json();
+    if (data.rt_cd !== '0') return [];
+
+    return (data.output || []).slice(0, 20).map((item: any) => ({
+      ticker: item.mksc_shrn_iscd || item.stck_shrn_iscd || '',
+      name: item.hts_kor_isnm || '',
+    })).filter((c: any) => c.ticker);
+  } catch (err) {
+    logger.warn({ err }, '등락률 순위 조회 실패');
+    return [];
+  }
+}
+
 /** 해외주식 거래량 상위 종목 검색 */
 async function fetchOverseasVolumeRank(market: Market): Promise<{ticker: string; name: string}[]> {
   try {
@@ -120,6 +166,58 @@ async function fetchOverseasVolumeRank(market: Market): Promise<{ticker: string;
       name: item.name || item.symb || '',
     })).filter((c: any) => c.ticker);
   } catch {
+    return [];
+  }
+}
+
+/** 해외주식 상승률 기반 종목 검색 */
+async function fetchOverseasGainerRank(market: Market): Promise<{ticker: string; name: string}[]> {
+  try {
+    const { appKey, appSecret, baseUrl, isVirtual } = getKisConfig();
+    if (!appKey || !appSecret) return [];
+
+    const token = await getAccessToken();
+    const exchCode = market === 'NYSE' ? 'NYS' : 'NAS';
+    const trId = isVirtual ? 'VHHDFS76410000' : 'HHDFS76410000';
+
+    // 등락률 기준으로 검색 (CO_YN_RATE=Y, 상승률 3% 이상)
+    const params = new URLSearchParams({
+      AUTH: '',
+      EXCD: exchCode,
+      CO_YN_PRICECUR: '', CO_ST_PRICECUR: '', CO_EN_PRICECUR: '',
+      CO_YN_RATE: 'Y', CO_ST_RATE: '3', CO_EN_RATE: '',  // 3% 이상 상승
+      CO_YN_VALX: '', CO_ST_VALX: '', CO_EN_VALX: '',
+      CO_YN_SHAR: '', CO_ST_SHAR: '', CO_EN_SHAR: '',
+      CO_YN_VOLUME: '', CO_ST_VOLUME: '', CO_EN_VOLUME: '',
+      CO_YN_AMT: '', CO_ST_AMT: '', CO_EN_AMT: '',
+      CO_YN_EPS: '', CO_ST_EPS: '', CO_EN_EPS: '',
+      CO_YN_PER: '', CO_ST_PER: '', CO_EN_PER: '',
+    });
+
+    const response = await fetch(
+      `${baseUrl}/uapi/overseas-price/v1/quotations/inquire-search?${params}`,
+      {
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+          appkey: appKey,
+          appsecret: appSecret,
+          tr_id: trId,
+          custtype: 'P',
+        },
+      }
+    );
+
+    if (!response.ok) return [];
+    const data: any = await response.json();
+    if (data.rt_cd !== '0') return [];
+
+    return (data.output2 || []).slice(0, 20).map((item: any) => ({
+      ticker: item.symb || '',
+      name: item.name || item.symb || '',
+    })).filter((c: any) => c.ticker);
+  } catch (err) {
+    logger.warn({ err }, '해외 상승률 순위 조회 실패');
     return [];
   }
 }
@@ -215,7 +313,7 @@ export async function runRecommendationRefresh() {
       await sleep(200);
     }
 
-    // Step 2: 빈 슬롯 채우기 — 거래량 상위 검색
+    // Step 2: 빈 슬롯 채우기 — 거래량 + 상승률 상위 검색
     const currentCount = queryAll(
       "SELECT id FROM recommendations WHERE market = ? AND status = 'ACTIVE'", [market]
     ).length;
@@ -227,10 +325,40 @@ export async function runRecommendationRefresh() {
           .map((r: any) => r.ticker)
       );
 
-      // 시장별 후보 검색
-      const candidates = market === 'KRX'
-        ? await fetchDomesticVolumeRank(appKey, appSecret, baseUrl)
-        : await fetchOverseasVolumeRank(market);
+      // 시장별 후보 검색 — 거래량 상위 + 상승률 상위 병합 (중복 제거)
+      let volumeCandidates: {ticker: string; name: string}[];
+      let gainerCandidates: {ticker: string; name: string}[];
+
+      if (market === 'KRX') {
+        [volumeCandidates, gainerCandidates] = await Promise.all([
+          fetchDomesticVolumeRank(appKey, appSecret, baseUrl),
+          fetchDomesticFluctuationRank(appKey, appSecret, baseUrl),
+        ]);
+      } else {
+        [volumeCandidates, gainerCandidates] = await Promise.all([
+          fetchOverseasVolumeRank(market),
+          fetchOverseasGainerRank(market),
+        ]);
+      }
+
+      // 병합 (상승률 우선 — 상승률 후보를 먼저, 이후 거래량 후보 추가)
+      const seenTickers = new Set<string>();
+      const candidates: {ticker: string; name: string}[] = [];
+
+      for (const c of gainerCandidates) {
+        if (c.ticker && !seenTickers.has(c.ticker)) {
+          seenTickers.add(c.ticker);
+          candidates.push(c);
+        }
+      }
+      for (const c of volumeCandidates) {
+        if (c.ticker && !seenTickers.has(c.ticker)) {
+          seenTickers.add(c.ticker);
+          candidates.push(c);
+        }
+      }
+
+      logger.info(`[Scheduler] ${market} 후보: 상승률 ${gainerCandidates.length}개 + 거래량 ${volumeCandidates.length}개 = 총 ${candidates.length}개`);
 
       for (const candidate of candidates) {
         if (slotsAvailable <= 0) break;

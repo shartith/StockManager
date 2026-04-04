@@ -82,11 +82,17 @@ describe('scoring engine', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     vi.mocked(queryAll).mockReturnValue([]);
-    vi.mocked(queryOne).mockReturnValue(null);
+    vi.mocked(queryOne).mockImplementation((sql: string) => {
+      if (sql.includes('SELECT id FROM stocks')) return { id: 999 };
+      if (sql.includes('SELECT id FROM watchlist')) return null;
+      if (sql.includes('SELECT name FROM recommendations')) return { name: 'Test' };
+      return null;
+    });
     vi.mocked(execute).mockReturnValue({ changes: 1, lastId: 1 });
     vi.mocked(getSettings).mockReturnValue({
       autoTradeEnabled: false,
       autoTradeMaxPerStock: 2000000,
+      autoTradeScoreThreshold: 100,
     } as any);
     vi.mocked(loadWeights).mockReturnValue({
       CONSECUTIVE_BUY: 1.0,
