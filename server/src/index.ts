@@ -24,6 +24,7 @@ import watchlistRouter from './routes/watchlist';
 import notificationsRouter from './routes/notifications';
 import feedbackRouter from './routes/feedback';
 import tradingRulesRouter from './routes/tradingRules';
+import nasSyncRouter from './routes/nasSync';
 import { getSettings } from './services/settings';
 import { startScheduler, stopScheduler, getSchedulerStatus } from './services/scheduler';
 import { getRecentEvents, getUnresolvedEvents, getEventCounts, resolveEvent } from './services/systemEvent';
@@ -97,6 +98,7 @@ app.use('/api/watchlist', watchlistRouter);
 app.use('/api/notifications', notificationsRouter);
 app.use('/api/feedback', feedbackRouter);
 app.use('/api/trading-rules', tradingRulesRouter);
+app.use('/api/nas-sync', nasSyncRouter);
 
 // ── WS token endpoint ──
 app.get('/api/ws-token', (_req, res) => {

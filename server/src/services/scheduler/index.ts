@@ -16,6 +16,7 @@ import { runRecommendationRefresh } from './recommendations';
 import { runWeekendLearning } from './weekendLearning';
 import { cleanupWatchlist } from './watchlistCleanup';
 import { checkDartDisclosures } from './dartMonitor';
+import { runNasSync } from '../nasSync';
 
 // Re-export types for external consumers
 export type { SchedulePhase, Market, ScheduleLog } from './types';
@@ -111,6 +112,15 @@ export function startScheduler() {
     runWeekendLearning().catch(err => logger.error({ err }, 'runWeekendLearning failed'));
   }, { timezone: 'Asia/Seoul' }));
   logger.info('[Scheduler] 주말 학습 스케줄 등록 (토요일 06:00 KST)');
+
+  // ── NAS 데이터 동기화 ──
+  if (settings.nasSyncEnabled && settings.nasSyncPath) {
+    const syncTime = settings.nasSyncTime || '0 20 * * *';
+    schedulerState.activeTasks.push(cron.schedule(syncTime, () => {
+      runNasSync().catch(err => logger.error({ err }, 'NAS sync failed'));
+    }, { timezone: 'Asia/Seoul' }));
+    logger.info(`[Scheduler] NAS 동기화 스케줄 등록 (${syncTime})`);
+  }
 
   if (schedulerState.activeTasks.length > 0) {
     logger.info(`[Scheduler] 총 ${schedulerState.activeTasks.length}개 스케줄 활성화`);

@@ -153,4 +153,11 @@ export const systemEventsApi = {
   resolve: (id: number, resolution?: string) => api.post(`/system-events/${id}/resolve`, { resolution }),
 };
 
+// NAS 동기화 API
+export const nasSyncApi = {
+  getStatus: () => api.get('/nas-sync/status'),
+  run: () => api.post('/nas-sync/run'),
+  validate: (path: string) => api.post('/nas-sync/validate', { path }),
+};
+
 export default api;

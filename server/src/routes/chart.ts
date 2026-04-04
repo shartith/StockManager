@@ -56,6 +56,16 @@ router.get('/config/form', (_req: Request, res: Response) => {
     scheduleKrx: settings.scheduleKrx,
     scheduleNyse: settings.scheduleNyse,
 
+    nasSyncEnabled: settings.nasSyncEnabled,
+    nasSyncPath: settings.nasSyncPath,
+    nasSyncTime: settings.nasSyncTime,
+    deviceId: settings.deviceId,
+    nasHost: settings.nasHost,
+    nasShare: settings.nasShare,
+    nasUsername: settings.nasUsername,
+    hasNasPassword: !!settings.nasPassword,
+    nasAutoMount: settings.nasAutoMount,
+
     tradingRulesEnabled: settings.tradingRulesEnabled,
     tradingRulesStrictMode: settings.tradingRulesStrictMode,
     gapThresholdPercent: settings.gapThresholdPercent,
@@ -108,6 +118,16 @@ router.post('/config', validate(saveConfigSchema), (req: Request, res: Response)
 
     ...(scheduleKrx ? { scheduleKrx } : {}),
     ...(scheduleNyse ? { scheduleNyse } : {}),
+
+    nasSyncEnabled: req.body.nasSyncEnabled ?? false,
+    nasSyncPath: req.body.nasSyncPath || '/Volumes/stock-manager',
+    nasSyncTime: req.body.nasSyncTime || '0 20 * * *',
+    deviceId: req.body.deviceId || '',
+    nasHost: req.body.nasHost || '',
+    nasShare: req.body.nasShare || 'stock-manager',
+    nasUsername: req.body.nasUsername || '',
+    ...(req.body.nasPassword ? { nasPassword: req.body.nasPassword } : {}),
+    nasAutoMount: req.body.nasAutoMount ?? true,
 
     tradingRulesEnabled: req.body.tradingRulesEnabled ?? true,
     tradingRulesStrictMode: req.body.tradingRulesStrictMode ?? false,

@@ -155,6 +155,16 @@ export const saveConfigSchema = z.object({
     preClose30m: z.boolean(),
   }).optional(),
 
+  nasSyncEnabled: z.boolean().default(false),
+  nasSyncPath: z.string().default('/Volumes/stock-manager'),
+  nasSyncTime: z.string().regex(/^[\d*\/,-]+ [\d*\/,-]+ [\d*\/,-]+ [\d*\/,-]+ [\d*\/,-]+$/).or(z.literal('')).default('0 20 * * *'),
+  deviceId: z.string().default(''),
+  nasHost: z.string().default(''),
+  nasShare: z.string().default('stock-manager'),
+  nasUsername: z.string().default(''),
+  nasPassword: z.string().default(''),
+  nasAutoMount: z.boolean().default(true),
+
   tradingRulesEnabled: z.boolean().default(true),
   tradingRulesStrictMode: z.boolean().default(false),
   gapThresholdPercent: z.number().min(0.5).max(20).default(3),

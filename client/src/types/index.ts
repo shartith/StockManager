@@ -352,3 +352,33 @@ export interface ImportResult {
   error?: string;
   imported?: string[];
 }
+
+// ============================================================
+// NAS Sync
+// ============================================================
+
+export interface NasSyncStatus {
+  enabled: boolean;
+  lastSync: {
+    lastSyncAt: string;
+    deviceId: string;
+    tablesExported: number;
+    totalRecords: number;
+  } | null;
+  nasPath: string;
+  deviceId: string;
+}
+
+export interface NasSyncResult {
+  success: boolean;
+  message: string;
+  tablesExported: number;
+  totalRecords: number;
+  syncPath: string;
+  timestamp: string;
+}
+
+export interface NasValidateResult {
+  valid: boolean;
+  message: string;
+}

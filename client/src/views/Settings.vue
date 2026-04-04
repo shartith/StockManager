@@ -475,6 +475,97 @@
         v-model:sidewaysAtrPercent="form.sidewaysAtrPercent"
       />
 
+      <!-- 섹션: 데이터 동기화 (NAS) -->
+      <div class="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+        <div class="px-6 py-4 bg-slate-50 border-b border-slate-200">
+          <h3 class="text-sm font-semibold text-slate-700">데이터 동기화 (NAS)</h3>
+          <p class="text-xs text-slate-500 mt-0.5">NAS에 데이터를 자동으로 백업/동기화합니다. 여러 기기에서 동일한 데이터를 유지할 수 있습니다.</p>
+        </div>
+        <div class="p-6 space-y-4">
+          <!-- NAS 동기화 활성화 토글 -->
+          <label class="flex items-center gap-3 cursor-pointer">
+            <div class="relative">
+              <input type="checkbox" v-model="form.nasSyncEnabled" class="sr-only" />
+              <div class="w-11 h-6 rounded-full transition-colors" :class="form.nasSyncEnabled ? 'bg-blue-600' : 'bg-slate-200'"></div>
+              <div class="absolute top-1 left-1 w-4 h-4 bg-white rounded-full shadow transition-transform" :class="form.nasSyncEnabled ? 'translate-x-5' : 'translate-x-0'"></div>
+            </div>
+            <span class="text-sm font-medium text-slate-700">NAS 동기화 활성화</span>
+          </label>
+
+          <div v-if="form.nasSyncEnabled" class="space-y-4">
+            <!-- NAS 경로 -->
+            <div>
+              <label class="block text-sm font-medium text-slate-700 mb-1">NAS 경로</label>
+              <div class="flex gap-2">
+                <input v-model="form.nasSyncPath" type="text" placeholder="/Volumes/NAS/StockManager"
+                  class="flex-1 border border-slate-300 rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                <button type="button" @click="validateNasPath" :disabled="validating || !form.nasSyncPath"
+                  class="px-4 py-2 border border-slate-300 rounded-lg text-sm font-medium text-slate-600 hover:bg-slate-50 disabled:opacity-50 transition whitespace-nowrap">
+                  {{ validating ? '확인 중...' : '경로 테스트' }}
+                </button>
+              </div>
+              <p v-if="syncValidateResult" class="text-xs mt-1"
+                :class="syncValidateResult.startsWith('OK') ? 'text-green-600' : 'text-red-600'">
+                {{ syncValidateResult }}
+              </p>
+              <p class="text-xs text-slate-400 mt-1">마운트된 NAS 공유 폴더 경로를 입력하세요</p>
+            </div>
+
+            <!-- 기기 ID -->
+            <div>
+              <label class="block text-sm font-medium text-slate-700 mb-1">기기 ID</label>
+              <input v-model="form.nasDeviceId" type="text" placeholder="hostname"
+                class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-blue-500" />
+              <p class="text-xs text-slate-400 mt-1">이 기기를 식별하는 고유 이름 (비워두면 호스트명 사용)</p>
+            </div>
+
+            <!-- 동기화 시간 -->
+            <div>
+              <label class="block text-sm font-medium text-slate-700 mb-1">동기화 시간 (Cron 표현식)</label>
+              <input v-model="form.nasSyncTime" type="text" placeholder="0 20 * * *"
+                class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-blue-500" />
+              <p class="text-xs text-slate-400 mt-1">기본값: 매일 오후 8시 (0 20 * * *)</p>
+            </div>
+
+            <!-- 마지막 동기화 정보 -->
+            <div v-if="syncStatus?.lastSync" class="bg-slate-50 rounded-lg p-4">
+              <h4 class="text-sm font-medium text-slate-700 mb-2">마지막 동기화 정보</h4>
+              <div class="grid grid-cols-2 gap-2 text-xs">
+                <div>
+                  <span class="text-slate-500">동기화 시각:</span>
+                  <span class="ml-1 text-slate-700 font-medium">{{ new Date(syncStatus.lastSync.lastSyncAt).toLocaleString('ko-KR') }}</span>
+                </div>
+                <div>
+                  <span class="text-slate-500">기기:</span>
+                  <span class="ml-1 text-slate-700 font-medium">{{ syncStatus.lastSync.deviceId }}</span>
+                </div>
+                <div>
+                  <span class="text-slate-500">테이블:</span>
+                  <span class="ml-1 text-slate-700 font-medium">{{ syncStatus.lastSync.tablesExported }}개</span>
+                </div>
+                <div>
+                  <span class="text-slate-500">레코드:</span>
+                  <span class="ml-1 text-slate-700 font-medium">{{ syncStatus.lastSync.totalRecords.toLocaleString() }}건</span>
+                </div>
+              </div>
+            </div>
+            <div v-else class="text-xs text-slate-400">아직 동기화된 기록이 없습니다.</div>
+
+            <!-- 지금 동기화 버튼 -->
+            <div>
+              <button type="button" @click="runSyncNow" :disabled="syncing"
+                class="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 disabled:opacity-50 transition">
+                {{ syncing ? '동기화 중...' : '지금 동기화' }}
+              </button>
+              <p v-if="syncResultMessage" class="text-xs mt-2"
+                :class="syncResultError ? 'text-red-600' : 'text-green-600'">
+                {{ syncResultMessage }}
+              </p>
+            </div>
+          </div>
+        </div>
+      </div>
+
       <!-- 저장 버튼 -->
       <div class="flex items-center gap-3">
         <button
@@ -586,7 +677,7 @@
 
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue';
-import { chartApi, analysisApi, feedbackApi } from '@/api';
+import { chartApi, analysisApi, feedbackApi, nasSyncApi } from '@/api';
 import TradingRulesSection from '@/components/TradingRulesSection.vue';
 
 const configStatus = ref({ configured: false, isVirtual: true, hasAccount: false });
@@ -657,6 +748,14 @@ const strategyImportError = ref(false);
 const loraStatus = ref<any>(null);
 const loraExporting = ref(false);
 const loraExportMsg = ref('');
+
+// NAS 동기화
+const syncStatus = ref<any>(null);
+const syncValidateResult = ref('');
+const syncing = ref(false);
+const validating = ref(false);
+const syncResultMessage = ref('');
+const syncResultError = ref(false);
 
 async function doExportStrategy() {
   strategyExporting.value = true;
@@ -755,6 +854,11 @@ const form = ref({
   volumeSurgeRatio: 1.5,
   lowVolumeRatio: 0.7,
   sidewaysAtrPercent: 1.0,
+
+  nasSyncEnabled: false,
+  nasSyncPath: '',
+  nasSyncTime: '0 20 * * *',
+  nasDeviceId: '',
 });
 
 const scheduleSlots = [
@@ -894,6 +998,46 @@ async function deleteModel(name: string) {
   }
 }
 
+async function validateNasPath() {
+  if (!form.value.nasSyncPath) return;
+  validating.value = true;
+  syncValidateResult.value = '';
+  try {
+    const { data } = await nasSyncApi.validate(form.value.nasSyncPath);
+    syncValidateResult.value = data.valid ? `OK: ${data.message}` : data.message;
+  } catch (err: any) {
+    syncValidateResult.value = err.response?.data?.message || '경로 확인 실패';
+  }
+  validating.value = false;
+}
+
+async function runSyncNow() {
+  syncing.value = true;
+  syncResultMessage.value = '';
+  syncResultError.value = false;
+  try {
+    const { data } = await nasSyncApi.run();
+    syncResultMessage.value = data.success
+      ? `동기화 완료 — ${data.tablesExported}개 테이블, ${data.totalRecords.toLocaleString()}건 레코드`
+      : data.message;
+    syncResultError.value = !data.success;
+    await loadSyncStatus();
+  } catch (err: any) {
+    syncResultMessage.value = err.response?.data?.message || '동기화 실패';
+    syncResultError.value = true;
+  }
+  syncing.value = false;
+}
+
+async function loadSyncStatus() {
+  try {
+    const { data } = await nasSyncApi.getStatus();
+    syncStatus.value = data;
+  } catch {
+    // NAS 동기화 미설정
+  }
+}
+
 async function loadConfig() {
   try {
     const [statusRes, formRes] = await Promise.all([
@@ -934,6 +1078,11 @@ async function loadConfig() {
     form.value.volumeSurgeRatio = saved.volumeSurgeRatio ?? 1.5;
     form.value.lowVolumeRatio = saved.lowVolumeRatio ?? 0.7;
     form.value.sidewaysAtrPercent = saved.sidewaysAtrPercent ?? 1.0;
+
+    form.value.nasSyncEnabled = saved.nasSyncEnabled ?? false;
+    form.value.nasSyncPath = saved.nasSyncPath || '';
+    form.value.nasSyncTime = saved.nasSyncTime || '0 20 * * *';
+    form.value.nasDeviceId = saved.nasDeviceId || '';
   } catch {
     // 설정 없음
   }
@@ -961,5 +1110,6 @@ onMounted(async () => {
   await loadConfig();
   checkOllama();
   loadLoraStatus();
+  loadSyncStatus();
 });
 </script>

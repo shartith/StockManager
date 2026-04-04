@@ -224,6 +224,37 @@ switch (command) {
     }).catch((err) => { console.error('DB 초기화 실패:', err.message); });
     break;
   }
+  case 'sync': {
+    process.env.STOCK_MANAGER_DATA = dataDir;
+    const dbModule = require(path.join(appRoot, 'server', 'dist', 'db.js'));
+    dbModule.initializeDB().then(async () => {
+      const { runNasSync, getSyncStatus } = require(path.join(appRoot, 'server', 'dist', 'services', 'nasSync.js'));
+
+      if (process.argv[3] === '--status') {
+        const status = getSyncStatus();
+        console.log('\n  NAS 동기화 상태');
+        console.log('  --------------------');
+        console.log(`  활성화: ${status.enabled ? '예' : '아니오'}`);
+        console.log(`  NAS 경로: ${status.nasPath || '(미설정)'}`);
+        console.log(`  기기 ID: ${status.deviceId}`);
+        if (status.lastSync) {
+          console.log(`  마지막 동기화: ${status.lastSync.lastSyncAt}`);
+          console.log(`  테이블: ${status.lastSync.tablesExported}개, 레코드: ${status.lastSync.totalRecords}건`);
+        } else {
+          console.log('  마지막 동기화: 없음');
+        }
+        console.log('');
+        return;
+      }
+
+      console.log('\n  NAS 동기화 실행 중...');
+      const result = await runNasSync();
+      console.log(`  ${result.success ? '✓' : '✗'} ${result.message}`);
+      if (result.syncPath) console.log(`  경로: ${result.syncPath}`);
+      console.log('');
+    }).catch((err) => { console.error('DB 초기화 실패:', err.message); });
+    break;
+  }
   case 'run':
   case '_run':
     runServer();
@@ -252,5 +283,9 @@ switch (command) {
   Backup:
     stock-manager backup                   Full config backup (API keys included)
     stock-manager restore <file>           Restore full config from backup
+
+  NAS Sync:
+    stock-manager sync                     Run NAS data sync now
+    stock-manager sync --status            Show NAS sync status
 `);
 }

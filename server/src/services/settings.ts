@@ -49,6 +49,17 @@ export interface AppSettings {
   autoTradeScoreThreshold: number;    // 자동매매 승격 점수 (기본 100)
   priceChangeThreshold: number;       // 연속모니터 가격변동 임계값 % (기본 2)
 
+  // NAS 데이터 동기화
+  nasSyncEnabled: boolean;
+  nasSyncPath: string;          // 로컬 마운트 경로 (예: /Volumes/stock-manager)
+  nasSyncTime: string;          // cron 시간
+  deviceId: string;
+  nasHost: string;              // NAS 주소 (예: shartith.iptime.org)
+  nasShare: string;             // 공유폴더명 (예: stock-manager)
+  nasUsername: string;          // NAS 접속 ID
+  nasPassword: string;          // NAS 접속 비밀번호
+  nasAutoMount: boolean;        // 시작 시 자동 마운트
+
   // 매매 원칙
   tradingRulesEnabled: boolean;
   tradingRulesStrictMode: boolean;
@@ -87,6 +98,16 @@ const DEFAULT_SETTINGS: AppSettings = {
 
   autoTradeScoreThreshold: 100,
   priceChangeThreshold: 2,
+
+  nasSyncEnabled: false,
+  nasSyncPath: '/Volumes/stock-manager',
+  nasSyncTime: '0 20 * * *',
+  deviceId: '',
+  nasHost: '',
+  nasShare: 'stock-manager',
+  nasUsername: '',
+  nasPassword: '',
+  nasAutoMount: true,
 
   tradingRulesEnabled: true,
   tradingRulesStrictMode: false,
