@@ -1,6 +1,6 @@
 {
   "name": "stock-manager-server",
-  "version": "4.0.1",
+  "version": "4.0.2",
   "private": true,
   "scripts": {
     "dev": "tsx watch src/index.ts",

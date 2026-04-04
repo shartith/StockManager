@@ -18,6 +18,51 @@ const port = process.env.PORT || 3000;
 
 const command = process.argv[2];
 
+// ── Ollama 자동 설치 및 구동 ──
+
+function ensureOllama() {
+  // 1. ollama 설치 확인
+  try {
+    execSync('which ollama', { stdio: 'ignore' });
+  } catch {
+    console.log('  Ollama가 설치되어 있지 않습니다. 설치 중...');
+    try {
+      execSync('brew install ollama', { stdio: 'inherit' });
+      console.log('  Ollama 설치 완료');
+    } catch (err) {
+      console.log('  Ollama 설치 실패. 수동으로 설치하세요: brew install ollama');
+      return;
+    }
+  }
+
+  // 2. ollama serve 구동 확인
+  try {
+    execSync('curl -sf http://localhost:11434/api/tags > /dev/null 2>&1');
+  } catch {
+    console.log('  Ollama 서버를 백그라운드로 시작합니다...');
+    try {
+      const ollamaLog = path.join(dataDir, 'ollama.log');
+      const out = fs.openSync(ollamaLog, 'a');
+      const err = fs.openSync(ollamaLog, 'a');
+      const child = spawn('ollama', ['serve'], {
+        detached: true,
+        stdio: ['ignore', out, err],
+      });
+      child.unref();
+      // 잠시 대기 후 확인
+      execSync('sleep 2');
+      try {
+        execSync('curl -sf http://localhost:11434/api/tags > /dev/null 2>&1');
+        console.log('  Ollama 서버 시작 완료');
+      } catch {
+        console.log('  Ollama 서버 시작 대기 중... (몇 초 후 자동 연결됩니다)');
+      }
+    } catch {
+      console.log('  Ollama 서버 시작 실패. 수동으로 실행하세요: ollama serve');
+    }
+  }
+}
+
 function isRunning(pid) {
   try {
     process.kill(pid, 0);
@@ -44,6 +89,8 @@ function startDaemon() {
     console.log(`  http://localhost:${port}`);
     return;
   }
+
+  ensureOllama();
 
   const out = fs.openSync(logFile, 'a');
   const err = fs.openSync(logFile, 'a');
@@ -99,6 +146,8 @@ function showStatus() {
 }
 
 function runServer() {
+  ensureOllama();
+
   process.env.STOCK_MANAGER_DATA = dataDir;
   process.env.STOCK_MANAGER_CLIENT = path.join(appRoot, 'client', 'dist');
   process.env.PORT = String(port);
