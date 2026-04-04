@@ -465,6 +465,65 @@
         </div>
       </div>
 
+      <!-- 섹션: 포트폴리오 운영 -->
+      <div class="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+        <div class="px-6 py-4 bg-slate-50 border-b border-slate-200">
+          <h3 class="text-sm font-semibold text-slate-700">포트폴리오 운영</h3>
+          <p class="text-xs text-slate-500 mt-0.5">포트폴리오 분산 투자 및 리밸런싱 정책을 설정합니다.</p>
+        </div>
+        <div class="p-6 space-y-4">
+          <!-- 최대 보유 종목 수 -->
+          <div>
+            <label class="block text-sm font-medium text-slate-700 mb-1">최대 보유 종목 수</label>
+            <input v-model.number="form.portfolioMaxHoldings" type="number" min="3" max="50"
+              class="w-24 border border-slate-300 rounded-lg px-3 py-2 text-sm text-center focus:outline-none focus:ring-2 focus:ring-blue-500" />
+            <p class="text-xs text-slate-400 mt-1">포트폴리오에 보유할 수 있는 최대 종목 수</p>
+          </div>
+          <!-- 종목당 최대 비율 -->
+          <div>
+            <label class="block text-sm font-medium text-slate-700 mb-1">종목당 최대 비율</label>
+            <div class="flex items-center gap-2">
+              <input v-model.number="form.portfolioMaxPerStockPercent" type="number" min="5" max="50"
+                class="w-24 border border-slate-300 rounded-lg px-3 py-2 text-sm text-center focus:outline-none focus:ring-2 focus:ring-blue-500" />
+              <span class="text-sm text-slate-500">%</span>
+            </div>
+            <p class="text-xs text-slate-400 mt-1">총 자산 대비 단일 종목 최대 투자 비율</p>
+          </div>
+          <!-- 섹터당 최대 비율 -->
+          <div>
+            <label class="block text-sm font-medium text-slate-700 mb-1">섹터당 최대 비율</label>
+            <div class="flex items-center gap-2">
+              <input v-model.number="form.portfolioMaxSectorPercent" type="number" min="20" max="80"
+                class="w-24 border border-slate-300 rounded-lg px-3 py-2 text-sm text-center focus:outline-none focus:ring-2 focus:ring-blue-500" />
+              <span class="text-sm text-slate-500">%</span>
+            </div>
+            <p class="text-xs text-slate-400 mt-1">동일 섹터에 집중 투자할 수 있는 최대 비율</p>
+          </div>
+          <!-- 최소 현금 보유 비율 -->
+          <div>
+            <label class="block text-sm font-medium text-slate-700 mb-1">최소 현금 보유 비율</label>
+            <div class="flex items-center gap-2">
+              <input v-model.number="form.portfolioMinCashPercent" type="number" min="0" max="50"
+                class="w-24 border border-slate-300 rounded-lg px-3 py-2 text-sm text-center focus:outline-none focus:ring-2 focus:ring-blue-500" />
+              <span class="text-sm text-slate-500">%</span>
+            </div>
+            <p class="text-xs text-slate-400 mt-1">투자 후에도 유지해야 할 최소 현금 비율</p>
+          </div>
+          <!-- 자동 리밸런싱 -->
+          <div>
+            <label class="flex items-center gap-3 cursor-pointer">
+              <div class="relative inline-block">
+                <input type="checkbox" v-model="form.portfolioRebalanceEnabled" class="sr-only" />
+                <div class="w-9 h-5 rounded-full transition-colors" :class="form.portfolioRebalanceEnabled ? 'bg-blue-600' : 'bg-slate-200'"></div>
+                <div class="absolute top-0.5 left-0.5 w-4 h-4 bg-white rounded-full shadow transition-transform" :class="form.portfolioRebalanceEnabled ? 'translate-x-4' : 'translate-x-0'"></div>
+              </div>
+              <span class="text-sm font-medium text-slate-700">자동 리밸런싱</span>
+            </label>
+            <p class="text-xs text-slate-500 mt-1 ml-12">주간 1회 비중 초과/부족 종목 자동 제안</p>
+          </div>
+        </div>
+      </div>
+
       <!-- 섹션: 매매 원칙 -->
       <TradingRulesSection
         v-model:tradingRulesEnabled="form.tradingRulesEnabled"
@@ -855,6 +914,12 @@ const form = ref({
   lowVolumeRatio: 0.7,
   sidewaysAtrPercent: 1.0,
 
+  portfolioMaxHoldings: 10,
+  portfolioMaxPerStockPercent: 20,
+  portfolioMaxSectorPercent: 40,
+  portfolioMinCashPercent: 10,
+  portfolioRebalanceEnabled: false,
+
   nasSyncEnabled: false,
   nasSyncPath: '',
   nasSyncTime: '0 20 * * *',
@@ -1078,6 +1143,12 @@ async function loadConfig() {
     form.value.volumeSurgeRatio = saved.volumeSurgeRatio ?? 1.5;
     form.value.lowVolumeRatio = saved.lowVolumeRatio ?? 0.7;
     form.value.sidewaysAtrPercent = saved.sidewaysAtrPercent ?? 1.0;
+
+    form.value.portfolioMaxHoldings = saved.portfolioMaxHoldings ?? 10;
+    form.value.portfolioMaxPerStockPercent = saved.portfolioMaxPerStockPercent ?? 20;
+    form.value.portfolioMaxSectorPercent = saved.portfolioMaxSectorPercent ?? 40;
+    form.value.portfolioMinCashPercent = saved.portfolioMinCashPercent ?? 10;
+    form.value.portfolioRebalanceEnabled = saved.portfolioRebalanceEnabled ?? false;
 
     form.value.nasSyncEnabled = saved.nasSyncEnabled ?? false;
     form.value.nasSyncPath = saved.nasSyncPath || '';

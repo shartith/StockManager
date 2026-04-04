@@ -21,6 +21,7 @@ import { TradeDecision } from './ollama';
 import { createNotification } from './notification';
 import { getSettings } from './settings';
 import { loadWeights } from './weightOptimizer';
+import { checkPromotionEligibility } from './portfolioManager';
 import logger from '../logger';
 
 // ─── 스코어 타입 ──────────────────────────────────────────
@@ -215,6 +216,20 @@ function promoteToWatchlist(ticker: string, market: string, score: number): bool
   const existing = queryOne('SELECT id FROM watchlist WHERE stock_id = ?', [stock.id]);
   if (existing) return false;
 
+  // 포트폴리오 규칙 체크
+  const stockData = queryOne('SELECT sector FROM stocks WHERE ticker = ?', [ticker]);
+  const check = checkPromotionEligibility(ticker, market, stockData?.sector || '');
+  if (!check.allowed) {
+    logger.info({ ticker, market, reason: check.reason }, 'Promotion blocked by portfolio rules');
+    createNotification({
+      type: 'PROMOTION',
+      title: '승격 보류',
+      message: `${ticker} 승격 보류: ${check.reason}`,
+      ticker, market, actionUrl: '/recommendations',
+    });
+    return false;
+  }
+
   // 관심종목 추가
   execute('INSERT INTO watchlist (stock_id, market, notes) VALUES (?, ?, ?)',
     [stock.id, market, `자동승격 (점수: ${score})`]);
@@ -251,6 +266,23 @@ async function promoteToWatchlistAndTrade(ticker: string, market: string, score:
   }
 
   const existing = queryOne('SELECT id FROM watchlist WHERE stock_id = ?', [stock.id]);
+
+  // 포트폴리오 규칙 체크 (신규 관심종목 추가 시)
+  if (!existing) {
+    const stockData = queryOne('SELECT sector FROM stocks WHERE ticker = ?', [ticker]);
+    const check = checkPromotionEligibility(ticker, market, stockData?.sector || '');
+    if (!check.allowed) {
+      logger.info({ ticker, market, reason: check.reason }, 'Promotion blocked by portfolio rules');
+      createNotification({
+        type: 'PROMOTION',
+        title: '승격 보류',
+        message: `${ticker} 승격 보류: ${check.reason}`,
+        ticker, market, actionUrl: '/recommendations',
+      });
+      return false;
+    }
+  }
+
   if (!existing) {
     execute('INSERT INTO watchlist (stock_id, market, notes, auto_trade_enabled) VALUES (?, ?, ?, 1)',
       [stock.id, market, `자동승격+자동매매 (점수: ${score})`]);

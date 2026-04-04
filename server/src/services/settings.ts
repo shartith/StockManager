@@ -60,6 +60,13 @@ export interface AppSettings {
   nasPassword: string;          // NAS 접속 비밀번호
   nasAutoMount: boolean;        // 시작 시 자동 마운트
 
+  // 포트폴리오 운영
+  portfolioMaxHoldings: number;
+  portfolioMaxPerStockPercent: number;
+  portfolioMaxSectorPercent: number;
+  portfolioRebalanceEnabled: boolean;
+  portfolioMinCashPercent: number;
+
   // 매매 원칙
   tradingRulesEnabled: boolean;
   tradingRulesStrictMode: boolean;
@@ -108,6 +115,12 @@ const DEFAULT_SETTINGS: AppSettings = {
   nasUsername: '',
   nasPassword: '',
   nasAutoMount: true,
+
+  portfolioMaxHoldings: 10,
+  portfolioMaxPerStockPercent: 20,
+  portfolioMaxSectorPercent: 40,
+  portfolioRebalanceEnabled: false,
+  portfolioMinCashPercent: 10,
 
   tradingRulesEnabled: true,
   tradingRulesStrictMode: false,

@@ -66,6 +66,12 @@ router.get('/config/form', (_req: Request, res: Response) => {
     hasNasPassword: !!settings.nasPassword,
     nasAutoMount: settings.nasAutoMount,
 
+    portfolioMaxHoldings: settings.portfolioMaxHoldings,
+    portfolioMaxPerStockPercent: settings.portfolioMaxPerStockPercent,
+    portfolioMaxSectorPercent: settings.portfolioMaxSectorPercent,
+    portfolioRebalanceEnabled: settings.portfolioRebalanceEnabled,
+    portfolioMinCashPercent: settings.portfolioMinCashPercent,
+
     tradingRulesEnabled: settings.tradingRulesEnabled,
     tradingRulesStrictMode: settings.tradingRulesStrictMode,
     gapThresholdPercent: settings.gapThresholdPercent,
@@ -128,6 +134,12 @@ router.post('/config', validate(saveConfigSchema), (req: Request, res: Response)
     nasUsername: req.body.nasUsername || '',
     ...(req.body.nasPassword ? { nasPassword: req.body.nasPassword } : {}),
     nasAutoMount: req.body.nasAutoMount ?? true,
+
+    portfolioMaxHoldings: Number(req.body.portfolioMaxHoldings) || 10,
+    portfolioMaxPerStockPercent: Number(req.body.portfolioMaxPerStockPercent) || 20,
+    portfolioMaxSectorPercent: Number(req.body.portfolioMaxSectorPercent) || 40,
+    portfolioRebalanceEnabled: req.body.portfolioRebalanceEnabled ?? false,
+    portfolioMinCashPercent: Number(req.body.portfolioMinCashPercent) || 10,
 
     tradingRulesEnabled: req.body.tradingRulesEnabled ?? true,
     tradingRulesStrictMode: req.body.tradingRulesStrictMode ?? false,

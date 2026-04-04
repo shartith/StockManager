@@ -140,6 +140,12 @@ export const saveConfigSchema = z.object({
   autoTradeScoreThreshold: z.number().min(50).max(200).default(100),
   priceChangeThreshold: z.number().min(0.5).max(10).default(2),
 
+  portfolioMaxHoldings: z.number().int().min(3).max(50).default(10),
+  portfolioMaxPerStockPercent: z.number().min(5).max(50).default(20),
+  portfolioMaxSectorPercent: z.number().min(20).max(80).default(40),
+  portfolioRebalanceEnabled: z.boolean().default(false),
+  portfolioMinCashPercent: z.number().min(0).max(50).default(10),
+
   scheduleKrx: z.object({
     enabled: z.boolean(),
     preOpen: z.boolean(),

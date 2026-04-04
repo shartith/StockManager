@@ -9,6 +9,7 @@ import { getAccessToken, getKisConfig } from './kisAuth';
 import { getSettings } from './settings';
 import { queryOne, queryAll, execute } from '../db';
 import { kisApiCall } from './apiQueue';
+import { calculateOptimalQuantity } from './portfolioManager';
 import logger from '../logger';
 
 // ─── 타입 ─────────────────────────────────────────────
@@ -376,7 +377,13 @@ export async function executeOrder(req: OrderRequest): Promise<OrderResult> {
     } catch {}
 
     if (quantity <= 0) {
-      quantity = calculateOrderQuantity(orderPrice, req.market, orderableAmount);
+      // Use portfolio-based optimal quantity (respects max % per stock)
+      const optimalQty = calculateOptimalQuantity(orderPrice, req.market);
+      quantity = optimalQty > 0 ? optimalQty : calculateOrderQuantity(orderPrice, req.market, orderableAmount);
+      // Ensure within available capital
+      if (orderableAmount > 0 && quantity * orderPrice > orderableAmount) {
+        quantity = Math.floor(orderableAmount / orderPrice);
+      }
     }
 
     // 주문가능금액 대비 재검증
