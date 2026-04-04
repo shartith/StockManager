@@ -186,17 +186,35 @@ app.post('/api/update', (req, res) => {
   try {
     res.json({ success: true, message: '업데이트를 시작합니다. 약 1~2분 후 페이지를 새로고침하세요.' });
 
+    // Run in background: brew upgrade → stop current → start new version
+    // The entire sequence must complete before the process exits
     setTimeout(() => {
-      logger.info('[Update] brew upgrade stock-manager 실행');
+      logger.info('[Update] brew update && brew upgrade stock-manager 실행');
 
-      // Use execFile with fixed binary path instead of shell interpolation
-      execFile('/bin/sh', ['-c', 'brew update && brew upgrade stock-manager'], { timeout: 180000 }, (err, stdout, stderr) => {
+      // Detect if running from brew (libexec) or local dev
+      const isBrew = __dirname.includes('/libexec/') || __dirname.includes('/Cellar/');
+      const restartCmd = isBrew
+        ? 'stock-manager stop; sleep 1; stock-manager start'
+        : `node "${process.argv[1]}" stop; sleep 1; node "${process.argv[1]}" start`;
+
+      const updateCmd = [
+        'brew update',
+        'brew upgrade stock-manager',
+        restartCmd,
+      ].join(' && ');
+
+      execFile('/bin/sh', ['-c', updateCmd], {
+        timeout: 300000, // 5 minutes for brew update + upgrade + restart
+        env: { ...process.env, PATH: `/opt/homebrew/bin:/usr/local/bin:${process.env.PATH}` },
+      }, (err, stdout, stderr) => {
         if (err) logger.error({ err }, '[Update] 오류');
         if (stdout) logger.info({ stdout }, '[Update] stdout');
         if (stderr) logger.info({ stderr }, '[Update] stderr');
+        // If stock-manager restart succeeded, this process is already replaced.
+        // If it failed, exit so the user can manually restart.
+        logger.info('[Update] 완료, 현재 프로세스 종료');
+        process.exit(0);
       });
-
-      setTimeout(() => process.exit(0), 2000);
     }, 1000);
   } catch (err: unknown) {
     logger.error({ err }, '[Update] 실패');
