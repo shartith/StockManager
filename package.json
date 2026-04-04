@@ -1,11 +1,14 @@
 {
   "name": "stock-manager",
-  "version": "3.1.1",
+  "version": "4.0.0",
   "description": "주식 포트폴리오 관리 및 자동매매 시스템",
   "bin": {
     "stock-manager": "./bin/stock-manager"
   },
-  "workspaces": ["server", "client"],
+  "workspaces": [
+    "server",
+    "client"
+  ],
   "scripts": {
     "dev": "concurrently \"npm run dev:server\" \"npm run dev:client\"",
     "dev:server": "npm run dev -w server",
@@ -14,6 +17,7 @@
     "start": "node bin/stock-manager"
   },
   "devDependencies": {
+    "@playwright/test": "^1.59.1",
     "concurrently": "^9.1.2"
   }
 }

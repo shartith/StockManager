@@ -5,6 +5,7 @@
 
 import { execute, queryAll, queryOne } from '../db';
 import { getSettings } from './settings';
+import logger from '../logger';
 
 export type EventSeverity = 'INFO' | 'WARN' | 'ERROR' | 'CRITICAL';
 export type EventCategory =
@@ -72,8 +73,8 @@ export async function logSystemEvent(
     [severity, category, title, fullDetail, ticker]
   );
   if (severity === 'ERROR' || severity === 'CRITICAL') {
-    console.log(`[SYSTEM ${severity}] ${category}: ${title} ${ticker ? `(${ticker})` : ''}`);
-    if (aiAdvice) console.log(`[AI 조언] ${aiAdvice.slice(0, 100)}`);
+    logger.error({ severity, category, title, ticker }, 'System event');
+    if (aiAdvice) logger.info({ aiAdvice: aiAdvice.slice(0, 100) }, 'AI advice for system event');
   }
   return lastId;
 }

@@ -2,9 +2,12 @@ import { Router, Request, Response } from 'express';
 import { getAccessToken, getKisConfig } from '../services/kisAuth';
 import { getSettings, saveSettings } from '../services/settings';
 import { startScheduler } from '../services/scheduler';
-import { queryOne, execute } from '../db';
+import { queryOne, execute, logAudit } from '../db';
 import { getMarketContext } from '../services/stockPrice';
 import { getDomesticOrderableAmount } from '../services/kisOrder';
+import { validate } from '../middleware/validate';
+import { asyncHandler } from '../middleware/errorHandler';
+import { saveConfigSchema } from '../schemas';
 
 const router = Router();
 
@@ -50,11 +53,18 @@ router.get('/config/form', (_req: Request, res: Response) => {
 
     scheduleKrx: settings.scheduleKrx,
     scheduleNyse: settings.scheduleNyse,
+
+    tradingRulesEnabled: settings.tradingRulesEnabled,
+    tradingRulesStrictMode: settings.tradingRulesStrictMode,
+    gapThresholdPercent: settings.gapThresholdPercent,
+    volumeSurgeRatio: settings.volumeSurgeRatio,
+    lowVolumeRatio: settings.lowVolumeRatio,
+    sidewaysAtrPercent: settings.sidewaysAtrPercent,
   });
 });
 
 // 설정 저장
-router.post('/config', (req: Request, res: Response) => {
+router.post('/config', validate(saveConfigSchema), (req: Request, res: Response) => {
   const { appKey, appSecret, accountNo, accountProductCode, isVirtual, mcpEnabled,
     ollamaUrl, ollamaModel, ollamaEnabled,
     dartApiKey, dartEnabled,
@@ -63,9 +73,6 @@ router.post('/config', (req: Request, res: Response) => {
     scheduleKrx, scheduleNyse,
   } = req.body;
 
-  if (!appKey) {
-    return res.status(400).json({ error: 'AppKey는 필수입니다' });
-  }
   const currentSettings = getSettings();
   if (!appSecret && !currentSettings.kisAppSecret) {
     return res.status(400).json({ error: '최초 저장 시 AppSecret은 필수입니다' });
@@ -97,6 +104,13 @@ router.post('/config', (req: Request, res: Response) => {
 
     ...(scheduleKrx ? { scheduleKrx } : {}),
     ...(scheduleNyse ? { scheduleNyse } : {}),
+
+    tradingRulesEnabled: req.body.tradingRulesEnabled ?? true,
+    tradingRulesStrictMode: req.body.tradingRulesStrictMode ?? false,
+    gapThresholdPercent: Number(req.body.gapThresholdPercent) || 3,
+    volumeSurgeRatio: Number(req.body.volumeSurgeRatio) || 1.5,
+    lowVolumeRatio: Number(req.body.lowVolumeRatio) || 0.7,
+    sidewaysAtrPercent: Number(req.body.sidewaysAtrPercent) || 1.0,
   });
 
   process.env.KIS_APP_KEY = appKey;
@@ -110,14 +124,14 @@ router.post('/config', (req: Request, res: Response) => {
 });
 
 // 시장 동향 (KOSPI/VIX/환율)
-router.get('/market-context', async (_req: Request, res: Response) => {
+router.get('/market-context', asyncHandler(async (_req: Request, res: Response) => {
   try {
     const ctx = await getMarketContext();
     res.json(ctx);
   } catch {
     res.json({});
   }
-});
+}));
 
 // 해외 종목 여부 판별
 function isOverseasTicker(ticker: string): { overseas: boolean; exchCode: string } {
@@ -135,7 +149,7 @@ function isOverseasTicker(ticker: string): { overseas: boolean; exchCode: string
 }
 
 // 일/주/월/년봉 캔들 데이터 조회
-router.get('/candle/:ticker', async (req: Request, res: Response) => {
+router.get('/candle/:ticker', asyncHandler(async (req: Request, res: Response) => {
   const ticker = req.params.ticker as string;
   const { period = 'D', startDate, endDate } = req.query;
 
@@ -285,9 +299,9 @@ router.get('/candle/:ticker', async (req: Request, res: Response) => {
       });
     }
   } catch (err: any) {
-    res.status(500).json({ error: err.message || '캔들 데이터 조회 실패' });
+    res.status(500).json({ error: '캔들 데이터 조회 실패' });
   }
-});
+}));
 
 // 해외주식 매수가능금액 조회 (외화 예수금)
 async function fetchOverseasDeposit(token: string, appKey: string, appSecret: string, baseUrl: string, accountNo: string, productCode: string, isVirtual: boolean): Promise<number> {
@@ -419,7 +433,7 @@ async function fetchOverseasBalance(token: string, appKey: string, appSecret: st
 }
 
 // KIS 계좌 잔고 조회 (보유 종목 목록)
-router.get('/balance', async (_req: Request, res: Response) => {
+router.get('/balance', asyncHandler(async (_req: Request, res: Response) => {
   const { appKey, appSecret, baseUrl } = getKisConfig();
   const settings = getSettings();
 
@@ -521,12 +535,12 @@ router.get('/balance', async (_req: Request, res: Response) => {
       overseasDepositAmount: overseas.depositAmount,
     });
   } catch (err: any) {
-    res.status(500).json({ error: err.message || '잔고 조회 실패' });
+    res.status(500).json({ error: '잔고 조회 실패' });
   }
-});
+}));
 
 // KIS 계좌 잔고를 포트폴리오로 가져오기
-router.post('/balance/import', async (_req: Request, res: Response) => {
+router.post('/balance/import', asyncHandler(async (_req: Request, res: Response) => {
   const { appKey, appSecret, baseUrl } = getKisConfig();
   const settings = getSettings();
 
@@ -650,8 +664,8 @@ router.post('/balance/import', async (_req: Request, res: Response) => {
       skipped,
     });
   } catch (err: any) {
-    res.status(500).json({ error: err.message || '잔고 가져오기 실패' });
+    res.status(500).json({ error: '잔고 가져오기 실패' });
   }
-});
+}));
 
 export default router;

@@ -10,6 +10,9 @@ import { loadWeights, optimizeWeights, resetWeights } from '../services/weightOp
 import { runBacktest, saveBacktestResult, BacktestConfig } from '../services/backtester';
 import { exportStrategy, importStrategy, generateLoraDataset, getLoraDataCount, exportFullConfig, importFullConfig } from '../services/exportImport';
 import { queryAll } from '../db';
+import { validate } from '../middleware/validate';
+import { asyncHandler } from '../middleware/errorHandler';
+import { backtestSchema, configRestoreSchema, strategyImportSchema } from '../schemas';
 
 const router = Router();
 
@@ -54,18 +57,8 @@ router.get('/weights/history', (req, res) => {
 });
 
 // 백테스트 실행
-router.post('/backtest', (req, res) => {
+router.post('/backtest', validate(backtestSchema), (req, res) => {
   const config: BacktestConfig = req.body;
-  if (!config.candles || config.candles.length < 60) {
-    return res.status(400).json({ error: '최소 60개 캔들 데이터가 필요합니다' });
-  }
-  if (!config.name) {
-    return res.status(400).json({ error: 'name은 필수입니다' });
-  }
-  if (!config.initialCapital || config.initialCapital <= 0) {
-    return res.status(400).json({ error: 'initialCapital은 양수여야 합니다' });
-  }
-
   const result = runBacktest(config);
   const id = saveBacktestResult(config, result);
   res.json({ id, ...result });
@@ -116,19 +109,26 @@ router.get('/config/backup', (_req, res) => {
     const result = exportFullConfig();
     const fs = require('fs');
     const content = JSON.parse(fs.readFileSync(result.filePath, 'utf-8'));
+    // Strip credentials from HTTP response to prevent exfiltration
+    if (content.settings) {
+      const { kisAppKey, kisAppSecret, dartApiKey, ...safeSettings } = content.settings;
+      content.settings = {
+        ...safeSettings,
+        kisAppKey: kisAppKey ? '****' : '',
+        kisAppSecret: kisAppSecret ? '****' : '',
+        dartApiKey: dartApiKey ? '****' : '',
+      };
+    }
     res.json({ success: true, config: content });
-  } catch (err: any) {
-    res.status(500).json({ error: err.message || '백업 실패' });
+  } catch (err: unknown) {
+    res.status(500).json({ error: '백업 실패' });
   }
 });
 
 /** 전체 설정 복원 */
-router.post('/config/restore', (req, res) => {
+router.post('/config/restore', validate(configRestoreSchema), (req, res) => {
   try {
     const config = req.body;
-    if (!config || !config.settings) {
-      return res.status(400).json({ error: '올바른 백업 파일이 아닙니다' });
-    }
     const fs = require('fs');
     const path = require('path');
     const tmpFile = path.join(require('os').tmpdir(), `restore-${Date.now()}.json`);
@@ -140,8 +140,8 @@ router.post('/config/restore', (req, res) => {
     } else {
       res.status(400).json({ error: result.message });
     }
-  } catch (err: any) {
-    res.status(500).json({ error: err.message || '복원 실패' });
+  } catch (err: unknown) {
+    res.status(500).json({ error: '복원 실패' });
   }
 });
 
@@ -149,22 +149,19 @@ router.post('/config/restore', (req, res) => {
 router.get('/strategy/export', (_req, res) => {
   try {
     const result = exportStrategy();
-    // JSON 파일 내용을 직접 반환
     const fs = require('fs');
     const content = JSON.parse(fs.readFileSync(result.filePath, 'utf-8'));
-    res.json({ success: true, filePath: result.filePath, strategy: content });
-  } catch (err: any) {
-    res.status(500).json({ error: err.message || '전략 내보내기 실패' });
+    // Do not expose internal filePath to client
+    res.json({ success: true, strategy: content });
+  } catch (err: unknown) {
+    res.status(500).json({ error: '전략 내보내기 실패' });
   }
 });
 
 /** 전략 가져오기 (JSON body로 직접 전달) */
-router.post('/strategy/import', (req, res) => {
+router.post('/strategy/import', validate(strategyImportSchema), (req, res) => {
   try {
     const strategy = req.body;
-    if (!strategy || !strategy.version || !strategy.settings || !strategy.weights) {
-      return res.status(400).json({ error: '올바른 전략 JSON이 아닙니다' });
-    }
 
     // 임시 파일에 저장 후 import
     const fs = require('fs');
@@ -180,8 +177,8 @@ router.post('/strategy/import', (req, res) => {
     } else {
       res.status(400).json({ error: result.message });
     }
-  } catch (err: any) {
-    res.status(500).json({ error: err.message || '전략 가져오기 실패' });
+  } catch (err: unknown) {
+    res.status(500).json({ error: '전략 가져오기 실패' });
   }
 });
 
@@ -196,12 +193,12 @@ router.get('/lora/export', (_req, res) => {
   try {
     const result = generateLoraDataset();
     if (result.filePath) {
-      res.json({ success: true, filePath: result.filePath, count: result.count, message: result.message });
+      res.json({ success: true, count: result.count, message: result.message });
     } else {
       res.json({ success: false, count: result.count, message: result.message });
     }
-  } catch (err: any) {
-    res.status(500).json({ error: err.message || 'LoRA 데이터 생성 실패' });
+  } catch (err: unknown) {
+    res.status(500).json({ error: 'LoRA 데이터 생성 실패' });
   }
 });
 

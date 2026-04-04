@@ -5,6 +5,9 @@ import { analyzeTechnical, CandleData } from '../services/technicalAnalysis';
 import { checkOllamaStatus, getTradeDecision, buildAnalysisInput, AnalysisPhase } from '../services/ollama';
 import { collectAndCacheNews, getCachedNews, summarizeNewsWithAI } from '../services/newsCollector';
 import { queryOne, queryAll, execute } from '../db';
+import { validate } from '../middleware/validate';
+import { asyncHandler } from '../middleware/errorHandler';
+import { decisionSchema, pullModelSchema } from '../schemas';
 
 const router = Router();
 
@@ -67,7 +70,7 @@ async function fetchAnalysisCandles(ticker: string): Promise<CandleData[]> {
     .sort((a: CandleData, b: CandleData) => (a.time > b.time ? 1 : -1));
 }
 
-router.get('/:ticker', async (req: Request, res: Response) => {
+router.get('/:ticker', asyncHandler(async (req: Request, res: Response) => {
   const ticker = req.params.ticker as string;
   const { appKey, appSecret } = getKisConfig();
 
@@ -93,14 +96,14 @@ router.get('/:ticker', async (req: Request, res: Response) => {
       dataPoints: candles.length,
     });
   } catch (err: any) {
-    res.status(500).json({ error: err.message || '분석 실패' });
+    res.status(500).json({ error: '분석 실패' });
   }
-});
+}));
 
 /** Ollama 매매 판단 요청 */
-router.post('/:ticker/decision', async (req: Request, res: Response) => {
+router.post('/:ticker/decision', validate(decisionSchema), asyncHandler(async (req: Request, res: Response) => {
   const ticker = req.params.ticker as string;
-  const { phase = 'PRE_OPEN' } = req.body as { phase?: AnalysisPhase };
+  const { phase } = req.body as { phase: AnalysisPhase };
 
   try {
     // 종목 정보 조회
@@ -205,19 +208,18 @@ router.post('/:ticker/decision', async (req: Request, res: Response) => {
       sentimentLabel,
     });
   } catch (err: any) {
-    res.status(500).json({ error: err.message || 'LLM 판단 실패' });
+    res.status(500).json({ error: 'LLM 판단 실패' });
   }
-});
+}));
 
-/** Ollama 상태 확인 */
-router.get('/ollama/status', async (_req: Request, res: Response) => {
+/** Ollama ��태 확��� */
+router.get('/ollama/status', asyncHandler(async (_req: Request, res: Response) => {
   const status = await checkOllamaStatus();
   res.json(status);
-});
+}));
 
 /** Ollama 모델 목록 조회 */
-router.get('/ollama/models', async (_req: Request, res: Response) => {
-  const { getSettings } = await import('../services/settings');
+router.get('/ollama/models', asyncHandler(async (_req: Request, res: Response) => {
   const settings = getSettings();
   try {
     const r = await fetch(`${settings.ollamaUrl}/api/tags`);
@@ -233,14 +235,11 @@ router.get('/ollama/models', async (_req: Request, res: Response) => {
   } catch {
     res.json({ models: [] });
   }
-});
+}));
 
 /** Ollama 모델 다운로드 (스트리밍) */
-router.post('/ollama/pull', async (req: Request, res: Response) => {
+router.post('/ollama/pull', validate(pullModelSchema), asyncHandler(async (req: Request, res: Response) => {
   const { model } = req.body;
-  if (!model) return res.status(400).json({ error: '모델명이 필요합니다' });
-
-  const { getSettings } = await import('../services/settings');
   const settings = getSettings();
 
   res.setHeader('Content-Type', 'text/event-stream');
@@ -293,15 +292,14 @@ router.post('/ollama/pull', async (req: Request, res: Response) => {
     res.write(`data: ${JSON.stringify({ status: 'success' })}\n\n`);
     res.end();
   } catch (err: any) {
-    res.write(`data: ${JSON.stringify({ error: err.message })}\n\n`);
+    res.write(`data: ${JSON.stringify({ error: '모델 다운로드 실패' })}\n\n`);
     res.end();
   }
-});
+}));
 
 /** Ollama 모델 삭제 */
-router.delete('/ollama/models/:name', async (req: Request, res: Response) => {
+router.delete('/ollama/models/:name', asyncHandler(async (req: Request, res: Response) => {
   const { name } = req.params;
-  const { getSettings } = await import('../services/settings');
   const settings = getSettings();
   try {
     const r = await fetch(`${settings.ollamaUrl}/api/delete`, {
@@ -315,12 +313,12 @@ router.delete('/ollama/models/:name', async (req: Request, res: Response) => {
       res.status(r.status).json({ error: `삭제 실패: ${r.status}` });
     }
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: '모델 삭제 실패' });
   }
-});
+}));
 
 /** 뉴스 수집 */
-router.get('/:ticker/news', async (req: Request, res: Response) => {
+router.get('/:ticker/news', asyncHandler(async (req: Request, res: Response) => {
   const ticker = req.params.ticker as string;
   const { refresh } = req.query;
 
@@ -340,9 +338,9 @@ router.get('/:ticker/news', async (req: Request, res: Response) => {
     const news = await collectAndCacheNews(ticker, stock?.name || ticker, stock?.market || 'KRX');
     res.json({ news, source: 'fresh' });
   } catch (err: any) {
-    res.status(500).json({ error: err.message || '뉴스 수집 실패' });
+    res.status(500).json({ error: '뉴스 수집 실패' });
   }
-});
+}));
 
 /** 매매 신호 이력 조회 */
 router.get('/:ticker/signals', (req: Request, res: Response) => {

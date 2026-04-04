@@ -1,5 +1,5 @@
 import initSqlJs from 'sql.js';
-type SqlJsDatabase = any;
+type SqlJsDatabase = InstanceType<Awaited<ReturnType<typeof initSqlJs>>['Database']>;
 import fs from 'fs';
 import path from 'path';
 
@@ -328,8 +328,98 @@ export async function initializeDB(): Promise<SqlJsDatabase> {
     )
   `);
 
+  // 매매 원칙 (14가지 Trading Rules)
+  db.run(`
+    CREATE TABLE IF NOT EXISTS trading_rules (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      rule_id TEXT NOT NULL UNIQUE,
+      name TEXT NOT NULL,
+      description TEXT DEFAULT '',
+      category TEXT NOT NULL CHECK(category IN ('TIME', 'VOLUME', 'VOLATILITY', 'CANDLE', 'SUPPORT')),
+      is_enabled INTEGER DEFAULT 1,
+      priority INTEGER DEFAULT 0,
+      params_json TEXT DEFAULT '{}',
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    )
+  `);
+
+  // 14가지 매매 원칙 초기 데이터
+  db.run(`INSERT OR IGNORE INTO trading_rules (rule_id, name, description, category, is_enabled, priority, params_json) VALUES ('MORNING_SURGE_SELL', '아침 폭등 → 절량 매도', '아침 폭등 시 보유 종목 절량 매도', 'TIME', 1, 1, '{}')`);
+  db.run(`INSERT OR IGNORE INTO trading_rules (rule_id, name, description, category, is_enabled, priority, params_json) VALUES ('AFTERNOON_SURGE_NO_BUY', '오후 폭등 → 추격 매수 금지', '오후 폭등 시 추격 매수 금지', 'TIME', 1, 2, '{}')`);
+  db.run(`INSERT OR IGNORE INTO trading_rules (rule_id, name, description, category, is_enabled, priority, params_json) VALUES ('MORNING_DROP_NO_SELL', '아침 폭락 → 매도 금지', '아침 폭락 시 선부른 매도 금지', 'TIME', 1, 3, '{}')`);
+  db.run(`INSERT OR IGNORE INTO trading_rules (rule_id, name, description, category, is_enabled, priority, params_json) VALUES ('AFTERNOON_DROP_BUY_OPPORTUNITY', '오후 폭락 → 매수 기회', '오후 폭락 시 익일 저가 매수 기회', 'TIME', 1, 4, '{}')`);
+  db.run(`INSERT OR IGNORE INTO trading_rules (rule_id, name, description, category, is_enabled, priority, params_json) VALUES ('OPEN_SURGE_NO_BUY', '개장 급등 → 매수 금지', '개장 직후 급등 시 충동 매수 금지', 'TIME', 1, 5, '{}')`);
+  db.run(`INSERT OR IGNORE INTO trading_rules (rule_id, name, description, category, is_enabled, priority, params_json) VALUES ('PRECLOSE_SURGE_PARTIAL_SELL', '마감 전 급등 → 일부 익절', '장 마감 전 급등 시 일부 익절', 'TIME', 1, 6, '{}')`);
+  db.run(`INSERT OR IGNORE INTO trading_rules (rule_id, name, description, category, is_enabled, priority, params_json) VALUES ('LOW_VOLUME_SURGE_BUY', '저점+거래량 급증 → 매수', '저점 + 거래량 급증 시 과감 매수', 'VOLUME', 1, 7, '{}')`);
+  db.run(`INSERT OR IGNORE INTO trading_rules (rule_id, name, description, category, is_enabled, priority, params_json) VALUES ('HIGH_VOLUME_SURGE_SELL', '고점+거래량 급증 → 매도', '고점 + 거래량 급증 시 신속 매도', 'VOLUME', 1, 8, '{}')`);
+  db.run(`INSERT OR IGNORE INTO trading_rules (rule_id, name, description, category, is_enabled, priority, params_json) VALUES ('LOW_LOW_VOLUME_HOLD', '저점+거래량 감소 → 관망', '저점 + 거래량 감소 시 관망', 'VOLUME', 1, 9, '{}')`);
+  db.run(`INSERT OR IGNORE INTO trading_rules (rule_id, name, description, category, is_enabled, priority, params_json) VALUES ('HIGH_LOW_VOLUME_WAIT', '고점+거래량 감소 → 대기', '고점 + 거래량 감소 시 대기', 'VOLUME', 1, 10, '{}')`);
+  db.run(`INSERT OR IGNORE INTO trading_rules (rule_id, name, description, category, is_enabled, priority, params_json) VALUES ('SIDEWAYS_NO_TRADE', '횡보장 → 거래 중단', '횡보장 시 거래 중단', 'VOLATILITY', 1, 11, '{}')`);
+  db.run(`INSERT OR IGNORE INTO trading_rules (rule_id, name, description, category, is_enabled, priority, params_json) VALUES ('CANDLE_BUY_FILTER', '캔들 매수 필터', '음봉 매수 고려, 양봉 매수 금지', 'CANDLE', 1, 12, '{}')`);
+  db.run(`INSERT OR IGNORE INTO trading_rules (rule_id, name, description, category, is_enabled, priority, params_json) VALUES ('CANDLE_SELL_FILTER', '캔들 매도 필터', '양봉 일부 매도, 음봉 매도 금지', 'CANDLE', 1, 13, '{}')`);
+  db.run(`INSERT OR IGNORE INTO trading_rules (rule_id, name, description, category, is_enabled, priority, params_json) VALUES ('SUPPORT_BREAK_STOP_LOSS', '지지선 이탈 → 손절', '지지선 이탈 시 손절 필수', 'SUPPORT', 1, 14, '{}')`);
+
+  // --- Indexes ---
+  db.run('CREATE INDEX IF NOT EXISTS idx_transactions_stock_id ON transactions(stock_id)');
+  db.run('CREATE INDEX IF NOT EXISTS idx_transactions_date ON transactions(date)');
+  db.run('CREATE INDEX IF NOT EXISTS idx_trade_signals_stock_id ON trade_signals(stock_id)');
+  db.run('CREATE INDEX IF NOT EXISTS idx_trade_signals_created_at ON trade_signals(created_at)');
+  db.run('CREATE INDEX IF NOT EXISTS idx_auto_trades_stock_id ON auto_trades(stock_id)');
+  db.run('CREATE INDEX IF NOT EXISTS idx_auto_trades_created_at ON auto_trades(created_at)');
+  db.run('CREATE INDEX IF NOT EXISTS idx_news_cache_ticker ON news_cache(ticker)');
+  db.run('CREATE INDEX IF NOT EXISTS idx_recommendations_ticker ON recommendations(ticker)');
+  db.run('CREATE INDEX IF NOT EXISTS idx_recommendations_status ON recommendations(status)');
+  db.run('CREATE INDEX IF NOT EXISTS idx_watchlist_stock_id ON watchlist(stock_id)');
+  db.run('CREATE INDEX IF NOT EXISTS idx_notifications_is_read ON notifications(is_read)');
+  db.run('CREATE INDEX IF NOT EXISTS idx_notifications_created_at ON notifications(created_at)');
+  db.run('CREATE INDEX IF NOT EXISTS idx_system_events_resolved ON system_events(resolved)');
+  db.run('CREATE INDEX IF NOT EXISTS idx_signal_performance_signal_id ON signal_performance(signal_id)');
+  db.run('CREATE INDEX IF NOT EXISTS idx_reserved_orders_status ON reserved_orders(status)');
+  db.run('CREATE INDEX IF NOT EXISTS idx_dart_disclosures_ticker ON dart_disclosures(ticker)');
+  db.run('CREATE INDEX IF NOT EXISTS idx_recommendation_scores_ticker ON recommendation_scores(ticker)');
+  db.run('CREATE INDEX IF NOT EXISTS idx_trading_rules_rule_id ON trading_rules(rule_id)');
+
+  // --- Audit log table ---
+  db.run(`
+    CREATE TABLE IF NOT EXISTS audit_log (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      entity_type TEXT NOT NULL,
+      entity_id INTEGER,
+      action TEXT NOT NULL CHECK(action IN ('CREATE', 'UPDATE', 'DELETE', 'RESTORE')),
+      old_value TEXT,
+      new_value TEXT,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    )
+  `);
+
+  // --- Soft delete columns ---
+  try { db.run('ALTER TABLE stocks ADD COLUMN deleted_at DATETIME'); } catch {}
+  try { db.run('ALTER TABLE transactions ADD COLUMN deleted_at DATETIME'); } catch {}
+  try { db.run('ALTER TABLE watchlist ADD COLUMN deleted_at DATETIME'); } catch {}
+  try { db.run('ALTER TABLE recommendations ADD COLUMN deleted_at DATETIME'); } catch {}
+
   saveDB();
   return db;
+}
+
+export function withTransaction<T>(fn: () => T): T {
+  db.run('BEGIN TRANSACTION');
+  try {
+    const result = fn();
+    db.run('COMMIT');
+    saveDB();
+    return result;
+  } catch (err) {
+    db.run('ROLLBACK');
+    throw err;
+  }
+}
+
+export function logAudit(entityType: string, entityId: number | null, action: string, oldValue?: unknown, newValue?: unknown) {
+  db.run(
+    'INSERT INTO audit_log (entity_type, entity_id, action, old_value, new_value) VALUES (?, ?, ?, ?, ?)',
+    [entityType, entityId, action, oldValue ? JSON.stringify(oldValue) : null, newValue ? JSON.stringify(newValue) : null]
+  );
 }
 
 export function saveDB() {

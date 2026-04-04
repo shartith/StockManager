@@ -44,6 +44,14 @@ export interface AppSettings {
   // 시장별 스케줄
   scheduleKrx: MarketScheduleConfig;
   scheduleNyse: MarketScheduleConfig;
+
+  // 매매 원칙
+  tradingRulesEnabled: boolean;
+  tradingRulesStrictMode: boolean;
+  gapThresholdPercent: number;
+  volumeSurgeRatio: number;
+  lowVolumeRatio: number;
+  sidewaysAtrPercent: number;
 }
 
 const DEFAULT_SETTINGS: AppSettings = {
@@ -72,6 +80,13 @@ const DEFAULT_SETTINGS: AppSettings = {
 
   scheduleKrx: { enabled: false, preOpen: true, postOpen: true, preClose1h: true, preClose30m: true },
   scheduleNyse: { enabled: false, preOpen: true, postOpen: true, preClose1h: true, preClose30m: true },
+
+  tradingRulesEnabled: true,
+  tradingRulesStrictMode: false,
+  gapThresholdPercent: 3,
+  volumeSurgeRatio: 1.5,
+  lowVolumeRatio: 0.7,
+  sidewaysAtrPercent: 1.0,
 };
 
 let _cache: AppSettings | null = null;
@@ -90,6 +105,11 @@ export function getSettings(): AppSettings {
     _cache = { ...DEFAULT_SETTINGS };
   }
 
+  // Environment variable priority for secrets
+  if (process.env.KIS_APP_KEY) _cache!.kisAppKey = process.env.KIS_APP_KEY;
+  if (process.env.KIS_APP_SECRET) _cache!.kisAppSecret = process.env.KIS_APP_SECRET;
+  if (process.env.DART_API_KEY) _cache!.dartApiKey = process.env.DART_API_KEY;
+
   // 환경변수로도 동기화
   if (_cache!.kisAppKey) process.env.KIS_APP_KEY = _cache!.kisAppKey;
   if (_cache!.kisAppSecret) process.env.KIS_APP_SECRET = _cache!.kisAppSecret;
@@ -104,7 +124,16 @@ export function saveSettings(partial: Partial<AppSettings>) {
 
   const dir = path.dirname(SETTINGS_PATH);
   if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
-  fs.writeFileSync(SETTINGS_PATH, JSON.stringify(_cache, null, 2), 'utf-8');
+
+  // Strip secrets before writing to JSON if set via env vars
+  const { kisAppKey, kisAppSecret, dartApiKey, ...safeSettings } = _cache;
+  const toSave = {
+    ...safeSettings,
+    ...(process.env.KIS_APP_KEY ? {} : { kisAppKey }),
+    ...(process.env.KIS_APP_SECRET ? {} : { kisAppSecret }),
+    ...(process.env.DART_API_KEY ? {} : { dartApiKey }),
+  };
+  fs.writeFileSync(SETTINGS_PATH, JSON.stringify(toSave, null, 2), 'utf-8');
 
   // 환경변수 동기화
   if (_cache.kisAppKey) process.env.KIS_APP_KEY = _cache.kisAppKey;

@@ -21,6 +21,7 @@ import { TradeDecision } from './ollama';
 import { createNotification } from './notification';
 import { getSettings } from './settings';
 import { loadWeights } from './weightOptimizer';
+import logger from '../logger';
 
 // ─── 스코어 타입 ──────────────────────────────────────────
 
@@ -217,7 +218,7 @@ function promoteToWatchlist(ticker: string, market: string, score: number): bool
     actionUrl: '/watchlist',
   });
 
-  console.log(`[Scoring] 관심종목 승격: ${ticker} (${market}, ${score}점)`);
+  logger.info({ ticker, market, score }, 'Promoted to watchlist');
   return true;
 }
 
@@ -269,7 +270,7 @@ function promoteToWatchlistAndTrade(ticker: string, market: string, score: numbe
     actionUrl: '/watchlist',
   });
 
-  console.log(`[Scoring] 자동매매 승격: ${ticker} (${market}, ${score}점)`);
+  logger.info({ ticker, market, score }, 'Promoted to auto-trade');
   return true;
 }
 

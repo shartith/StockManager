@@ -9,6 +9,16 @@ export default defineConfig({
       '@': path.resolve(__dirname, './src'),
     },
   },
+  build: {
+    rollupOptions: {
+      output: {
+        manualChunks: {
+          'vendor-charts': ['chart.js', 'lightweight-charts'],
+          'vendor-vue': ['vue', 'vue-router', 'pinia'],
+        },
+      },
+    },
+  },
   server: {
     port: 5173,
     proxy: {

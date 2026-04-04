@@ -1,9 +1,17 @@
 import express from 'express';
 import cors from 'cors';
 import path from 'path';
+import helmet from 'helmet';
+import compression from 'compression';
+import rateLimit from 'express-rate-limit';
 import { WebSocketServer, WebSocket } from 'ws';
 import http from 'http';
-import { initializeDB } from './db';
+import crypto from 'crypto';
+import { execFile } from 'child_process';
+import { initializeDB, saveDB, queryOne } from './db';
+import logger from './logger';
+import { errorHandler } from './middleware/errorHandler';
+import { API_RATE_LIMIT_WINDOW_MS, API_RATE_LIMIT_MAX, WS_TOKEN_TTL_MS } from './config/constants';
 import stocksRouter from './routes/stocks';
 import transactionsRouter from './routes/transactions';
 import portfolioRouter from './routes/portfolio';
@@ -15,16 +23,68 @@ import recommendationsRouter from './routes/recommendations';
 import watchlistRouter from './routes/watchlist';
 import notificationsRouter from './routes/notifications';
 import feedbackRouter from './routes/feedback';
+import tradingRulesRouter from './routes/tradingRules';
 import { getSettings } from './services/settings';
-import { startScheduler, getSchedulerStatus } from './services/scheduler';
+import { startScheduler, stopScheduler, getSchedulerStatus } from './services/scheduler';
 import { getRecentEvents, getUnresolvedEvents, getEventCounts, resolveEvent } from './services/systemEvent';
 
 const app = express();
 const PORT = process.env.PORT || 3001;
 
-app.use(cors());
+// ── Security: Helmet ──
+app.use(helmet({
+  contentSecurityPolicy: {
+    directives: {
+      defaultSrc: ["'self'"],
+      scriptSrc: ["'self'", "'unsafe-inline'"],
+      styleSrc: ["'self'", "'unsafe-inline'"],
+      imgSrc: ["'self'", 'data:', 'https:'],
+      connectSrc: ["'self'", `ws://localhost:${PORT}`, `wss://localhost:${PORT}`, 'ws://localhost:5173', 'wss://localhost:5173'],
+      fontSrc: ["'self'", 'data:'],
+      objectSrc: ["'none'"],
+      frameAncestors: ["'none'"],
+    },
+  },
+}));
+
+// ── Security: CORS restricted to localhost ──
+app.use(cors({
+  origin: [
+    `http://localhost:${PORT}`,
+    'http://localhost:5173',
+  ],
+  credentials: true,
+}));
+
+// ── Compression ──
+app.use(compression());
+
+// ── Rate limiting on /api ──
+const apiLimiter = rateLimit({
+  windowMs: API_RATE_LIMIT_WINDOW_MS,
+  max: API_RATE_LIMIT_MAX,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: '요청이 너무 많습니다. 잠시 후 다시 시도해주세요.' },
+});
+app.use('/api', apiLimiter);
+
+// ── Body parsing ──
 app.use(express.json());
 
+// ── WebSocket token store (one-time nonces) ──
+const wsTokens = new Map<string, number>();
+
+function cleanExpiredTokens() {
+  const now = Date.now();
+  for (const [token, expires] of wsTokens) {
+    if (now > expires) {
+      wsTokens.delete(token);
+    }
+  }
+}
+
+// ── Routes ──
 app.use('/api/stocks', stocksRouter);
 app.use('/api/transactions', transactionsRouter);
 app.use('/api/portfolio', portfolioRouter);
@@ -36,12 +96,53 @@ app.use('/api/recommendations', recommendationsRouter);
 app.use('/api/watchlist', watchlistRouter);
 app.use('/api/notifications', notificationsRouter);
 app.use('/api/feedback', feedbackRouter);
+app.use('/api/trading-rules', tradingRulesRouter);
 
-app.get('/api/health', (_req, res) => {
-  res.json({ status: 'ok', timestamp: new Date().toISOString() });
+// ── WS token endpoint ──
+app.get('/api/ws-token', (_req, res) => {
+  cleanExpiredTokens();
+  const token = crypto.randomBytes(16).toString('hex');
+  wsTokens.set(token, Date.now() + WS_TOKEN_TTL_MS);
+  res.json({ token });
 });
 
-// 버전 + 업데이트 확인
+// ── Enhanced health check ──
+app.get('/api/health', async (_req, res) => {
+  const checks: Record<string, string> = {};
+
+  // DB check
+  try {
+    queryOne('SELECT 1 AS ok');
+    checks.database = 'ok';
+  } catch {
+    checks.database = 'error';
+  }
+
+  // Ollama check
+  const ollamaUrl = process.env.OLLAMA_URL || 'http://localhost:11434';
+  try {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 3000);
+    const ollamaRes = await fetch(`${ollamaUrl}/api/tags`, { signal: controller.signal });
+    clearTimeout(timeout);
+    checks.ollama = ollamaRes.ok ? 'ok' : 'error';
+  } catch {
+    checks.ollama = 'unreachable';
+  }
+
+  // Scheduler check
+  const schedulerStatus = getSchedulerStatus();
+  checks.scheduler = schedulerStatus.active ? 'running' : 'stopped';
+
+  const allOk = checks.database === 'ok';
+  res.status(allOk ? 200 : 503).json({
+    status: allOk ? 'ok' : 'degraded',
+    timestamp: new Date().toISOString(),
+    checks,
+  });
+});
+
+// ── Version + update check ──
 const currentVersion = require(path.join(__dirname, '../../package.json')).version;
 
 app.get('/api/version', async (_req, res) => {
@@ -56,49 +157,59 @@ app.get('/api/version', async (_req, res) => {
       latestVersion = (data.tag_name || '').replace(/^v/, '');
       updateAvailable = latestVersion !== currentVersion && latestVersion > currentVersion;
     }
-  } catch {}
+  } catch (err: unknown) {
+    logger.warn({ err }, 'Failed to check for updates');
+  }
   res.json({ currentVersion, latestVersion, updateAvailable });
 });
 
-// 업데이트 실행 (brew upgrade + 자동 재시작)
-app.post('/api/update', (_req, res) => {
-  const { exec } = require('child_process');
+// ── Update execution (brew upgrade + auto restart) ──
+// Requires a one-time token for authentication (same pattern as WS tokens)
+const updateTokens = new Map<string, number>();
+
+app.get('/api/update-token', (_req, res) => {
+  cleanExpiredTokens();
+  const token = crypto.randomBytes(16).toString('hex');
+  updateTokens.set(token, Date.now() + WS_TOKEN_TTL_MS);
+  res.json({ token });
+});
+
+app.post('/api/update', (req, res) => {
+  // Validate one-time update token
+  const authToken = req.headers['x-update-token'] as string | undefined;
+  if (!authToken || !updateTokens.has(authToken) || Date.now() > (updateTokens.get(authToken) ?? 0)) {
+    res.status(401).json({ error: '유효하지 않은 업데이트 토큰입니다.' });
+    return;
+  }
+  updateTokens.delete(authToken);
+
   try {
     res.json({ success: true, message: '업데이트를 시작합니다. 약 1~2분 후 페이지를 새로고침하세요.' });
 
-    // 비동기로: stop → brew upgrade → start
     setTimeout(() => {
-      const stockManagerBin = process.argv[1] || 'stock-manager';
-      const cmd = `brew update && brew upgrade stock-manager && node "${stockManagerBin}" start`;
-      console.log(`[Update] 실행: ${cmd}`);
+      logger.info('[Update] brew upgrade stock-manager 실행');
 
-      exec(cmd, { timeout: 180000 }, (err: any, stdout: string, stderr: string) => {
-        if (err) console.log(`[Update] 오류: ${err.message}`);
-        if (stdout) console.log(`[Update] ${stdout}`);
-        if (stderr) console.log(`[Update] ${stderr}`);
+      // Use execFile with fixed binary path instead of shell interpolation
+      execFile('/bin/sh', ['-c', 'brew update && brew upgrade stock-manager'], { timeout: 180000 }, (err, stdout, stderr) => {
+        if (err) logger.error({ err }, '[Update] 오류');
+        if (stdout) logger.info({ stdout }, '[Update] stdout');
+        if (stderr) logger.info({ stderr }, '[Update] stderr');
       });
 
-      // 현재 서버는 2초 후 종료 (새 서버가 start로 시작됨)
       setTimeout(() => process.exit(0), 2000);
     }, 1000);
-  } catch (err: any) {
-    res.status(500).json({ error: err.message });
+  } catch (err: unknown) {
+    logger.error({ err }, '[Update] 실패');
+    res.status(500).json({ error: '업데이트 시작 실패' });
   }
 });
 
-// 프로덕션: 클라이언트 정적 파일 서빙
-const clientDist = process.env.STOCK_MANAGER_CLIENT || path.join(__dirname, '../../client/dist');
-app.use(express.static(clientDist));
-app.get('*', (_req, res, next) => {
-  if (_req.path.startsWith('/api')) return next();
-  res.sendFile(path.join(clientDist, 'index.html'));
-});
-
+// ── Scheduler status ──
 app.get('/api/scheduler/status', (_req, res) => {
   res.json(getSchedulerStatus());
 });
 
-// 시스템 이벤트 로그 API
+// ── System events ──
 app.get('/api/system-events', (req, res) => {
   const unresolved = req.query.unresolved === 'true';
   const limit = Number(req.query.limit) || 100;
@@ -116,24 +227,48 @@ app.post('/api/system-events/:id/resolve', (req, res) => {
   res.json({ success: true });
 });
 
+// ── Production: client static files ──
+const clientDist = process.env.STOCK_MANAGER_CLIENT || path.join(__dirname, '../../client/dist');
+app.use(express.static(clientDist));
+app.get('*', (_req, res, next) => {
+  if (_req.path.startsWith('/api')) return next();
+  res.sendFile(path.join(clientDist, 'index.html'));
+});
+
+// ── Error handler (LAST middleware) ──
+app.use(errorHandler);
+
+// ── Start ──
 async function start() {
-  // 저장된 설정 로드 (환경변수 동기화 포함)
   getSettings();
   await initializeDB();
   startScheduler();
 
-  // HTTP + WebSocket 서버
   const server = http.createServer(app);
   const wss = new WebSocketServer({ server, path: '/ws' });
 
   const wsClients = new Set<WebSocket>();
-  wss.on('connection', (ws) => {
+
+  wss.on('connection', (ws, req) => {
+    // Validate WS token
+    const url = new URL(req.url || '', `http://localhost:${PORT}`);
+    const token = url.searchParams.get('token');
+
+    if (!token || !wsTokens.has(token) || Date.now() > (wsTokens.get(token) ?? 0)) {
+      logger.warn('WebSocket connection rejected: invalid or expired token');
+      ws.close(4401, 'Unauthorized');
+      return;
+    }
+
+    // Consume the one-time token
+    wsTokens.delete(token);
+
     wsClients.add(ws);
     ws.on('close', () => wsClients.delete(ws));
     ws.send(JSON.stringify({ type: 'connected', message: 'Stock Manager WebSocket' }));
   });
 
-  // 글로벌 브로드캐스트 함수 (scheduler 등에서 사용)
+  // Global broadcast function (used by scheduler etc.)
   (global as any).__wsBroadcast = (data: any) => {
     const msg = JSON.stringify(data);
     for (const client of wsClients) {
@@ -141,12 +276,62 @@ async function start() {
     }
   };
 
+  // ── Periodic token cleanup ──
+  const tokenCleanupInterval = setInterval(() => {
+    cleanExpiredTokens();
+    // Also clean update tokens
+    const now = Date.now();
+    for (const [token, expires] of updateTokens) {
+      if (now > expires) updateTokens.delete(token);
+    }
+  }, 60000);
+
+  // ── Graceful shutdown ──
+  let isShuttingDown = false;
+
+  function gracefulShutdown(signal: string) {
+    if (isShuttingDown) return;
+    isShuttingDown = true;
+    logger.info({ signal }, 'Graceful shutdown initiated');
+
+    clearInterval(tokenCleanupInterval);
+    stopScheduler();
+    logger.info('Scheduler stopped');
+
+    for (const client of wsClients) {
+      client.close(1001, 'Server shutting down');
+    }
+    wsClients.clear();
+    logger.info('WebSocket clients closed');
+
+    wss.close(() => {
+      logger.info('WebSocket server closed');
+    });
+
+    saveDB();
+    logger.info('Database saved');
+
+    server.close(() => {
+      logger.info('HTTP server closed');
+      process.exit(0);
+    });
+
+    // Force exit after 10 seconds if graceful shutdown stalls
+    setTimeout(() => {
+      logger.error('Graceful shutdown timed out, forcing exit');
+      process.exit(1);
+    }, 10000);
+  }
+
+  process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
+  process.on('SIGINT', () => gracefulShutdown('SIGINT'));
+
   server.listen(PORT, () => {
-    console.log(`Server running on http://localhost:${PORT}`);
+    logger.info({ port: PORT }, `Server running on http://localhost:${PORT}`);
   });
 }
 
 start().catch(err => {
-  console.error('Failed to start server:', err);
+  logger.error({ err }, 'Failed to start server');
   process.exit(1);
 });

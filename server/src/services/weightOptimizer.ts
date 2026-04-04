@@ -10,6 +10,7 @@ import { execute } from '../db';
 import { getScoreTypeCorrelations } from './signalAnalyzer';
 import { ScoreType } from './scoring';
 import { createNotification } from './notification';
+import logger from '../logger';
 
 const WEIGHTS_PATH = path.join(__dirname, '../../../data/scoring-weights.json');
 
@@ -118,7 +119,7 @@ export function optimizeWeights(): {
       actionUrl: '/settings',
     });
 
-    console.log(`[WeightOptimizer] ${adjusted.length}개 가중치 조정: ${summary}`);
+    logger.info({ adjustedCount: adjusted.length, summary }, 'WeightOptimizer: weights adjusted');
   }
 
   return { adjusted, skipped: '' };

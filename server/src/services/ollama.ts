@@ -12,6 +12,7 @@
 import { getSettings } from './settings';
 import { TechnicalIndicators, CandleData } from './technicalAnalysis';
 import { buildAccuracyReport } from './signalAnalyzer';
+import logger from '../logger';
 
 // ─── 입력 데이터 정형화 ─────────────────────────────────────
 
@@ -219,7 +220,7 @@ async function callOllama(model: string, url: string, prompt: string, system: st
 async function getTradeDecisionSingle(input: StockAnalysisInput, phase: AnalysisPhase, settings: any): Promise<TradeDecision> {
   const prompt = buildStructuredPrompt(input, phase);
   const responseText = await callOllama(settings.ollamaModel, settings.ollamaUrl, prompt, buildSystemPrompt());
-  console.log(`[Ollama] ${input.ticker} (${phase}) raw response length: ${responseText.length}`);
+  logger.debug({ ticker: input.ticker, phase, length: responseText.length }, 'Ollama raw response received');
   return parseDecisionResponse(responseText, input);
 }
 
@@ -236,7 +237,7 @@ ${dataBlock}
 반드시 JSON으로 응답: { "bullCase": "매수 근거 3~5문장", "bullConfidence": 0~100, "keyBullFactors": ["요소1", "요소2"] }`;
 
   const bullResponse = await callOllama(settings.ollamaModel, settings.ollamaUrl, bullPrompt, systemPrompt, 400);
-  console.log(`[Ollama] ${input.ticker} Bull analysis done`);
+  logger.debug({ ticker: input.ticker }, 'Ollama Bull analysis done');
 
   // 2차: 약세(Bear) 분석
   const bearPrompt = `[약세 분석가 역할] 아래 종목 데이터를 검토하고, 매도(SELL)/위험 관점에서 최대한 부정적인 근거를 찾아 분석하세요.
@@ -247,7 +248,7 @@ ${dataBlock}
 반드시 JSON으로 응답: { "bearCase": "매도/위험 근거 3~5문장", "bearConfidence": 0~100, "keyBearFactors": ["요소1", "요소2"] }`;
 
   const bearResponse = await callOllama(settings.ollamaModel, settings.ollamaUrl, bearPrompt, systemPrompt, 400);
-  console.log(`[Ollama] ${input.ticker} Bear analysis done`);
+  logger.debug({ ticker: input.ticker }, 'Ollama Bear analysis done');
 
   // 3차: 종합 판단
   const phaseInstruction = PHASE_INSTRUCTIONS[phase];
@@ -267,7 +268,7 @@ ${dataBlock}
 ${RESPONSE_SCHEMA}`;
 
   const finalResponse = await callOllama(settings.ollamaModel, settings.ollamaUrl, finalPrompt, systemPrompt, 1024);
-  console.log(`[Ollama] ${input.ticker} (${phase}) debate final response length: ${finalResponse.length}`);
+  logger.debug({ ticker: input.ticker, phase, length: finalResponse.length }, 'Ollama debate final response received');
 
   return parseDecisionResponse(finalResponse, input);
 }

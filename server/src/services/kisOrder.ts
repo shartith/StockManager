@@ -9,6 +9,7 @@ import { getAccessToken, getKisConfig } from './kisAuth';
 import { getSettings } from './settings';
 import { queryOne, queryAll, execute } from '../db';
 import { kisApiCall } from './apiQueue';
+import logger from '../logger';
 
 // ─── 타입 ─────────────────────────────────────────────
 
@@ -160,7 +161,7 @@ export async function getDomesticOrderableAmount(): Promise<number> {
       // max_buy_amt: 최대매수금액
       // ord_psbl_cash: 주문가능현금 (현금만)
       const orderable = Number(output.nrcvb_buy_amt || output.max_buy_amt || output.ord_psbl_cash || 0);
-      console.log(`[KIS] 주문가능: nrcvb=${output.nrcvb_buy_amt}, max=${output.max_buy_amt}, cash=${output.ord_psbl_cash} → ${orderable}`);
+      logger.debug({ nrcvb: output.nrcvb_buy_amt, max: output.max_buy_amt, cash: output.ord_psbl_cash, orderable }, 'KIS orderable amount');
       return orderable;
     }, 'orderable-domestic');
   } catch {
@@ -438,7 +439,7 @@ export async function executeOrder(req: OrderRequest): Promise<OrderResult> {
         );
       }
 
-      console.log(`[KisOrder] ${req.orderType} 체결: ${req.ticker} ${quantity}주 @ ${orderPrice} (${result.orderNo})`);
+      logger.info({ orderType: req.orderType, ticker: req.ticker, quantity, price: orderPrice, orderNo: result.orderNo }, 'KIS order filled');
 
       return {
         success: true,
@@ -456,7 +457,7 @@ export async function executeOrder(req: OrderRequest): Promise<OrderResult> {
         [result.message, tradeId]
       );
 
-      console.log(`[KisOrder] ${req.orderType} 실패: ${req.ticker} — ${result.message}`);
+      logger.error({ orderType: req.orderType, ticker: req.ticker, message: result.message }, 'KIS order failed');
 
       return {
         success: false,

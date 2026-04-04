@@ -465,6 +465,16 @@
         </div>
       </div>
 
+      <!-- 섹션: 매매 원칙 -->
+      <TradingRulesSection
+        v-model:tradingRulesEnabled="form.tradingRulesEnabled"
+        v-model:tradingRulesStrictMode="form.tradingRulesStrictMode"
+        v-model:gapThresholdPercent="form.gapThresholdPercent"
+        v-model:volumeSurgeRatio="form.volumeSurgeRatio"
+        v-model:lowVolumeRatio="form.lowVolumeRatio"
+        v-model:sidewaysAtrPercent="form.sidewaysAtrPercent"
+      />
+
       <!-- 저장 버튼 -->
       <div class="flex items-center gap-3">
         <button
@@ -577,6 +587,7 @@
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue';
 import { chartApi, analysisApi, feedbackApi } from '@/api';
+import TradingRulesSection from '@/components/TradingRulesSection.vue';
 
 const configStatus = ref({ configured: false, isVirtual: true, hasAccount: false });
 
@@ -737,6 +748,13 @@ const form = ref({
 
   scheduleKrx: { enabled: false, preOpen: true, postOpen: true, preClose1h: true, preClose30m: true } as Record<string, boolean>,
   scheduleNyse: { enabled: false, preOpen: true, postOpen: true, preClose1h: true, preClose30m: true } as Record<string, boolean>,
+
+  tradingRulesEnabled: true,
+  tradingRulesStrictMode: false,
+  gapThresholdPercent: 3,
+  volumeSurgeRatio: 1.5,
+  lowVolumeRatio: 0.7,
+  sidewaysAtrPercent: 1.0,
 });
 
 const scheduleSlots = [
@@ -909,6 +927,13 @@ async function loadConfig() {
 
     if (saved.scheduleKrx) form.value.scheduleKrx = saved.scheduleKrx;
     if (saved.scheduleNyse) form.value.scheduleNyse = saved.scheduleNyse;
+
+    form.value.tradingRulesEnabled = saved.tradingRulesEnabled ?? true;
+    form.value.tradingRulesStrictMode = saved.tradingRulesStrictMode ?? false;
+    form.value.gapThresholdPercent = saved.gapThresholdPercent ?? 3;
+    form.value.volumeSurgeRatio = saved.volumeSurgeRatio ?? 1.5;
+    form.value.lowVolumeRatio = saved.lowVolumeRatio ?? 0.7;
+    form.value.sidewaysAtrPercent = saved.sidewaysAtrPercent ?? 1.0;
   } catch {
     // 설정 없음
   }

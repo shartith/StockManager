@@ -1,4 +1,5 @@
 import { getSettings } from './settings';
+import logger from '../logger';
 
 let tokenRetryCount = 0;
 const MAX_TOKEN_RETRIES = 3;
@@ -50,7 +51,7 @@ export async function getAccessToken(): Promise<string> {
     const err = await response.text();
     tokenRetryCount++;
     if (tokenRetryCount <= MAX_TOKEN_RETRIES) {
-      console.log(`[KIS Auth] 토큰 발급 실패 (${tokenRetryCount}/${MAX_TOKEN_RETRIES}), 10초 후 재시도...`);
+      logger.error({ retryCount: tokenRetryCount, maxRetries: MAX_TOKEN_RETRIES }, 'KIS token issuance failed, retrying in 10s');
       await new Promise(r => setTimeout(r, 10000));
       return getAccessToken(); // 재귀 재시도
     }
@@ -64,7 +65,7 @@ export async function getAccessToken(): Promise<string> {
   const expiresIn = ((data.expires_in ?? 86400) - 3600) * 1000;
   tokenCache = { token, expiresAt: Date.now() + expiresIn };
 
-  console.log(`[KIS Auth] 토큰 발급 성공 (만료: ${new Date(tokenCache.expiresAt).toLocaleString()})`);
+  logger.info({ expiresAt: new Date(tokenCache.expiresAt).toISOString() }, 'KIS token issued successfully');
   return token;
 }
 

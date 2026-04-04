@@ -5,6 +5,7 @@
  */
 
 import { queryAll, queryOne, execute } from '../db';
+import logger from '../logger';
 
 export interface NotificationPayload {
   type: string;          // PROMOTION, AUTO_TRADE, SIGNAL, INFO 등
@@ -22,7 +23,7 @@ export function createNotification(payload: NotificationPayload): number {
     [payload.type, payload.title, payload.message, payload.ticker || '', payload.market || '', payload.actionUrl || '']
   );
 
-  console.log(`[Notification] ${payload.type}: ${payload.title}`);
+  logger.info({ type: payload.type, title: payload.title }, 'Notification created');
 
   // TODO: 메신저 연동 (Telegram, Slack 등)
   // sendToMessenger(payload);

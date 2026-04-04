@@ -6,6 +6,7 @@
 
 import { queryAll, queryOne, execute } from '../db';
 import { getCurrentPrice } from './kisOrder';
+import logger from '../logger';
 
 /** 신호를 성과 추적 대상으로 등록 */
 export function registerSignalForTracking(signalId: number) {
@@ -52,7 +53,7 @@ export function registerSignalForTracking(signalId: number) {
 
 /** 미평가 성과 데이터를 업데이트 (7/14/30일 후 가격 체크) */
 export async function evaluatePendingPerformance() {
-  console.log('[PerformanceTracker] 성과 평가 시작');
+  logger.info('PerformanceTracker: starting evaluation');
 
   // 7일 경과 + 미평가
   const need7d = queryAll(
@@ -92,7 +93,7 @@ export async function evaluatePendingPerformance() {
         );
         updated++;
       }
-    } catch (err: any) { console.log(`[PerformanceTracker] 7d 평가 오류 (${sp.ticker}):`, err.message); }
+    } catch (err) { logger.error({ err, ticker: sp.ticker }, 'PerformanceTracker 7d evaluation error'); }
     await sleep(200);
   }
 
@@ -111,7 +112,7 @@ export async function evaluatePendingPerformance() {
         );
         updated++;
       }
-    } catch (err: any) { console.log(`[PerformanceTracker] 14d 평가 오류 (${sp.ticker}):`, err.message); }
+    } catch (err) { logger.error({ err, ticker: sp.ticker }, 'PerformanceTracker 14d evaluation error'); }
     await sleep(200);
   }
 
@@ -126,11 +127,11 @@ export async function evaluatePendingPerformance() {
         );
         updated++;
       }
-    } catch (err: any) { console.log(`[PerformanceTracker] 30d 평가 오류 (${sp.ticker}):`, err.message); }
+    } catch (err) { logger.error({ err, ticker: sp.ticker }, 'PerformanceTracker 30d evaluation error'); }
     await sleep(200);
   }
 
-  console.log(`[PerformanceTracker] 성과 평가 완료: ${updated}건 업데이트`);
+  logger.info({ updated }, 'PerformanceTracker: evaluation complete');
 }
 
 /** 성과 요약 통계 */

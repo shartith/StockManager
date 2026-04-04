@@ -1,10 +1,13 @@
 import { Router, Request, Response } from 'express';
-import { queryAll, queryOne, execute } from '../db';
+import { queryAll, queryOne, execute, logAudit } from '../db';
 import { analyzeTechnical, CandleData } from '../services/technicalAnalysis';
 import { getTradeDecision, buildAnalysisInput, AnalysisPhase } from '../services/ollama';
 import { collectAndCacheNews, getCachedNews, summarizeNewsWithAI } from '../services/newsCollector';
 import { getAccessToken, getKisConfig } from '../services/kisAuth';
 import { getSettings } from '../services/settings';
+import { validate } from '../middleware/validate';
+import { asyncHandler } from '../middleware/errorHandler';
+import { createRecommendationSchema, updateRecommendationStatusSchema, generateRecommendationSchema } from '../schemas';
 
 const router = Router();
 
@@ -54,11 +57,8 @@ router.get('/categories', (_req: Request, res: Response) => {
 });
 
 /** 추천 종목 추가 */
-router.post('/', (req: Request, res: Response) => {
+router.post('/', validate(createRecommendationSchema), (req: Request, res: Response) => {
   const { ticker, name, market, source, reason, signal_type, confidence, expires_at } = req.body;
-  if (!ticker || !name) {
-    return res.status(400).json({ error: 'ticker, name은 필수입니다' });
-  }
 
   const { lastId } = execute(
     'INSERT INTO recommendations (ticker, name, market, source, reason, signal_type, confidence, expires_at, category) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
@@ -73,7 +73,7 @@ router.post('/', (req: Request, res: Response) => {
  * 2) 포트폴리오 보유 종목은 추천에서 제외
  * 3) 추천이 10개 미만이면 시장에서 유망 종목 검색하여 보충
  */
-router.post('/generate', async (req: Request, res: Response) => {
+router.post('/generate', asyncHandler(async (req: Request, res: Response) => {
   const MAX_RECOMMENDATIONS = 10;
   const settings = getSettings();
   if (!settings.ollamaEnabled) {
@@ -224,7 +224,7 @@ router.post('/generate', async (req: Request, res: Response) => {
     activeCount: finalCount,
     results,
   });
-});
+}));
 
 /** 시장에서 유망 종목 후보 검색 (KIS 거래량 상위 + 등록 종목) */
 async function searchMarketCandidates(market: string, appKey: string, appSecret: string, baseUrl: string): Promise<{ticker: string; name: string}[]> {
@@ -336,14 +336,13 @@ async function searchMarketCandidates(market: string, appKey: string, appSecret:
 }
 
 /** 추천 종목 상태 변경 */
-router.patch('/:id', (req: Request, res: Response) => {
+router.patch('/:id', validate(updateRecommendationStatusSchema), (req: Request, res: Response) => {
   const { id } = req.params;
   const { status } = req.body;
-  if (!['ACTIVE', 'EXECUTED', 'EXPIRED', 'DISMISSED'].includes(status)) {
-    return res.status(400).json({ error: '유효하지 않은 상태' });
-  }
+  const existing = queryOne('SELECT * FROM recommendations WHERE id = ?', [Number(id)]);
 
   execute('UPDATE recommendations SET status = ? WHERE id = ?', [status, Number(id)]);
+  logAudit('recommendations', Number(id), 'UPDATE', existing, { status });
   res.json({ message: '상태 업데이트 완료' });
 });
 

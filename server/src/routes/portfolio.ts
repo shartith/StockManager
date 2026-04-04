@@ -2,10 +2,11 @@ import { Router, Request, Response } from 'express';
 import { getPortfolioSummary, getPortfolioRiskContext } from '../services/calculator';
 import { getMultipleStockPrices } from '../services/stockPrice';
 import { queryAll } from '../db';
+import { asyncHandler } from '../middleware/errorHandler';
 
 const router = Router();
 
-router.get('/summary', async (_req: Request, res: Response) => {
+router.get('/summary', asyncHandler(async (_req: Request, res: Response) => {
   try {
     const stocks = queryAll('SELECT ticker, market FROM stocks');
     const tickers = stocks.map((s: any) => s.ticker);
@@ -38,7 +39,7 @@ router.get('/summary', async (_req: Request, res: Response) => {
   } catch (err) {
     res.status(500).json({ error: '포트폴리오 조회 실패' });
   }
-});
+}));
 
 router.get('/insight', (_req: Request, res: Response) => {
   try {

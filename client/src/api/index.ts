@@ -130,7 +130,20 @@ export const feedbackApi = {
 // 버전 / 업데이트 API
 export const versionApi = {
   check: () => api.get('/version'),
-  update: () => api.post('/update'),
+  update: async () => {
+    const { data } = await api.get('/update-token');
+    return api.post('/update', {}, {
+      headers: { 'x-update-token': data.token },
+    });
+  },
+};
+
+// 매매 원칙 API
+export const tradingRulesApi = {
+  getAll: () => api.get('/trading-rules'),
+  update: (ruleId: string, data: { is_enabled?: boolean; params_json?: string }) =>
+    api.patch(`/trading-rules/${ruleId}`, data),
+  getHistory: (limit = 50) => api.get('/trading-rules/history', { params: { limit } }),
 };
 
 // 시스템 이벤트 API
