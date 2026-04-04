@@ -45,6 +45,10 @@ export interface AppSettings {
   scheduleKrx: MarketScheduleConfig;
   scheduleNyse: MarketScheduleConfig;
 
+  // 자동매매 임계값 (조정 가능)
+  autoTradeScoreThreshold: number;    // 자동매매 승격 점수 (기본 100)
+  priceChangeThreshold: number;       // 연속모니터 가격변동 임계값 % (기본 2)
+
   // 매매 원칙
   tradingRulesEnabled: boolean;
   tradingRulesStrictMode: boolean;
@@ -80,6 +84,9 @@ const DEFAULT_SETTINGS: AppSettings = {
 
   scheduleKrx: { enabled: false, preOpen: true, postOpen: true, preClose1h: true, preClose30m: true },
   scheduleNyse: { enabled: false, preOpen: true, postOpen: true, preClose1h: true, preClose30m: true },
+
+  autoTradeScoreThreshold: 100,
+  priceChangeThreshold: 2,
 
   tradingRulesEnabled: true,
   tradingRulesStrictMode: false,

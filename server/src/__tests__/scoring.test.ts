@@ -105,35 +105,35 @@ describe('scoring engine', () => {
   // ── 1. CONSECUTIVE_BUY ──
 
   describe('CONSECUTIVE_BUY scoring', () => {
-    it('adds bonus for BUY signal based on consecutive count', () => {
+    it('adds bonus for BUY signal based on consecutive count', async () => {
       // Mock consecutive_buys = 2 from DB
       vi.mocked(queryOne).mockImplementation((sql: string) => {
         if (sql.includes('consecutive_buys')) return { consecutive_buys: 2 };
         return null;
       });
 
-      const result = evaluateAndScore('TEST', 'KRX', makeDecision());
+      const result = await evaluateAndScore('TEST', 'KRX', makeDecision());
       const consDetail = result.details.find(d => d.type === 'CONSECUTIVE_BUY');
       expect(consDetail).toBeDefined();
       // consecutive = 2 + 1 = 3, min(3*10, 50) * 1.0 = 30
       expect(consDetail!.value).toBe(30);
     });
 
-    it('caps at 50 for high consecutive counts', () => {
+    it('caps at 50 for high consecutive counts', async () => {
       vi.mocked(queryOne).mockImplementation((sql: string) => {
         if (sql.includes('consecutive_buys')) return { consecutive_buys: 10 };
         return null;
       });
 
-      const result = evaluateAndScore('TEST', 'KRX', makeDecision());
+      const result = await evaluateAndScore('TEST', 'KRX', makeDecision());
       const consDetail = result.details.find(d => d.type === 'CONSECUTIVE_BUY');
       expect(consDetail).toBeDefined();
       // consecutive = 11, min(110, 50) * 1.0 = 50
       expect(consDetail!.value).toBe(50);
     });
 
-    it('resets consecutive count when signal is not BUY', () => {
-      const result = evaluateAndScore('TEST', 'KRX', makeDecision({ signal: 'HOLD' }));
+    it('resets consecutive count when signal is not BUY', async () => {
+      const result = await evaluateAndScore('TEST', 'KRX', makeDecision({ signal: 'HOLD' }));
       const consDetail = result.details.find(d => d.type === 'CONSECUTIVE_BUY');
       expect(consDetail).toBeUndefined();
       // Verify the UPDATE query was called with 0
@@ -143,17 +143,17 @@ describe('scoring engine', () => {
       );
     });
 
-    it('handles null consecutive_buys from DB', () => {
+    it('handles null consecutive_buys from DB', async () => {
       vi.mocked(queryOne).mockReturnValue(null);
 
-      const result = evaluateAndScore('TEST', 'KRX', makeDecision());
+      const result = await evaluateAndScore('TEST', 'KRX', makeDecision());
       const consDetail = result.details.find(d => d.type === 'CONSECUTIVE_BUY');
       expect(consDetail).toBeDefined();
       // consecutive = (0) + 1 = 1, min(10, 50) = 10
       expect(consDetail!.value).toBe(10);
     });
 
-    it('applies weight multiplier', () => {
+    it('applies weight multiplier', async () => {
       vi.mocked(loadWeights).mockReturnValue({
         CONSECUTIVE_BUY: 1.5,
         HIGH_CONFIDENCE: 1.0,
@@ -167,7 +167,7 @@ describe('scoring engine', () => {
         TIME_DECAY: 1.0,
       });
 
-      const result = evaluateAndScore('TEST', 'KRX', makeDecision());
+      const result = await evaluateAndScore('TEST', 'KRX', makeDecision());
       const consDetail = result.details.find(d => d.type === 'CONSECUTIVE_BUY');
       // consecutive = 1, min(10, 50) * 1.5 = 15
       expect(consDetail!.value).toBe(15);
@@ -177,30 +177,30 @@ describe('scoring engine', () => {
   // ── 2. HIGH_CONFIDENCE ──
 
   describe('HIGH_CONFIDENCE scoring', () => {
-    it('adds score for confidence >= 60', () => {
-      const result = evaluateAndScore('TEST', 'KRX', makeDecision({ confidence: 80 }));
+    it('adds score for confidence >= 60', async () => {
+      const result = await evaluateAndScore('TEST', 'KRX', makeDecision({ confidence: 80 }));
       const confDetail = result.details.find(d => d.type === 'HIGH_CONFIDENCE');
       expect(confDetail).toBeDefined();
       // (80 - 60) / 2 * 1.0 = 10
       expect(confDetail!.value).toBe(10);
     });
 
-    it('no score for confidence < 60', () => {
-      const result = evaluateAndScore('TEST', 'KRX', makeDecision({ confidence: 50 }));
+    it('no score for confidence < 60', async () => {
+      const result = await evaluateAndScore('TEST', 'KRX', makeDecision({ confidence: 50 }));
       const confDetail = result.details.find(d => d.type === 'HIGH_CONFIDENCE');
       expect(confDetail).toBeUndefined();
     });
 
-    it('max score at confidence 100', () => {
-      const result = evaluateAndScore('TEST', 'KRX', makeDecision({ confidence: 100 }));
+    it('max score at confidence 100', async () => {
+      const result = await evaluateAndScore('TEST', 'KRX', makeDecision({ confidence: 100 }));
       const confDetail = result.details.find(d => d.type === 'HIGH_CONFIDENCE');
       expect(confDetail).toBeDefined();
       // (100 - 60) / 2 * 1.0 = 20
       expect(confDetail!.value).toBe(20);
     });
 
-    it('exactly 60 confidence gives 0 score', () => {
-      const result = evaluateAndScore('TEST', 'KRX', makeDecision({ confidence: 60 }));
+    it('exactly 60 confidence gives 0 score', async () => {
+      const result = await evaluateAndScore('TEST', 'KRX', makeDecision({ confidence: 60 }));
       const confDetail = result.details.find(d => d.type === 'HIGH_CONFIDENCE');
       expect(confDetail).toBeDefined();
       expect(confDetail!.value).toBe(0);
@@ -210,8 +210,8 @@ describe('scoring engine', () => {
   // ── 3. VOLUME_SURGE ──
 
   describe('VOLUME_SURGE scoring', () => {
-    it('adds +15 for volume >= 1.5x average', () => {
-      const result = evaluateAndScore('TEST', 'KRX', makeDecision(), undefined, {
+    it('adds +15 for volume >= 1.5x average', async () => {
+      const result = await evaluateAndScore('TEST', 'KRX', makeDecision(), undefined, {
         avgVolume20d: 10000,
         todayVsAvg: 2.0,
         volumeTrend: 'INCREASING',
@@ -221,8 +221,8 @@ describe('scoring engine', () => {
       expect(volDetail!.value).toBe(15);
     });
 
-    it('adds +5 for INCREASING volume trend below 1.5x', () => {
-      const result = evaluateAndScore('TEST', 'KRX', makeDecision(), undefined, {
+    it('adds +5 for INCREASING volume trend below 1.5x', async () => {
+      const result = await evaluateAndScore('TEST', 'KRX', makeDecision(), undefined, {
         avgVolume20d: 10000,
         todayVsAvg: 1.2,
         volumeTrend: 'INCREASING',
@@ -232,14 +232,14 @@ describe('scoring engine', () => {
       expect(volDetail!.value).toBe(5);
     });
 
-    it('no score when volume analysis missing', () => {
-      const result = evaluateAndScore('TEST', 'KRX', makeDecision());
+    it('no score when volume analysis missing', async () => {
+      const result = await evaluateAndScore('TEST', 'KRX', makeDecision());
       const volDetail = result.details.find(d => d.type === 'VOLUME_SURGE');
       expect(volDetail).toBeUndefined();
     });
 
-    it('no score for low volume with DECREASING trend', () => {
-      const result = evaluateAndScore('TEST', 'KRX', makeDecision(), undefined, {
+    it('no score for low volume with DECREASING trend', async () => {
+      const result = await evaluateAndScore('TEST', 'KRX', makeDecision(), undefined, {
         avgVolume20d: 10000,
         todayVsAvg: 0.8,
         volumeTrend: 'DECREASING',
@@ -252,39 +252,39 @@ describe('scoring engine', () => {
   // ── 4. RSI_OVERSOLD_BOUNCE ──
 
   describe('RSI_OVERSOLD_BOUNCE scoring', () => {
-    it('adds +15 for RSI between 30 and 40', () => {
-      const result = evaluateAndScore('TEST', 'KRX', makeDecision(), makeIndicators({ rsi14: 35 }));
+    it('adds +15 for RSI between 30 and 40', async () => {
+      const result = await evaluateAndScore('TEST', 'KRX', makeDecision(), makeIndicators({ rsi14: 35 }));
       const rsiDetail = result.details.find(d => d.type === 'RSI_OVERSOLD_BOUNCE');
       expect(rsiDetail).toBeDefined();
       expect(rsiDetail!.value).toBe(15);
     });
 
-    it('no score for RSI below 30', () => {
-      const result = evaluateAndScore('TEST', 'KRX', makeDecision(), makeIndicators({ rsi14: 25 }));
+    it('no score for RSI below 30', async () => {
+      const result = await evaluateAndScore('TEST', 'KRX', makeDecision(), makeIndicators({ rsi14: 25 }));
       const rsiDetail = result.details.find(d => d.type === 'RSI_OVERSOLD_BOUNCE');
       expect(rsiDetail).toBeUndefined();
     });
 
-    it('no score for RSI above 40', () => {
-      const result = evaluateAndScore('TEST', 'KRX', makeDecision(), makeIndicators({ rsi14: 50 }));
+    it('no score for RSI above 40', async () => {
+      const result = await evaluateAndScore('TEST', 'KRX', makeDecision(), makeIndicators({ rsi14: 50 }));
       const rsiDetail = result.details.find(d => d.type === 'RSI_OVERSOLD_BOUNCE');
       expect(rsiDetail).toBeUndefined();
     });
 
-    it('exactly RSI 30 triggers', () => {
-      const result = evaluateAndScore('TEST', 'KRX', makeDecision(), makeIndicators({ rsi14: 30 }));
+    it('exactly RSI 30 triggers', async () => {
+      const result = await evaluateAndScore('TEST', 'KRX', makeDecision(), makeIndicators({ rsi14: 30 }));
       const rsiDetail = result.details.find(d => d.type === 'RSI_OVERSOLD_BOUNCE');
       expect(rsiDetail).toBeDefined();
     });
 
-    it('exactly RSI 40 triggers', () => {
-      const result = evaluateAndScore('TEST', 'KRX', makeDecision(), makeIndicators({ rsi14: 40 }));
+    it('exactly RSI 40 triggers', async () => {
+      const result = await evaluateAndScore('TEST', 'KRX', makeDecision(), makeIndicators({ rsi14: 40 }));
       const rsiDetail = result.details.find(d => d.type === 'RSI_OVERSOLD_BOUNCE');
       expect(rsiDetail).toBeDefined();
     });
 
-    it('null RSI does not trigger', () => {
-      const result = evaluateAndScore('TEST', 'KRX', makeDecision(), makeIndicators({ rsi14: null as any }));
+    it('null RSI does not trigger', async () => {
+      const result = await evaluateAndScore('TEST', 'KRX', makeDecision(), makeIndicators({ rsi14: null as any }));
       const rsiDetail = result.details.find(d => d.type === 'RSI_OVERSOLD_BOUNCE');
       expect(rsiDetail).toBeUndefined();
     });
@@ -293,10 +293,10 @@ describe('scoring engine', () => {
   // ── 5. BOLLINGER_BOUNCE ──
 
   describe('BOLLINGER_BOUNCE scoring', () => {
-    it('adds +10 when price is near bollinger lower (<3% distance)', () => {
+    it('adds +10 when price is near bollinger lower (<3% distance)', async () => {
       // currentPrice 9750, bollingerLower 9700, bollingerMiddle 10000
       // dist = (9750 - 9700) / 9700 * 100 ≈ 0.515%
-      const result = evaluateAndScore('TEST', 'KRX', makeDecision(), makeIndicators({
+      const result = await evaluateAndScore('TEST', 'KRX', makeDecision(), makeIndicators({
         currentPrice: 9750,
         bollingerLower: 9700,
         bollingerMiddle: 10000,
@@ -306,8 +306,8 @@ describe('scoring engine', () => {
       expect(bbDetail!.value).toBe(10);
     });
 
-    it('no score when price is above bollinger middle', () => {
-      const result = evaluateAndScore('TEST', 'KRX', makeDecision(), makeIndicators({
+    it('no score when price is above bollinger middle', async () => {
+      const result = await evaluateAndScore('TEST', 'KRX', makeDecision(), makeIndicators({
         currentPrice: 10500,
         bollingerLower: 9700,
         bollingerMiddle: 10000,
@@ -316,8 +316,8 @@ describe('scoring engine', () => {
       expect(bbDetail).toBeUndefined();
     });
 
-    it('no score when distance from lower > 3%', () => {
-      const result = evaluateAndScore('TEST', 'KRX', makeDecision(), makeIndicators({
+    it('no score when distance from lower > 3%', async () => {
+      const result = await evaluateAndScore('TEST', 'KRX', makeDecision(), makeIndicators({
         currentPrice: 10100,
         bollingerLower: 9700,
         bollingerMiddle: 10500,
@@ -327,8 +327,8 @@ describe('scoring engine', () => {
       expect(bbDetail).toBeUndefined();
     });
 
-    it('no score when bollinger bands are missing', () => {
-      const result = evaluateAndScore('TEST', 'KRX', makeDecision(), makeIndicators({
+    it('no score when bollinger bands are missing', async () => {
+      const result = await evaluateAndScore('TEST', 'KRX', makeDecision(), makeIndicators({
         bollingerLower: null as any,
         bollingerMiddle: null as any,
       }));
@@ -340,8 +340,8 @@ describe('scoring engine', () => {
   // ── 6. MACD_GOLDEN_CROSS ──
 
   describe('MACD_GOLDEN_CROSS scoring', () => {
-    it('adds +20 when MACD histogram > 0 and MACD > 0', () => {
-      const result = evaluateAndScore('TEST', 'KRX', makeDecision(), makeIndicators({
+    it('adds +20 when MACD histogram > 0 and MACD > 0', async () => {
+      const result = await evaluateAndScore('TEST', 'KRX', makeDecision(), makeIndicators({
         macdHistogram: 20,
         macd: 100,
       }));
@@ -350,8 +350,8 @@ describe('scoring engine', () => {
       expect(macdDetail!.value).toBe(20);
     });
 
-    it('no score when MACD histogram <= 0', () => {
-      const result = evaluateAndScore('TEST', 'KRX', makeDecision(), makeIndicators({
+    it('no score when MACD histogram <= 0', async () => {
+      const result = await evaluateAndScore('TEST', 'KRX', makeDecision(), makeIndicators({
         macdHistogram: -5,
         macd: 100,
       }));
@@ -359,8 +359,8 @@ describe('scoring engine', () => {
       expect(macdDetail).toBeUndefined();
     });
 
-    it('no score when MACD <= 0', () => {
-      const result = evaluateAndScore('TEST', 'KRX', makeDecision(), makeIndicators({
+    it('no score when MACD <= 0', async () => {
+      const result = await evaluateAndScore('TEST', 'KRX', makeDecision(), makeIndicators({
         macdHistogram: 20,
         macd: -10,
       }));
@@ -372,15 +372,15 @@ describe('scoring engine', () => {
   // ── 7. PRICE_MOMENTUM ──
 
   describe('PRICE_MOMENTUM scoring', () => {
-    it('adds +10 when urgency is IMMEDIATE', () => {
-      const result = evaluateAndScore('TEST', 'KRX', makeDecision({ urgency: 'IMMEDIATE' }));
+    it('adds +10 when urgency is IMMEDIATE', async () => {
+      const result = await evaluateAndScore('TEST', 'KRX', makeDecision({ urgency: 'IMMEDIATE' }));
       const momDetail = result.details.find(d => d.type === 'PRICE_MOMENTUM');
       expect(momDetail).toBeDefined();
       expect(momDetail!.value).toBe(10);
     });
 
-    it('no score when urgency is not IMMEDIATE', () => {
-      const result = evaluateAndScore('TEST', 'KRX', makeDecision({ urgency: 'WAIT' }));
+    it('no score when urgency is not IMMEDIATE', async () => {
+      const result = await evaluateAndScore('TEST', 'KRX', makeDecision({ urgency: 'WAIT' }));
       const momDetail = result.details.find(d => d.type === 'PRICE_MOMENTUM');
       expect(momDetail).toBeUndefined();
     });
@@ -389,7 +389,7 @@ describe('scoring engine', () => {
   // ── 8. TIME_DECAY ──
 
   describe('TIME_DECAY scoring', () => {
-    it('applies negative decay for old scores', () => {
+    it('applies negative decay for old scores', async () => {
       // First call returns base score, second returns old scores
       let callCount = 0;
       vi.mocked(queryOne).mockImplementation((sql: string) => {
@@ -397,28 +397,28 @@ describe('scoring engine', () => {
         return null;
       });
 
-      const result = evaluateAndScore('TEST', 'KRX', makeDecision());
+      const result = await evaluateAndScore('TEST', 'KRX', makeDecision());
       const decayDetail = result.details.find(d => d.type === 'TIME_DECAY');
       expect(decayDetail).toBeDefined();
       // -round(50 * 0.2) = -10
       expect(decayDetail!.value).toBe(-10);
     });
 
-    it('no decay when no old scores', () => {
+    it('no decay when no old scores', async () => {
       vi.mocked(queryOne).mockReturnValue(null);
 
-      const result = evaluateAndScore('TEST', 'KRX', makeDecision());
+      const result = await evaluateAndScore('TEST', 'KRX', makeDecision());
       const decayDetail = result.details.find(d => d.type === 'TIME_DECAY');
       expect(decayDetail).toBeUndefined();
     });
 
-    it('no decay when old_total is 0', () => {
+    it('no decay when old_total is 0', async () => {
       vi.mocked(queryOne).mockImplementation((sql: string) => {
         if (sql.includes('old_total')) return { old_total: 0 };
         return null;
       });
 
-      const result = evaluateAndScore('TEST', 'KRX', makeDecision());
+      const result = await evaluateAndScore('TEST', 'KRX', makeDecision());
       const decayDetail = result.details.find(d => d.type === 'TIME_DECAY');
       expect(decayDetail).toBeUndefined();
     });
@@ -427,44 +427,44 @@ describe('scoring engine', () => {
   // ── 9. NEWS_SENTIMENT ──
 
   describe('NEWS_SENTIMENT scoring', () => {
-    it('adds +10 for strongly positive sentiment (> 30)', () => {
-      const result = evaluateAndScore('TEST', 'KRX', makeDecision(), undefined, undefined, 50);
+    it('adds +10 for strongly positive sentiment (> 30)', async () => {
+      const result = await evaluateAndScore('TEST', 'KRX', makeDecision(), undefined, undefined, 50);
       const sentDetail = result.details.find(d => d.type === 'NEWS_SENTIMENT');
       expect(sentDetail).toBeDefined();
       expect(sentDetail!.value).toBe(10);
     });
 
-    it('adds -10 for strongly negative sentiment (< -30)', () => {
-      const result = evaluateAndScore('TEST', 'KRX', makeDecision(), undefined, undefined, -50);
+    it('adds -10 for strongly negative sentiment (< -30)', async () => {
+      const result = await evaluateAndScore('TEST', 'KRX', makeDecision(), undefined, undefined, -50);
       const sentDetail = result.details.find(d => d.type === 'NEWS_SENTIMENT');
       expect(sentDetail).toBeDefined();
       expect(sentDetail!.value).toBe(-10);
     });
 
-    it('uses scaled value for moderate sentiment', () => {
-      const result = evaluateAndScore('TEST', 'KRX', makeDecision(), undefined, undefined, 15);
+    it('uses scaled value for moderate sentiment', async () => {
+      const result = await evaluateAndScore('TEST', 'KRX', makeDecision(), undefined, undefined, 15);
       const sentDetail = result.details.find(d => d.type === 'NEWS_SENTIMENT');
       expect(sentDetail).toBeDefined();
       // round(15 / 3) = 5
       expect(sentDetail!.value).toBe(5);
     });
 
-    it('negative moderate sentiment gives negative score', () => {
-      const result = evaluateAndScore('TEST', 'KRX', makeDecision(), undefined, undefined, -15);
+    it('negative moderate sentiment gives negative score', async () => {
+      const result = await evaluateAndScore('TEST', 'KRX', makeDecision(), undefined, undefined, -15);
       const sentDetail = result.details.find(d => d.type === 'NEWS_SENTIMENT');
       expect(sentDetail).toBeDefined();
       // round(-15 / 3) = -5
       expect(sentDetail!.value).toBe(-5);
     });
 
-    it('no score when sentimentScore is 0', () => {
-      const result = evaluateAndScore('TEST', 'KRX', makeDecision(), undefined, undefined, 0);
+    it('no score when sentimentScore is 0', async () => {
+      const result = await evaluateAndScore('TEST', 'KRX', makeDecision(), undefined, undefined, 0);
       const sentDetail = result.details.find(d => d.type === 'NEWS_SENTIMENT');
       expect(sentDetail).toBeUndefined();
     });
 
-    it('no score when sentimentScore is undefined', () => {
-      const result = evaluateAndScore('TEST', 'KRX', makeDecision(), undefined, undefined, undefined);
+    it('no score when sentimentScore is undefined', async () => {
+      const result = await evaluateAndScore('TEST', 'KRX', makeDecision(), undefined, undefined, undefined);
       const sentDetail = result.details.find(d => d.type === 'NEWS_SENTIMENT');
       expect(sentDetail).toBeUndefined();
     });
@@ -473,15 +473,15 @@ describe('scoring engine', () => {
   // ── Score DB recording ──
 
   describe('score recording', () => {
-    it('records each detail to recommendation_scores table', () => {
-      const result = evaluateAndScore('TEST', 'KRX', makeDecision());
+    it('records each detail to recommendation_scores table', async () => {
+      const result = await evaluateAndScore('TEST', 'KRX', makeDecision());
       const insertCalls = vi.mocked(execute).mock.calls.filter(
         c => typeof c[0] === 'string' && c[0].includes('INSERT INTO recommendation_scores'),
       );
       expect(insertCalls.length).toBe(result.details.length);
     });
 
-    it('updates recommendations table score', () => {
+    it('updates recommendations table score', async () => {
       evaluateAndScore('TEST', 'KRX', makeDecision());
       const updateCalls = vi.mocked(execute).mock.calls.filter(
         c => typeof c[0] === 'string' && c[0].includes('UPDATE recommendations SET score'),
@@ -493,20 +493,20 @@ describe('scoring engine', () => {
   // ── Total score ──
 
   describe('total score calculation', () => {
-    it('includes base score from DB', () => {
+    it('includes base score from DB', async () => {
       vi.mocked(queryAll).mockImplementation((sql: string) => {
         if (sql.includes('SUM(score_value) as total')) return [{ total: 50 }];
         return [];
       });
 
-      const result = evaluateAndScore('TEST', 'KRX', makeDecision({ confidence: 50, urgency: 'WAIT' }));
+      const result = await evaluateAndScore('TEST', 'KRX', makeDecision({ confidence: 50, urgency: 'WAIT' }));
       // base = 50, plus whatever round scores
       expect(result.totalScore).toBeGreaterThanOrEqual(50);
     });
 
-    it('handles null base score from DB', () => {
+    it('handles null base score from DB', async () => {
       vi.mocked(queryAll).mockReturnValue([{ total: null }]);
-      const result = evaluateAndScore('TEST', 'KRX', makeDecision({ confidence: 50, urgency: 'WAIT' }));
+      const result = await evaluateAndScore('TEST', 'KRX', makeDecision({ confidence: 50, urgency: 'WAIT' }));
       expect(result.totalScore).toBeGreaterThanOrEqual(0);
     });
   });
@@ -514,7 +514,7 @@ describe('scoring engine', () => {
   // ── Promotion logic ──
 
   describe('promotion to watchlist', () => {
-    it('promotes to watchlist at score >= 80', () => {
+    it('promotes to watchlist at score >= 80', async () => {
       // Base score of 70, round score should push over 80
       vi.mocked(queryAll).mockImplementation((sql: string) => {
         if (sql.includes('SUM(score_value) as total')) return [{ total: 70 }];
@@ -527,14 +527,14 @@ describe('scoring engine', () => {
         return null;
       });
 
-      const result = evaluateAndScore('TEST', 'KRX', makeDecision({ confidence: 85 }));
+      const result = await evaluateAndScore('TEST', 'KRX', makeDecision({ confidence: 85 }));
       if (result.totalScore >= 80) {
         expect(result.promoted).toBe(true);
         expect(result.promotedTo).toBe('watchlist');
       }
     });
 
-    it('skips promotion when already in watchlist', () => {
+    it('skips promotion when already in watchlist', async () => {
       vi.mocked(queryAll).mockImplementation((sql: string) => {
         if (sql.includes('SUM(score_value) as total')) return [{ total: 75 }];
         return [];
@@ -545,7 +545,7 @@ describe('scoring engine', () => {
         return null;
       });
 
-      const result = evaluateAndScore('TEST', 'KRX', makeDecision({ confidence: 85 }));
+      const result = await evaluateAndScore('TEST', 'KRX', makeDecision({ confidence: 85 }));
       // promoteToWatchlist returns false when already in watchlist
       if (result.totalScore >= 80) {
         expect(result.promoted).toBe(false);
@@ -554,7 +554,7 @@ describe('scoring engine', () => {
   });
 
   describe('promotion to auto-trade', () => {
-    it('promotes to auto_trade at score >= 100 when autoTradeEnabled', () => {
+    it('promotes to auto_trade at score >= 100 when autoTradeEnabled', async () => {
       vi.mocked(getSettings).mockReturnValue({
         autoTradeEnabled: true,
         autoTradeMaxPerStock: 2000000,
@@ -570,14 +570,14 @@ describe('scoring engine', () => {
         return null;
       });
 
-      const result = evaluateAndScore('TEST', 'KRX', makeDecision({ confidence: 85 }));
+      const result = await evaluateAndScore('TEST', 'KRX', makeDecision({ confidence: 85 }));
       if (result.totalScore >= 100) {
         expect(result.promoted).toBe(true);
         expect(result.promotedTo).toBe('auto_trade');
       }
     });
 
-    it('does not promote to auto_trade when autoTradeEnabled is false', () => {
+    it('does not promote to auto_trade when autoTradeEnabled is false', async () => {
       vi.mocked(getSettings).mockReturnValue({
         autoTradeEnabled: false,
       } as any);
@@ -592,7 +592,7 @@ describe('scoring engine', () => {
         return null;
       });
 
-      const result = evaluateAndScore('TEST', 'KRX', makeDecision({ confidence: 85 }));
+      const result = await evaluateAndScore('TEST', 'KRX', makeDecision({ confidence: 85 }));
       if (result.totalScore >= 100) {
         // Falls through to watchlist promotion instead
         expect(result.promotedTo).not.toBe('auto_trade');
@@ -601,7 +601,7 @@ describe('scoring engine', () => {
   });
 
   describe('auto-trade promotion creates stock if not exists', () => {
-    it('creates stock entry when stock not in DB', () => {
+    it('creates stock entry when stock not in DB', async () => {
       vi.mocked(getSettings).mockReturnValue({
         autoTradeEnabled: true,
         autoTradeMaxPerStock: 2000000,
@@ -628,7 +628,7 @@ describe('scoring engine', () => {
         return { changes: 1, lastId: 1 };
       });
 
-      const result = evaluateAndScore('NEWSTOCK', 'KRX', makeDecision({ confidence: 85 }));
+      const result = await evaluateAndScore('NEWSTOCK', 'KRX', makeDecision({ confidence: 85 }));
       if (result.totalScore >= 100) {
         const insertStockCalls = vi.mocked(execute).mock.calls.filter(
           c => typeof c[0] === 'string' && c[0].includes('INSERT INTO stocks'),
@@ -641,7 +641,7 @@ describe('scoring engine', () => {
   // ── Weight multipliers ──
 
   describe('weight multipliers', () => {
-    it('scales all scores by weight', () => {
+    it('scales all scores by weight', async () => {
       vi.mocked(loadWeights).mockReturnValue({
         CONSECUTIVE_BUY: 2.0,
         HIGH_CONFIDENCE: 2.0,
@@ -655,7 +655,7 @@ describe('scoring engine', () => {
         TIME_DECAY: 2.0,
       });
 
-      const result = evaluateAndScore('TEST', 'KRX', makeDecision());
+      const result = await evaluateAndScore('TEST', 'KRX', makeDecision());
       const consDetail = result.details.find(d => d.type === 'CONSECUTIVE_BUY');
       // 1 consecutive, min(10, 50) * 2.0 = 20
       expect(consDetail!.value).toBe(20);
@@ -665,8 +665,8 @@ describe('scoring engine', () => {
   // ── No indicators ──
 
   describe('missing indicators', () => {
-    it('skips indicator-based scores when indicators undefined', () => {
-      const result = evaluateAndScore('TEST', 'KRX', makeDecision());
+    it('skips indicator-based scores when indicators undefined', async () => {
+      const result = await evaluateAndScore('TEST', 'KRX', makeDecision());
       const rsiDetail = result.details.find(d => d.type === 'RSI_OVERSOLD_BOUNCE');
       const bbDetail = result.details.find(d => d.type === 'BOLLINGER_BOUNCE');
       const macdDetail = result.details.find(d => d.type === 'MACD_GOLDEN_CROSS');
@@ -679,8 +679,8 @@ describe('scoring engine', () => {
   // ── SELL signal ──
 
   describe('SELL signal handling', () => {
-    it('resets consecutive buys on SELL', () => {
-      const result = evaluateAndScore('TEST', 'KRX', makeDecision({ signal: 'SELL' }));
+    it('resets consecutive buys on SELL', async () => {
+      const result = await evaluateAndScore('TEST', 'KRX', makeDecision({ signal: 'SELL' }));
       const consDetail = result.details.find(d => d.type === 'CONSECUTIVE_BUY');
       expect(consDetail).toBeUndefined();
     });
@@ -694,17 +694,17 @@ describe('getRecommendationScore', () => {
     vi.clearAllMocks();
   });
 
-  it('returns score from DB', () => {
+  it('returns score from DB', async () => {
     vi.mocked(queryOne).mockReturnValue({ score: 85 });
     expect(getRecommendationScore('TEST', 'KRX')).toBe(85);
   });
 
-  it('returns 0 when no record found', () => {
+  it('returns 0 when no record found', async () => {
     vi.mocked(queryOne).mockReturnValue(null);
     expect(getRecommendationScore('TEST', 'KRX')).toBe(0);
   });
 
-  it('returns 0 when score is null', () => {
+  it('returns 0 when score is null', async () => {
     vi.mocked(queryOne).mockReturnValue({ score: null });
     expect(getRecommendationScore('TEST', 'KRX')).toBe(0);
   });
@@ -717,7 +717,7 @@ describe('getScoreHistory', () => {
     vi.clearAllMocks();
   });
 
-  it('returns score history from DB', () => {
+  it('returns score history from DB', async () => {
     const mockHistory = [
       { id: 1, ticker: 'TEST', score_type: 'HIGH_CONFIDENCE', score_value: 10 },
       { id: 2, ticker: 'TEST', score_type: 'VOLUME_SURGE', score_value: 15 },
@@ -728,7 +728,7 @@ describe('getScoreHistory', () => {
     expect(history).toHaveLength(2);
   });
 
-  it('returns empty array when no history', () => {
+  it('returns empty array when no history', async () => {
     vi.mocked(queryAll).mockReturnValue([]);
     expect(getScoreHistory('TEST', 'KRX')).toEqual([]);
   });

@@ -50,14 +50,14 @@ export interface ScoreResult {
 }
 
 /** 추천 종목의 점수를 계산하고 업데이트 */
-export function evaluateAndScore(
+export async function evaluateAndScore(
   ticker: string,
   market: string,
   decision: TradeDecision,
   indicators?: TechnicalIndicators,
   volumeAnalysis?: { avgVolume20d: number; todayVsAvg: number; volumeTrend: string },
   sentimentScore?: number,
-): ScoreResult {
+): Promise<ScoreResult> {
   const details: { type: ScoreType; value: number; reason: string }[] = [];
   const weights = loadWeights();
 
@@ -172,8 +172,11 @@ export function evaluateAndScore(
   let promoted = false;
   let promotedTo: 'watchlist' | 'auto_trade' | undefined;
 
-  if (totalScore >= AUTO_TRADE_THRESHOLD && getSettings().autoTradeEnabled) {
-    promoted = promoteToWatchlistAndTrade(ticker, market, totalScore, decision);
+  const settings = getSettings();
+  const autoThreshold = settings.autoTradeScoreThreshold ?? AUTO_TRADE_THRESHOLD;
+
+  if (totalScore >= autoThreshold && settings.autoTradeEnabled) {
+    promoted = await promoteToWatchlistAndTrade(ticker, market, totalScore, decision);
     if (promoted) promotedTo = 'auto_trade';
   } else if (totalScore >= WATCHLIST_THRESHOLD) {
     promoted = promoteToWatchlist(ticker, market, totalScore);
@@ -223,7 +226,7 @@ function promoteToWatchlist(ticker: string, market: string, score: number): bool
 }
 
 /** 관심종목 + 자동매매 대상으로 승격 */
-function promoteToWatchlistAndTrade(ticker: string, market: string, score: number, decision: TradeDecision): boolean {
+async function promoteToWatchlistAndTrade(ticker: string, market: string, score: number, decision: TradeDecision): Promise<boolean> {
   // 먼저 관심종목 추가
   let stock = queryOne('SELECT id FROM stocks WHERE ticker = ?', [ticker]);
   if (!stock) {
@@ -253,22 +256,57 @@ function promoteToWatchlistAndTrade(ticker: string, market: string, score: numbe
      `자동승격 매수 (점수: ${score}, 목표가: ${decision.targetPrice}, 손절가: ${decision.stopLossPrice})`]
   );
 
-  // 자동매매 주문 대기 등록
-  execute(
-    'INSERT INTO auto_trades (stock_id, order_type, quantity, price, fee, status) VALUES (?, ?, ?, ?, ?, ?)',
-    [stock.id, 'BUY', 0, decision.entryPrice || 0, 0, 'PENDING']
-  );
-
-  // 알림
+  // 즉시 매수 실행 (PENDING 대기 대신 직접 실행)
   const rec = queryOne("SELECT name FROM recommendations WHERE ticker = ?", [ticker]);
-  createNotification({
-    type: 'AUTO_TRADE',
-    title: `자동매매 대상 등록`,
-    message: `${ticker} (${rec?.name || ''})이(가) 누적 점수 ${score}점으로 자동매매 대상에 등록되었습니다. 목표가: ${decision.targetPrice?.toLocaleString() ?? '-'}, 손절가: ${decision.stopLossPrice?.toLocaleString() ?? '-'}`,
-    ticker,
-    market,
-    actionUrl: '/watchlist',
-  });
+  try {
+    const { executeOrder } = require('./kisOrder');
+    const result = await executeOrder({
+      stockId: stock.id, ticker, market,
+      orderType: 'BUY', quantity: 0, price: 0, signalId: 0,
+    });
+
+    if (result.success) {
+      createNotification({
+        type: 'AUTO_TRADE',
+        title: `자동매매 매수 체결`,
+        message: `${ticker} (${rec?.name || ''}) ${result.quantity}주 매수 완료 (점수: ${score}, 신뢰도: ${decision.confidence}%)`,
+        ticker,
+        market,
+        actionUrl: '/transactions',
+      });
+      logger.info({ ticker, market, score, quantity: result.quantity }, 'Auto-trade BUY executed');
+    } else {
+      // 실행 실패 — PENDING으로 대기 등록 + 실패 사유 기록
+      execute(
+        'INSERT INTO auto_trades (stock_id, order_type, quantity, price, fee, status, error_message) VALUES (?, ?, ?, ?, ?, ?, ?)',
+        [stock.id, 'BUY', 0, decision.entryPrice || 0, 0, 'FAILED', result.message || '실행 실패']
+      );
+      createNotification({
+        type: 'AUTO_TRADE',
+        title: `자동매매 실행 실패`,
+        message: `${ticker} (${rec?.name || ''}) 매수 실패: ${result.message}`,
+        ticker,
+        market,
+        actionUrl: '/watchlist',
+      });
+      logger.warn({ ticker, market, score, reason: result.message }, 'Auto-trade BUY failed');
+    }
+  } catch (err: any) {
+    // 예외 발생 — PENDING으로 폴백
+    execute(
+      'INSERT INTO auto_trades (stock_id, order_type, quantity, price, fee, status, error_message) VALUES (?, ?, ?, ?, ?, ?, ?)',
+      [stock.id, 'BUY', 0, decision.entryPrice || 0, 0, 'PENDING', err.message || '']
+    );
+    createNotification({
+      type: 'AUTO_TRADE',
+      title: `자동매매 대상 등록 (대기)`,
+      message: `${ticker} (${rec?.name || ''}) 점수 ${score}점 — 주문 예약됨 (사유: ${err.message || '실행 오류'})`,
+      ticker,
+      market,
+      actionUrl: '/watchlist',
+    });
+    logger.error({ err, ticker, market, score }, 'Auto-trade execution error, queued as PENDING');
+  }
 
   logger.info({ ticker, market, score }, 'Promoted to auto-trade');
   return true;

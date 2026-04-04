@@ -137,6 +137,8 @@ export const saveConfigSchema = z.object({
   autoTradeMaxInvestment: z.number().positive().default(10000000),
   autoTradeMaxPerStock: z.number().positive().default(2000000),
   autoTradeMaxDailyTrades: z.number().int().positive().default(10),
+  autoTradeScoreThreshold: z.number().min(50).max(200).default(100),
+  priceChangeThreshold: z.number().min(0.5).max(10).default(2),
 
   scheduleKrx: z.object({
     enabled: z.boolean(),

@@ -89,6 +89,9 @@ export async function runMarketOpen(market: Market) {
                     message: `${stock.ticker} (${stock.name}) ${splitQty}주 매수 — 2차(40%) 10분 후 추세 확인`,
                     ticker: stock.ticker, market, actionUrl: '/transactions',
                   });
+                } else {
+                  addLog(market, 'PRE_OPEN', 'error',
+                    `1차 분할매수 실패: ${stock.ticker} — ${result.message || '실행 오류'}`);
                 }
               }
             } catch (err) { logger.error({ err, ticker: stock.ticker }, 'Split buy order execution failed'); }

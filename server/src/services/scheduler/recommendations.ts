@@ -204,7 +204,7 @@ export async function runRecommendationRefresh() {
           execute("UPDATE recommendations SET confidence = ?, reason = ? WHERE id = ?", [decision.confidence, reason, rec.id]);
 
           // 스코어링 평가
-          const scoreResult = evaluateAndScore(rec.ticker, market, decision, indicators, input.volumeAnalysis);
+          const scoreResult = await evaluateAndScore(rec.ticker, market, decision, indicators, input.volumeAnalysis);
           if (scoreResult.promoted) {
             logger.info(`[Scheduler] 자동 승격: ${rec.ticker} → ${scoreResult.promotedTo} (${scoreResult.totalScore}점)`);
           }

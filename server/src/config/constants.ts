@@ -1,4 +1,4 @@
-// -- Scoring thresholds --
+// -- Scoring thresholds (defaults, overridable via settings) --
 export const WATCHLIST_PROMOTION_THRESHOLD = 80;
 export const AUTO_TRADE_THRESHOLD = 100;
 export const MIN_SIGNAL_CONFIDENCE = 60;
@@ -12,6 +12,7 @@ export const TREND_THRESHOLD = 0.3;
 export const MAX_SCHEDULER_LOGS = 100;
 export const INTER_STOCK_DELAY_MS = 100;
 export const PRICE_CACHE_TTL_MS = 10 * 60 * 1000; // 10 minutes
+export const DEFAULT_PRICE_CHANGE_THRESHOLD = 2; // % — 연속 모니터링 가격 변동 임계값
 
 // -- Watchlist cleanup --
 export const WATCHLIST_STALE_DAYS = 30;

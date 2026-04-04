@@ -50,6 +50,8 @@ router.get('/config/form', (_req: Request, res: Response) => {
     autoTradeMaxInvestment: settings.autoTradeMaxInvestment,
     autoTradeMaxPerStock: settings.autoTradeMaxPerStock,
     autoTradeMaxDailyTrades: settings.autoTradeMaxDailyTrades,
+    autoTradeScoreThreshold: settings.autoTradeScoreThreshold,
+    priceChangeThreshold: settings.priceChangeThreshold,
 
     scheduleKrx: settings.scheduleKrx,
     scheduleNyse: settings.scheduleNyse,
@@ -101,6 +103,8 @@ router.post('/config', validate(saveConfigSchema), (req: Request, res: Response)
     autoTradeMaxInvestment: Number(autoTradeMaxInvestment) || 10000000,
     autoTradeMaxPerStock: Number(autoTradeMaxPerStock) || 2000000,
     autoTradeMaxDailyTrades: Number(autoTradeMaxDailyTrades) || 10,
+    autoTradeScoreThreshold: Number(req.body.autoTradeScoreThreshold) || 100,
+    priceChangeThreshold: Number(req.body.priceChangeThreshold) || 2,
 
     ...(scheduleKrx ? { scheduleKrx } : {}),
     ...(scheduleNyse ? { scheduleNyse } : {}),

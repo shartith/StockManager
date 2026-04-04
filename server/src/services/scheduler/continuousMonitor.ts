@@ -162,7 +162,8 @@ export async function runContinuousMonitor(market: Market) {
     const changeRate = prevPrice ? Math.abs((currentPrice - prevPrice) / prevPrice * 100) : 999;
     schedulerState.priceCache.set(stock.ticker, currentPrice);
 
-    if (changeRate < 2) continue;
+    const priceThreshold = settings.priceChangeThreshold ?? 2;
+    if (changeRate < priceThreshold) continue;
 
     if (!settings.ollamaEnabled) continue;
 
@@ -177,11 +178,12 @@ export async function runContinuousMonitor(market: Market) {
 
       if (settings.autoTradeEnabled) {
         if (decision.signal === 'BUY' && decision.confidence >= 60) {
-          const alreadyOrdered = queryOne(
-            "SELECT id FROM auto_trades WHERE stock_id = ? AND order_type = 'BUY' AND date(created_at) = date('now')",
+          // 같은 날 기존 주문 수 확인 (분할매수 허용: 최대 3회/일)
+          const todayOrders = queryOne(
+            "SELECT COUNT(*) as cnt FROM auto_trades WHERE stock_id = ? AND order_type = 'BUY' AND date(created_at) = date('now') AND status IN ('SUBMITTED', 'FILLED')",
             [stock.id]
           );
-          if (!alreadyOrdered) {
+          if ((todayOrders?.cnt ?? 0) < 3) {
             const result = await executeOrder({
               stockId: stock.id, ticker: stock.ticker, market: stock.market as any,
               orderType: 'BUY', quantity: 0, price: 0, signalId: 0,
@@ -195,6 +197,9 @@ export async function runContinuousMonitor(market: Market) {
                 message: `${stock.ticker} ${result.quantity}주 매수 (가격 ${changeRate.toFixed(1)}% 변동 감지, 신뢰도 ${decision.confidence}%)`,
                 ticker: stock.ticker, market, actionUrl: '/transactions',
               });
+            } else {
+              addLog(market, 'POST_OPEN', 'error',
+                `장중 매수 실패: ${stock.ticker} — ${result.message || '알 수 없는 오류'}`);
             }
           }
         } else if (decision.signal === 'SELL' && decision.confidence >= 60 && holding && holding.quantity > 0) {
@@ -211,6 +216,9 @@ export async function runContinuousMonitor(market: Market) {
               message: `${stock.ticker} ${holding.quantity}주 매도 (가격 ${changeRate.toFixed(1)}% 변동 감지, 신뢰도 ${decision.confidence}%)`,
               ticker: stock.ticker, market, actionUrl: '/transactions',
             });
+          } else {
+            addLog(market, 'POST_OPEN', 'error',
+              `장중 매도 실패: ${stock.ticker} — ${result.message || '알 수 없는 오류'}`);
           }
         }
       }
