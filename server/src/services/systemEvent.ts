@@ -81,8 +81,11 @@ export async function logSystemEvent(
 
 /** 이벤트 해결 처리 */
 export function resolveEvent(eventId: number, resolution: string) {
+  // NOTE: SQLite parses double-quoted strings as column identifiers in
+  // strict mode (which better-sqlite3 enforces). Use single quotes for
+  // datetime() literals. sql.js was lenient about this.
   execute(
-    'UPDATE system_events SET resolved = 1, resolved_at = datetime("now"), resolution = ? WHERE id = ?',
+    "UPDATE system_events SET resolved = 1, resolved_at = datetime('now'), resolution = ? WHERE id = ?",
     [resolution, eventId]
   );
 }
