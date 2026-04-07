@@ -1,39 +1,39 @@
 <template>
   <div>
     <div class="flex items-center justify-between mb-6">
-      <h2 class="text-2xl font-bold text-slate-800">배당금 관리</h2>
-      <button @click="showForm = true" class="bg-blue-600 text-white px-4 py-2 rounded-lg text-sm hover:bg-blue-700 transition">
+      <h2 class="text-2xl font-bold text-txt-primary">배당금 관리</h2>
+      <button @click="showForm = true" class="bg-primary text-white px-4 py-2 rounded-lg text-sm hover:bg-primary-hover transition">
         + 배당금 추가
       </button>
     </div>
 
     <!-- 배당금 추가 모달 -->
-    <div v-if="showForm" class="fixed inset-0 bg-black/40 flex items-center justify-center z-50" @click.self="showForm = false">
-      <div class="bg-white rounded-xl p-6 w-full max-w-md shadow-xl">
+    <div v-if="showForm" class="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50" @click.self="showForm = false">
+      <div class="bg-surface-1 rounded-xl p-6 w-full max-w-md shadow-lg">
         <h3 class="text-lg font-bold mb-4">배당금 추가</h3>
         <form @submit.prevent="addDividend" class="space-y-3">
           <div>
-            <label class="block text-sm text-slate-600 mb-1">종목 *</label>
-            <select v-model="form.stock_id" class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm" required>
+            <label class="block text-sm text-txt-secondary mb-1">종목 *</label>
+            <select v-model="form.stock_id" class="w-full border border-border rounded-lg px-3 py-2 text-sm" required>
               <option value="">선택하세요</option>
               <option v-for="s in stocks" :key="s.id" :value="s.id">{{ s.ticker }} - {{ s.name }}</option>
             </select>
           </div>
           <div>
-            <label class="block text-sm text-slate-600 mb-1">금액 *</label>
-            <input v-model.number="form.amount" type="number" min="0" step="any" class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm" required />
+            <label class="block text-sm text-txt-secondary mb-1">금액 *</label>
+            <input v-model.number="form.amount" type="number" min="0" step="any" class="w-full border border-border rounded-lg px-3 py-2 text-sm" required />
           </div>
           <div>
-            <label class="block text-sm text-slate-600 mb-1">날짜 *</label>
-            <input v-model="form.date" type="date" class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm" required />
+            <label class="block text-sm text-txt-secondary mb-1">날짜 *</label>
+            <input v-model="form.date" type="date" class="w-full border border-border rounded-lg px-3 py-2 text-sm" required />
           </div>
           <div>
-            <label class="block text-sm text-slate-600 mb-1">메모</label>
-            <input v-model="form.memo" class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm" />
+            <label class="block text-sm text-txt-secondary mb-1">메모</label>
+            <input v-model="form.memo" class="w-full border border-border rounded-lg px-3 py-2 text-sm" />
           </div>
           <div class="flex gap-2 pt-2">
-            <button type="submit" class="flex-1 bg-blue-600 text-white py-2 rounded-lg text-sm hover:bg-blue-700">추가</button>
-            <button type="button" @click="showForm = false" class="flex-1 bg-slate-100 text-slate-600 py-2 rounded-lg text-sm hover:bg-slate-200">취소</button>
+            <button type="submit" class="flex-1 bg-primary text-white py-2 rounded-lg text-sm hover:bg-primary-hover">추가</button>
+            <button type="button" @click="showForm = false" class="flex-1 bg-surface-3 text-txt-secondary py-2 rounded-lg text-sm hover:bg-surface-3">취소</button>
           </div>
         </form>
         <p v-if="formError" class="text-red-500 text-sm mt-2">{{ formError }}</p>
@@ -42,25 +42,25 @@
 
     <!-- 배당금 요약 -->
     <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
-      <div class="bg-white rounded-xl shadow-sm p-5 border border-slate-200">
-        <p class="text-xs font-medium text-slate-500">총 배당금</p>
-        <p class="text-2xl font-bold text-blue-600 mt-2">{{ formatCurrency(totalDividends) }}</p>
+      <div class="bg-surface-1 rounded-xl shadow-sm p-5 border border-border">
+        <p class="text-xs font-medium text-txt-secondary">총 배당금</p>
+        <p class="text-2xl font-bold text-accent mt-2">{{ formatCurrency(totalDividends) }}</p>
       </div>
-      <div class="bg-white rounded-xl shadow-sm p-5 border border-slate-200">
-        <p class="text-xs font-medium text-slate-500">올해 배당금</p>
-        <p class="text-2xl font-bold text-slate-800 mt-2">{{ formatCurrency(yearDividends) }}</p>
+      <div class="bg-surface-1 rounded-xl shadow-sm p-5 border border-border">
+        <p class="text-xs font-medium text-txt-secondary">올해 배당금</p>
+        <p class="text-2xl font-bold text-txt-primary mt-2">{{ formatCurrency(yearDividends) }}</p>
       </div>
-      <div class="bg-white rounded-xl shadow-sm p-5 border border-slate-200">
-        <p class="text-xs font-medium text-slate-500">배당 건수</p>
-        <p class="text-2xl font-bold text-slate-800 mt-2">{{ dividends.length }}건</p>
+      <div class="bg-surface-1 rounded-xl shadow-sm p-5 border border-border">
+        <p class="text-xs font-medium text-txt-secondary">배당 건수</p>
+        <p class="text-2xl font-bold text-txt-primary mt-2">{{ dividends.length }}건</p>
       </div>
     </div>
 
     <!-- 배당금 내역 -->
-    <div class="bg-white rounded-xl shadow-sm border border-slate-200">
+    <div class="bg-surface-1 rounded-xl shadow-sm border border-border">
       <div class="overflow-x-auto">
         <table class="w-full text-sm">
-          <thead class="bg-slate-50 text-slate-600">
+          <thead class="bg-surface-2 text-txt-secondary">
             <tr>
               <th class="text-left px-4 py-3">날짜</th>
               <th class="text-left px-4 py-3">종목</th>
@@ -70,17 +70,17 @@
             </tr>
           </thead>
           <tbody>
-            <tr v-for="d in dividends" :key="d.id" class="border-t border-slate-100 hover:bg-slate-50">
-              <td class="px-4 py-3 text-slate-500">{{ d.date }}</td>
-              <td class="px-4 py-3 font-medium">{{ d.ticker }} <span class="text-slate-400 text-xs">{{ d.stock_name }}</span></td>
-              <td class="text-right px-4 py-3 font-medium text-blue-600">{{ formatCurrency(d.amount) }}</td>
-              <td class="px-4 py-3 text-slate-400 text-xs">{{ d.memo || '-' }}</td>
+            <tr v-for="d in dividends" :key="d.id" class="border-t border-border-subtle hover:bg-surface-2">
+              <td class="px-4 py-3 text-txt-secondary">{{ d.date }}</td>
+              <td class="px-4 py-3 font-medium">{{ d.ticker }} <span class="text-txt-tertiary text-xs">{{ d.stock_name }}</span></td>
+              <td class="text-right px-4 py-3 font-medium text-accent">{{ formatCurrency(d.amount) }}</td>
+              <td class="px-4 py-3 text-txt-tertiary text-xs">{{ d.memo || '-' }}</td>
               <td class="px-4 py-3 text-center">
                 <button @click="deleteDividend(d.id)" class="text-red-500 hover:text-red-700 text-xs">삭제</button>
               </td>
             </tr>
             <tr v-if="dividends.length === 0">
-              <td colspan="5" class="text-center py-8 text-slate-400">배당금 내역이 없습니다</td>
+              <td colspan="5" class="text-center py-8 text-txt-tertiary">배당금 내역이 없습니다</td>
             </tr>
           </tbody>
         </table>

@@ -30,6 +30,9 @@ vi.mock('../services/weightOptimizer', () => ({
     NEWS_POSITIVE: 1.0,
     NEWS_SENTIMENT: 1.0,
     TIME_DECAY: 1.0,
+      SPREAD_TIGHT: 1.0,
+      BOOK_DEPTH_STRONG: 1.0,
+      SPREAD_WIDE: 1.0,
   }),
 }));
 
@@ -105,6 +108,9 @@ describe('scoring engine', () => {
       NEWS_POSITIVE: 1.0,
       NEWS_SENTIMENT: 1.0,
       TIME_DECAY: 1.0,
+      SPREAD_TIGHT: 1.0,
+      BOOK_DEPTH_STRONG: 1.0,
+      SPREAD_WIDE: 1.0,
     });
   });
 
@@ -171,6 +177,9 @@ describe('scoring engine', () => {
         NEWS_POSITIVE: 1.0,
         NEWS_SENTIMENT: 1.0,
         TIME_DECAY: 1.0,
+      SPREAD_TIGHT: 1.0,
+      BOOK_DEPTH_STRONG: 1.0,
+      SPREAD_WIDE: 1.0,
       });
 
       const result = await evaluateAndScore('TEST', 'KRX', makeDecision());
@@ -659,6 +668,9 @@ describe('scoring engine', () => {
         NEWS_POSITIVE: 2.0,
         NEWS_SENTIMENT: 2.0,
         TIME_DECAY: 2.0,
+        SPREAD_TIGHT: 2.0,
+        BOOK_DEPTH_STRONG: 2.0,
+        SPREAD_WIDE: 2.0,
       });
 
       const result = await evaluateAndScore('TEST', 'KRX', makeDecision());

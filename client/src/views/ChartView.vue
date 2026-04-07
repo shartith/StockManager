@@ -1,6 +1,6 @@
 <template>
   <div>
-    <h2 class="text-2xl font-bold text-slate-800 mb-6">주식 차트</h2>
+    <h2 class="text-2xl font-bold text-txt-primary mb-6">주식 차트</h2>
 
     <!-- API 미설정 경고 -->
     <div v-if="!apiConfigured" class="bg-amber-50 border border-amber-200 rounded-xl p-5 mb-6 flex items-start gap-3">
@@ -16,36 +16,36 @@
     <div class="flex gap-4">
       <!-- 왼쪽: 종목 리스트 -->
       <div class="w-56 flex-shrink-0">
-        <div class="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden sticky top-4">
+        <div class="bg-surface-1 rounded-xl border border-border shadow-sm overflow-hidden sticky top-4">
           <!-- 보유 종목 -->
           <div v-if="holdingStocks.length > 0">
-            <div class="px-3 py-2 bg-blue-50 border-b border-slate-200">
+            <div class="px-3 py-2 bg-blue-50 border-b border-border">
               <span class="text-xs font-semibold text-blue-700">보유 종목</span>
             </div>
             <div class="max-h-48 overflow-y-auto">
               <button v-for="s in holdingStocks" :key="'h-'+s.ticker" @click="quickLoad(s.ticker)"
-                class="w-full text-left px-3 py-2 text-xs hover:bg-blue-50 transition border-b border-slate-50"
+                class="w-full text-left px-3 py-2 text-xs hover:bg-blue-50 transition border-b border-border-subtle"
                 :class="searchTicker === s.ticker ? 'bg-blue-50 font-bold' : ''">
-                <div class="font-medium text-slate-700 truncate">{{ s.ticker }}</div>
-                <div class="text-slate-400 truncate">{{ s.name }}</div>
+                <div class="font-medium text-txt-primary truncate">{{ s.ticker }}</div>
+                <div class="text-txt-tertiary truncate">{{ s.name }}</div>
               </button>
             </div>
           </div>
           <!-- 관심 종목 -->
           <div v-if="watchlistStocks.length > 0">
-            <div class="px-3 py-2 bg-amber-50 border-b border-t border-slate-200">
+            <div class="px-3 py-2 bg-amber-50 border-b border-t border-border">
               <span class="text-xs font-semibold text-amber-700">관심 종목</span>
             </div>
             <div class="max-h-64 overflow-y-auto">
               <button v-for="s in watchlistStocks" :key="'w-'+s.ticker" @click="quickLoad(s.ticker)"
-                class="w-full text-left px-3 py-2 text-xs hover:bg-amber-50 transition border-b border-slate-50"
+                class="w-full text-left px-3 py-2 text-xs hover:bg-amber-50 transition border-b border-border-subtle"
                 :class="searchTicker === s.ticker ? 'bg-amber-50 font-bold' : ''">
-                <div class="font-medium text-slate-700 truncate">{{ s.ticker }}</div>
-                <div class="text-slate-400 truncate">{{ s.name }}</div>
+                <div class="font-medium text-txt-primary truncate">{{ s.ticker }}</div>
+                <div class="text-txt-tertiary truncate">{{ s.name }}</div>
               </button>
             </div>
           </div>
-          <div v-if="holdingStocks.length === 0 && watchlistStocks.length === 0" class="p-4 text-center text-xs text-slate-400">
+          <div v-if="holdingStocks.length === 0 && watchlistStocks.length === 0" class="p-4 text-center text-xs text-txt-tertiary">
             종목 없음
           </div>
         </div>
@@ -54,7 +54,7 @@
       <!-- 오른쪽: 차트 영역 -->
       <div class="flex-1 min-w-0">
         <!-- 검색 바 -->
-        <div class="bg-white rounded-xl border border-slate-200 shadow-sm p-4 mb-4">
+        <div class="bg-surface-1 rounded-xl border border-border shadow-sm p-4 mb-4">
           <div class="flex gap-3">
             <div class="flex-1 relative">
               <input
@@ -62,16 +62,16 @@
                 @keyup.enter="loadChart"
                 type="text"
                 placeholder="종목코드 입력 (예: 005930, 035720, AAPL)"
-                class="w-full border border-slate-300 rounded-lg px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 font-mono"
+                class="w-full border border-border rounded-lg px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-accent font-mono"
               />
             </div>
-            <div class="flex bg-slate-100 rounded-lg p-1">
+            <div class="flex bg-surface-3 rounded-lg p-1">
               <button
                 v-for="p in periods"
                 :key="p.value"
                 @click="selectPeriod(p.value)"
                 class="px-3 py-1.5 rounded text-xs font-medium transition-colors"
-                :class="period === p.value ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500 hover:text-slate-700'"
+                :class="period === p.value ? 'bg-surface-1 text-txt-primary shadow-sm' : 'text-txt-secondary hover:text-txt-primary'"
               >
                 {{ p.label }}
               </button>
@@ -79,7 +79,7 @@
             <button
               @click="loadChart"
               :disabled="loading || !searchTicker.trim()"
-              class="bg-blue-600 text-white px-5 py-2.5 rounded-lg text-sm font-medium hover:bg-blue-700 disabled:opacity-50 transition"
+              class="bg-primary text-white px-5 py-2.5 rounded-lg text-sm font-medium hover:bg-primary-hover disabled:opacity-50 transition"
             >
               {{ loading ? '조회 중...' : '조회' }}
             </button>
@@ -92,27 +92,27 @@
     </div>
 
     <!-- 차트 영역 -->
-    <div v-if="chartData" class="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+    <div v-if="chartData" class="bg-surface-1 rounded-xl border border-border shadow-sm overflow-hidden">
       <!-- 종목 헤더 -->
-      <div class="p-5 border-b border-slate-100">
+      <div class="p-5 border-b border-border-subtle">
         <div class="flex items-center justify-between">
           <div>
-            <h3 class="text-lg font-bold text-slate-800">
-              {{ chartData.name }} <span class="text-slate-400 font-normal text-sm ml-2">{{ chartData.ticker }}</span>
+            <h3 class="text-lg font-bold text-txt-primary">
+              {{ chartData.name }} <span class="text-txt-tertiary font-normal text-sm ml-2">{{ chartData.ticker }}</span>
             </h3>
             <div class="flex items-center gap-3 mt-1">
-              <span class="text-2xl font-bold" :class="chartData.changeRate >= 0 ? 'text-red-600' : 'text-blue-600'">
+              <span class="text-2xl font-bold" :class="chartData.changeRate >= 0 ? 'text-profit' : 'text-loss'">
                 {{ formatNumber(chartData.currentPrice) }}원
               </span>
               <span class="text-sm font-medium px-2 py-0.5 rounded"
-                :class="chartData.changeRate >= 0 ? 'bg-red-50 text-red-600' : 'bg-blue-50 text-blue-600'">
+                :class="chartData.changeRate >= 0 ? 'bg-red-50 text-profit' : 'bg-blue-50 text-loss'">
                 {{ chartData.changeRate >= 0 ? '▲' : '▼' }}
                 {{ Math.abs(chartData.changeAmount) }}원
                 ({{ chartData.changeRate >= 0 ? '+' : '' }}{{ chartData.changeRate }}%)
               </span>
             </div>
           </div>
-          <div class="text-xs text-slate-400">
+          <div class="text-xs text-txt-tertiary">
             {{ period === 'D' ? '일봉' : period === 'W' ? '주봉' : period === 'M' ? '월봉' : '연봉' }}
             · {{ chartData.candles.length }}개 데이터
           </div>
@@ -123,11 +123,11 @@
       <div ref="chartContainer" class="w-full" style="height: 440px;"></div>
 
       <!-- 거래량 차트 -->
-      <div ref="volumeContainer" class="w-full border-t border-slate-100" style="height: 120px;"></div>
+      <div ref="volumeContainer" class="w-full border-t border-border-subtle" style="height: 120px;"></div>
     </div>
 
     <!-- 초기 상태 -->
-    <div v-else-if="!loading && !error" class="text-center py-20 text-slate-400">
+    <div v-else-if="!loading && !error" class="text-center py-20 text-txt-tertiary">
       <p class="text-4xl mb-4">📈</p>
       <p class="text-lg font-medium">종목코드를 입력하거나 왼쪽 목록에서 선택하세요</p>
       <p class="text-sm mt-2">예: 005930 (삼성전자), AAPL (애플), NVDA (엔비디아)</p>

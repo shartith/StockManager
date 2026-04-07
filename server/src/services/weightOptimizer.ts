@@ -25,6 +25,9 @@ const DEFAULT_WEIGHTS: Record<ScoreType, number> = {
   NEWS_POSITIVE: 1.0,
   NEWS_SENTIMENT: 1.0,
   TIME_DECAY: 1.0,
+  SPREAD_TIGHT: 1.0,
+  BOOK_DEPTH_STRONG: 1.0,
+  SPREAD_WIDE: 1.0,
 };
 
 const MIN_WEIGHT = 0.25;

@@ -59,6 +59,8 @@ export const chartApi = {
   getBalance: () => api.get('/chart/balance'),
   getMarketContext: () => api.get('/chart/market-context'),
   importBalance: () => api.post('/chart/balance/import'),
+  getQuoteBook: (ticker: string, market: string = 'KRX') =>
+    api.get(`/chart/quote-book/${ticker}`, { params: { market } }),
 };
 
 // 기술적 분석 API
@@ -158,6 +160,13 @@ export const nasSyncApi = {
   getStatus: () => api.get('/nas-sync/status'),
   run: () => api.post('/nas-sync/run'),
   validate: (path: string) => api.post('/nas-sync/validate', { path }),
+};
+
+// 히트맵 API
+export const heatmapApi = {
+  getPortfolio: () => api.get('/heatmap/portfolio'),
+  getMarket: (market: 'KRX' | 'US') => api.get('/heatmap/market', { params: { market } }),
+  getRotation: (market: 'KRX' | 'US') => api.get('/heatmap/rotation', { params: { market } }),
 };
 
 export default api;

@@ -22,6 +22,7 @@ import { createNotification } from './notification';
 import { getSettings } from './settings';
 import { loadWeights } from './weightOptimizer';
 import { checkPromotionEligibility } from './portfolioManager';
+import type { QuoteBook } from './quoteBook';
 import logger from '../logger';
 
 // ─── 스코어 타입 ──────────────────────────────────────────
@@ -36,7 +37,10 @@ export type ScoreType =
   | 'PRICE_MOMENTUM'    // 가격 모멘텀 (연속 상승)
   | 'NEWS_POSITIVE'     // 뉴스 호재
   | 'NEWS_SENTIMENT'    // 뉴스 감성 점수
-  | 'TIME_DECAY';       // 시간 감쇠
+  | 'TIME_DECAY'        // 시간 감쇠
+  | 'SPREAD_TIGHT'      // 타이트 호가 스프레드 (+10)
+  | 'BOOK_DEPTH_STRONG' // 충분한 호가 깊이 (+5)
+  | 'SPREAD_WIDE';      // 넓은 스프레드 감점 (-15)
 
 const WATCHLIST_THRESHOLD = 80;
 const AUTO_TRADE_THRESHOLD = 100;
@@ -58,6 +62,7 @@ export async function evaluateAndScore(
   indicators?: TechnicalIndicators,
   volumeAnalysis?: { avgVolume20d: number; todayVsAvg: number; volumeTrend: string },
   sentimentScore?: number,
+  quoteBook?: QuoteBook,
 ): Promise<ScoreResult> {
   const details: { type: ScoreType; value: number; reason: string }[] = [];
   const weights = loadWeights();
@@ -163,6 +168,28 @@ export async function evaluateAndScore(
     const sentValue = sentimentScore > 30 ? 10 : sentimentScore < -30 ? -10 : Math.round(sentimentScore / 3);
     const sentLabel = sentimentScore > 30 ? '긍정적' : sentimentScore < -30 ? '부정적' : '중립적';
     details.push({ type: 'NEWS_SENTIMENT' as ScoreType, value: sentValue, reason: `뉴스 감성 ${sentLabel} (${sentimentScore > 0 ? '+' : ''}${sentimentScore})` });
+  }
+
+  // 10. 호가 품질 기반 점수
+  if (quoteBook) {
+    if (quoteBook.quality === 'GOOD') {
+      details.push({
+        type: 'SPREAD_TIGHT',
+        value: Math.round(10 * (weights.SPREAD_TIGHT || 1)),
+        reason: `타이트 스프레드 ${quoteBook.spreadPercent.toFixed(2)}%`,
+      });
+      details.push({
+        type: 'BOOK_DEPTH_STRONG',
+        value: Math.round(5 * (weights.BOOK_DEPTH_STRONG || 1)),
+        reason: `호가 깊이 ${Math.round(quoteBook.topBookDepthKrw / 1_000_000)}M`,
+      });
+    } else if (quoteBook.quality === 'POOR') {
+      details.push({
+        type: 'SPREAD_WIDE',
+        value: -Math.round(15 * (weights.SPREAD_WIDE || 1)),
+        reason: `넓은 스프레드 ${quoteBook.spreadPercent.toFixed(2)}% — 슬리피지 위험`,
+      });
+    }
   }
 
   // 이번 라운드 점수 합산

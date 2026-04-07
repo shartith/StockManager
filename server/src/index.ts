@@ -4,12 +4,12 @@ import path from 'path';
 import helmet from 'helmet';
 import compression from 'compression';
 import rateLimit from 'express-rate-limit';
-import { WebSocketServer, WebSocket } from 'ws';
 import http from 'http';
 import crypto from 'crypto';
 import { execFile } from 'child_process';
 import { initializeDB, saveDB, queryOne } from './db';
 import logger from './logger';
+import { initWebSocket, broadcast, broadcastRaw, closeAll as closeWs, setWsLogger } from './services/websocket';
 import { errorHandler } from './middleware/errorHandler';
 import { API_RATE_LIMIT_WINDOW_MS, API_RATE_LIMIT_MAX, WS_TOKEN_TTL_MS } from './config/constants';
 import stocksRouter from './routes/stocks';
@@ -25,6 +25,7 @@ import notificationsRouter from './routes/notifications';
 import feedbackRouter from './routes/feedback';
 import tradingRulesRouter from './routes/tradingRules';
 import nasSyncRouter from './routes/nasSync';
+import heatmapRouter from './routes/heatmap';
 import { getSettings } from './services/settings';
 import { startScheduler, stopScheduler, getSchedulerStatus } from './services/scheduler';
 import { getRecentEvents, getUnresolvedEvents, getEventCounts, resolveEvent } from './services/systemEvent';
@@ -99,6 +100,7 @@ app.use('/api/notifications', notificationsRouter);
 app.use('/api/feedback', feedbackRouter);
 app.use('/api/trading-rules', tradingRulesRouter);
 app.use('/api/nas-sync', nasSyncRouter);
+app.use('/api/heatmap', heatmapRouter);
 
 // ── WS token endpoint ──
 app.get('/api/ws-token', (_req, res) => {
@@ -265,36 +267,25 @@ async function start() {
   startScheduler();
 
   const server = http.createServer(app);
-  const wss = new WebSocketServer({ server, path: '/ws' });
 
-  const wsClients = new Set<WebSocket>();
-
-  wss.on('connection', (ws, req) => {
-    // Validate WS token
-    const url = new URL(req.url || '', `http://localhost:${PORT}`);
-    const token = url.searchParams.get('token');
-
-    if (!token || !wsTokens.has(token) || Date.now() > (wsTokens.get(token) ?? 0)) {
-      logger.warn('WebSocket connection rejected: invalid or expired token');
-      ws.close(4401, 'Unauthorized');
-      return;
-    }
-
-    // Consume the one-time token
-    wsTokens.delete(token);
-
-    wsClients.add(ws);
-    ws.on('close', () => wsClients.delete(ws));
-    ws.send(JSON.stringify({ type: 'connected', message: 'Stock Manager WebSocket' }));
+  // WebSocket setup via dedicated service
+  setWsLogger(logger);
+  initWebSocket(server, (token: string) => {
+    if (!wsTokens.has(token) || Date.now() > (wsTokens.get(token) ?? 0)) return false;
+    wsTokens.delete(token); // consume one-time token
+    return true;
   });
 
-  // Global broadcast function (used by scheduler etc.)
+  // Global broadcast function (used by scheduler etc.) — backward compat + channel-based
   (global as any).__wsBroadcast = (data: any) => {
-    const msg = JSON.stringify(data);
-    for (const client of wsClients) {
-      if (client.readyState === WebSocket.OPEN) client.send(msg);
+    // If data has a channel field, use channel-based broadcast
+    if (data && data.channel) {
+      broadcast(data.channel, data.data ?? data);
+    } else {
+      broadcastRaw(data);
     }
   };
+  (global as any).__wsBroadcastChannel = broadcast;
 
   // ── Periodic token cleanup ──
   const tokenCleanupInterval = setInterval(() => {
@@ -318,15 +309,7 @@ async function start() {
     stopScheduler();
     logger.info('Scheduler stopped');
 
-    for (const client of wsClients) {
-      client.close(1001, 'Server shutting down');
-    }
-    wsClients.clear();
-    logger.info('WebSocket clients closed');
-
-    wss.close(() => {
-      logger.info('WebSocket server closed');
-    });
+    closeWs();
 
     saveDB();
     logger.info('Database saved');

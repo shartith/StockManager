@@ -358,6 +358,11 @@ export async function initializeDB(): Promise<SqlJsDatabase> {
   db.run(`INSERT OR IGNORE INTO trading_rules (rule_id, name, description, category, is_enabled, priority, params_json) VALUES ('CANDLE_BUY_FILTER', '캔들 매수 필터', '음봉 매수 고려, 양봉 매수 금지', 'CANDLE', 1, 12, '{}')`);
   db.run(`INSERT OR IGNORE INTO trading_rules (rule_id, name, description, category, is_enabled, priority, params_json) VALUES ('CANDLE_SELL_FILTER', '캔들 매도 필터', '양봉 일부 매도, 음봉 매도 금지', 'CANDLE', 1, 13, '{}')`);
   db.run(`INSERT OR IGNORE INTO trading_rules (rule_id, name, description, category, is_enabled, priority, params_json) VALUES ('SUPPORT_BREAK_STOP_LOSS', '지지선 이탈 → 손절', '지지선 이탈 시 손절 필수', 'SUPPORT', 1, 14, '{}')`);
+  db.run(`INSERT OR IGNORE INTO trading_rules (rule_id, name, description, category, is_enabled, priority, params_json) VALUES ('SECTOR_HEADWIND', '섹터 역풍 감점', '섹터 로테이션 OUT일 때 매수 신뢰도 -20', 'VOLATILITY', 1, 15, '{}')`);
+  db.run(`INSERT OR IGNORE INTO trading_rules (rule_id, name, description, category, is_enabled, priority, params_json) VALUES ('BREADTH_DIVERGENCE', '시장 건전성 경고', '지수 상승 중 참여 종목 감소 시 HOLD 전환', 'VOLATILITY', 1, 16, '{}')`);
+  db.run(`INSERT OR IGNORE INTO trading_rules (rule_id, name, description, category, is_enabled, priority, params_json) VALUES ('SECTOR_TAILWIND', '섹터 순풍 가점', '상위 3 섹터 매수 신뢰도 +15', 'VOLATILITY', 1, 17, '{}')`);
+  db.run(`INSERT OR IGNORE INTO trading_rules (rule_id, name, description, category, is_enabled, priority, params_json) VALUES ('NARROW_LEADERSHIP', '협소 리더십 경고', '소수 섹터만 상승 시 비주도 섹터 매수 -15', 'VOLATILITY', 1, 18, '{}')`);
+  db.run(`INSERT OR IGNORE INTO trading_rules (rule_id, name, description, category, is_enabled, priority, params_json) VALUES ('POOR_QUOTE_QUALITY', '호가 품질 경고', '스프레드 > 0.5% 또는 호가 깊이 부족 시 매수 신뢰도 -20', 'VOLUME', 1, 19, '{}')`);
 
   // --- Indexes ---
   db.run('CREATE INDEX IF NOT EXISTS idx_transactions_stock_id ON transactions(stock_id)');

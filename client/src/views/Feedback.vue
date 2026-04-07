@@ -1,10 +1,10 @@
 <template>
   <div>
     <div class="flex items-center justify-between mb-6">
-      <h2 class="text-2xl font-bold text-slate-800">성과 분석</h2>
+      <h2 class="text-2xl font-bold text-txt-primary">성과 분석</h2>
       <div class="flex gap-2">
         <select v-model="analysisDays" @change="loadAll"
-          class="px-3 py-2 border border-slate-300 rounded-lg text-sm">
+          class="px-3 py-2 border border-border rounded-lg text-sm">
           <option :value="30">최근 30일</option>
           <option :value="60">최근 60일</option>
           <option :value="90">최근 90일</option>
@@ -14,62 +14,62 @@
     </div>
 
     <!-- 탭 -->
-    <div class="flex gap-1 mb-6 bg-slate-100 rounded-lg p-1 w-fit">
+    <div class="flex gap-1 mb-6 bg-surface-3 rounded-lg p-1 w-fit">
       <button v-for="tab in tabs" :key="tab.value" @click="activeTab = tab.value"
         class="px-4 py-2 rounded text-sm font-medium transition-colors"
-        :class="activeTab === tab.value ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500 hover:text-slate-700'">
+        :class="activeTab === tab.value ? 'bg-surface-1 text-txt-primary shadow-sm' : 'text-txt-secondary hover:text-txt-primary'">
         {{ tab.label }}
       </button>
     </div>
 
     <!-- 성과 요약 -->
     <div v-if="activeTab === 'performance'">
-      <div v-if="loading" class="text-slate-400 text-sm py-8 text-center">로딩 중...</div>
+      <div v-if="loading" class="text-txt-tertiary text-sm py-8 text-center">로딩 중...</div>
       <div v-else>
         <!-- 핵심 지표 카드 -->
         <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
-          <div class="bg-white rounded-xl border border-slate-200 p-4">
-            <p class="text-xs text-slate-500 mb-1">총 신호</p>
-            <p class="text-2xl font-bold text-slate-800">{{ perf.totalSignals || 0 }}</p>
-            <p class="text-xs text-slate-400 mt-1">BUY {{ perf.buyCount || 0 }} / SELL {{ perf.sellCount || 0 }}</p>
+          <div class="bg-surface-1 rounded-xl border border-border p-4">
+            <p class="text-xs text-txt-secondary mb-1">총 신호</p>
+            <p class="text-2xl font-bold text-txt-primary">{{ perf.totalSignals || 0 }}</p>
+            <p class="text-xs text-txt-tertiary mt-1">BUY {{ perf.buyCount || 0 }} / SELL {{ perf.sellCount || 0 }}</p>
           </div>
-          <div class="bg-white rounded-xl border border-slate-200 p-4">
-            <p class="text-xs text-slate-500 mb-1">BUY 승률 (7일)</p>
-            <p class="text-2xl font-bold" :class="(perf.buyWinRate7d || 0) >= 50 ? 'text-red-600' : 'text-blue-600'">
+          <div class="bg-surface-1 rounded-xl border border-border p-4">
+            <p class="text-xs text-txt-secondary mb-1">BUY 승률 (7일)</p>
+            <p class="text-2xl font-bold" :class="(perf.buyWinRate7d || 0) >= 50 ? 'text-profit' : 'text-loss'">
               {{ perf.buyWinRate7d !== null ? perf.buyWinRate7d + '%' : '-' }}
             </p>
           </div>
-          <div class="bg-white rounded-xl border border-slate-200 p-4">
-            <p class="text-xs text-slate-500 mb-1">평균 수익률 (7일)</p>
-            <p class="text-2xl font-bold" :class="(perf.avgBuyReturn7d || 0) >= 0 ? 'text-red-600' : 'text-blue-600'">
+          <div class="bg-surface-1 rounded-xl border border-border p-4">
+            <p class="text-xs text-txt-secondary mb-1">평균 수익률 (7일)</p>
+            <p class="text-2xl font-bold" :class="(perf.avgBuyReturn7d || 0) >= 0 ? 'text-profit' : 'text-loss'">
               {{ perf.avgBuyReturn7d !== null ? (perf.avgBuyReturn7d >= 0 ? '+' : '') + perf.avgBuyReturn7d + '%' : '-' }}
             </p>
           </div>
-          <div class="bg-white rounded-xl border border-slate-200 p-4">
-            <p class="text-xs text-slate-500 mb-1">목표가 도달률</p>
-            <p class="text-2xl font-bold text-slate-800">{{ perf.targetHitRate !== null ? perf.targetHitRate + '%' : '-' }}</p>
+          <div class="bg-surface-1 rounded-xl border border-border p-4">
+            <p class="text-xs text-txt-secondary mb-1">목표가 도달률</p>
+            <p class="text-2xl font-bold text-txt-primary">{{ perf.targetHitRate !== null ? perf.targetHitRate + '%' : '-' }}</p>
           </div>
         </div>
 
         <!-- 기간별 수익률 -->
-        <div class="bg-white rounded-xl border border-slate-200 p-5 mb-6">
-          <h3 class="font-semibold text-slate-800 mb-4">기간별 평균 수익률</h3>
+        <div class="bg-surface-1 rounded-xl border border-border p-5 mb-6">
+          <h3 class="font-semibold text-txt-primary mb-4">기간별 평균 수익률</h3>
           <div class="grid grid-cols-3 gap-6">
             <div class="text-center">
-              <p class="text-xs text-slate-500 mb-2">7일</p>
-              <div class="text-3xl font-bold" :class="(perf.avgBuyReturn7d || 0) >= 0 ? 'text-red-600' : 'text-blue-600'">
+              <p class="text-xs text-txt-secondary mb-2">7일</p>
+              <div class="text-3xl font-bold" :class="(perf.avgBuyReturn7d || 0) >= 0 ? 'text-profit' : 'text-loss'">
                 {{ perf.avgBuyReturn7d !== null ? (perf.avgBuyReturn7d >= 0 ? '+' : '') + perf.avgBuyReturn7d + '%' : '-' }}
               </div>
             </div>
             <div class="text-center">
-              <p class="text-xs text-slate-500 mb-2">14일</p>
-              <div class="text-3xl font-bold" :class="(perf.avgBuyReturn14d || 0) >= 0 ? 'text-red-600' : 'text-blue-600'">
+              <p class="text-xs text-txt-secondary mb-2">14일</p>
+              <div class="text-3xl font-bold" :class="(perf.avgBuyReturn14d || 0) >= 0 ? 'text-profit' : 'text-loss'">
                 {{ perf.avgBuyReturn14d !== null ? (perf.avgBuyReturn14d >= 0 ? '+' : '') + perf.avgBuyReturn14d + '%' : '-' }}
               </div>
             </div>
             <div class="text-center">
-              <p class="text-xs text-slate-500 mb-2">30일</p>
-              <div class="text-3xl font-bold" :class="(perf.avgBuyReturn30d || 0) >= 0 ? 'text-red-600' : 'text-blue-600'">
+              <p class="text-xs text-txt-secondary mb-2">30일</p>
+              <div class="text-3xl font-bold" :class="(perf.avgBuyReturn30d || 0) >= 0 ? 'text-profit' : 'text-loss'">
                 {{ perf.avgBuyReturn30d !== null ? (perf.avgBuyReturn30d >= 0 ? '+' : '') + perf.avgBuyReturn30d + '%' : '-' }}
               </div>
             </div>
@@ -77,16 +77,16 @@
         </div>
 
         <!-- 손절가 도달률 -->
-        <div class="bg-white rounded-xl border border-slate-200 p-5">
-          <h3 class="font-semibold text-slate-800 mb-3">리스크 지표</h3>
+        <div class="bg-surface-1 rounded-xl border border-border p-5">
+          <h3 class="font-semibold text-txt-primary mb-3">리스크 지표</h3>
           <div class="grid grid-cols-2 gap-4">
             <div>
-              <p class="text-sm text-slate-500">손절가 도달률</p>
-              <p class="text-xl font-bold text-blue-600">{{ perf.stopLossHitRate !== null ? perf.stopLossHitRate + '%' : '-' }}</p>
+              <p class="text-sm text-txt-secondary">손절가 도달률</p>
+              <p class="text-xl font-bold text-loss">{{ perf.stopLossHitRate !== null ? perf.stopLossHitRate + '%' : '-' }}</p>
             </div>
             <div>
-              <p class="text-sm text-slate-500">목표가 도달률</p>
-              <p class="text-xl font-bold text-red-600">{{ perf.targetHitRate !== null ? perf.targetHitRate + '%' : '-' }}</p>
+              <p class="text-sm text-txt-secondary">목표가 도달률</p>
+              <p class="text-xl font-bold text-profit">{{ perf.targetHitRate !== null ? perf.targetHitRate + '%' : '-' }}</p>
             </div>
           </div>
         </div>
@@ -95,8 +95,8 @@
 
     <!-- 정확도 분석 -->
     <div v-if="activeTab === 'accuracy'">
-      <div v-if="loading" class="text-slate-400 text-sm py-8 text-center">로딩 중...</div>
-      <div v-else-if="accuracy.totalEvaluated === 0" class="text-center py-16 text-slate-400">
+      <div v-if="loading" class="text-txt-tertiary text-sm py-8 text-center">로딩 중...</div>
+      <div v-else-if="accuracy.totalEvaluated === 0" class="text-center py-16 text-txt-tertiary">
         <p class="text-4xl mb-3">📊</p>
         <p>평가된 신호가 없습니다</p>
         <p class="text-xs mt-1">신호 발생 후 7일이 지나면 자동 평가됩니다</p>
@@ -104,68 +104,68 @@
       <div v-else>
         <!-- 전체 요약 -->
         <div class="grid grid-cols-2 md:grid-cols-3 gap-4 mb-6">
-          <div class="bg-white rounded-xl border border-slate-200 p-4">
-            <p class="text-xs text-slate-500 mb-1">평가 완료</p>
-            <p class="text-2xl font-bold text-slate-800">{{ accuracy.totalEvaluated }}건</p>
+          <div class="bg-surface-1 rounded-xl border border-border p-4">
+            <p class="text-xs text-txt-secondary mb-1">평가 완료</p>
+            <p class="text-2xl font-bold text-txt-primary">{{ accuracy.totalEvaluated }}건</p>
           </div>
-          <div class="bg-white rounded-xl border border-slate-200 p-4">
-            <p class="text-xs text-slate-500 mb-1">전체 승률</p>
-            <p class="text-2xl font-bold" :class="(accuracy.overallWinRate || 0) >= 50 ? 'text-red-600' : 'text-blue-600'">
+          <div class="bg-surface-1 rounded-xl border border-border p-4">
+            <p class="text-xs text-txt-secondary mb-1">전체 승률</p>
+            <p class="text-2xl font-bold" :class="(accuracy.overallWinRate || 0) >= 50 ? 'text-profit' : 'text-loss'">
               {{ accuracy.overallWinRate !== null ? accuracy.overallWinRate + '%' : '-' }}
             </p>
           </div>
-          <div class="bg-white rounded-xl border border-slate-200 p-4">
-            <p class="text-xs text-slate-500 mb-1">7일 평균 수익률</p>
-            <p class="text-2xl font-bold" :class="(accuracy.avgReturn7d || 0) >= 0 ? 'text-red-600' : 'text-blue-600'">
+          <div class="bg-surface-1 rounded-xl border border-border p-4">
+            <p class="text-xs text-txt-secondary mb-1">7일 평균 수익률</p>
+            <p class="text-2xl font-bold" :class="(accuracy.avgReturn7d || 0) >= 0 ? 'text-profit' : 'text-loss'">
               {{ accuracy.avgReturn7d !== null ? (accuracy.avgReturn7d >= 0 ? '+' : '') + accuracy.avgReturn7d + '%' : '-' }}
             </p>
           </div>
         </div>
 
         <!-- 신뢰도별 승률 -->
-        <div v-if="accuracy.byConfidence.length > 0" class="bg-white rounded-xl border border-slate-200 p-5 mb-6">
-          <h3 class="font-semibold text-slate-800 mb-4">신뢰도 구간별 승률</h3>
+        <div v-if="accuracy.byConfidence.length > 0" class="bg-surface-1 rounded-xl border border-border p-5 mb-6">
+          <h3 class="font-semibold text-txt-primary mb-4">신뢰도 구간별 승률</h3>
           <div class="space-y-3">
             <div v-for="b in accuracy.byConfidence" :key="b.bracket" class="flex items-center gap-3">
-              <span class="text-sm font-mono text-slate-600 w-20">{{ b.bracket }}%</span>
-              <div class="flex-1 bg-slate-100 rounded-full h-6 overflow-hidden">
+              <span class="text-sm font-mono text-txt-secondary w-20">{{ b.bracket }}%</span>
+              <div class="flex-1 bg-surface-3 rounded-full h-6 overflow-hidden">
                 <div class="h-full rounded-full flex items-center px-2 text-xs text-white font-medium transition-all"
                   :class="b.winRate >= 50 ? 'bg-red-500' : 'bg-blue-500'"
                   :style="{ width: Math.max(b.winRate, 8) + '%' }">
                   {{ b.winRate }}%
                 </div>
               </div>
-              <span class="text-xs text-slate-400 w-16 text-right">{{ b.count }}건 ({{ b.avgReturn >= 0 ? '+' : '' }}{{ b.avgReturn }}%)</span>
+              <span class="text-xs text-txt-tertiary w-16 text-right">{{ b.count }}건 ({{ b.avgReturn >= 0 ? '+' : '' }}{{ b.avgReturn }}%)</span>
             </div>
           </div>
         </div>
 
         <!-- 시장별 -->
-        <div v-if="accuracy.byMarket.length > 0" class="bg-white rounded-xl border border-slate-200 p-5 mb-6">
-          <h3 class="font-semibold text-slate-800 mb-4">시장별 승률</h3>
+        <div v-if="accuracy.byMarket.length > 0" class="bg-surface-1 rounded-xl border border-border p-5 mb-6">
+          <h3 class="font-semibold text-txt-primary mb-4">시장별 승률</h3>
           <div class="grid grid-cols-3 gap-4">
-            <div v-for="m in accuracy.byMarket" :key="m.market" class="text-center p-3 rounded-lg bg-slate-50">
-              <p class="text-sm font-medium text-slate-700">{{ m.market }}</p>
-              <p class="text-xl font-bold mt-1" :class="m.winRate >= 50 ? 'text-red-600' : 'text-blue-600'">{{ m.winRate }}%</p>
-              <p class="text-xs text-slate-400">{{ m.count }}건 / 평균 {{ m.avgReturn >= 0 ? '+' : '' }}{{ m.avgReturn }}%</p>
+            <div v-for="m in accuracy.byMarket" :key="m.market" class="text-center p-3 rounded-lg bg-surface-2">
+              <p class="text-sm font-medium text-txt-primary">{{ m.market }}</p>
+              <p class="text-xl font-bold mt-1" :class="m.winRate >= 50 ? 'text-profit' : 'text-loss'">{{ m.winRate }}%</p>
+              <p class="text-xs text-txt-tertiary">{{ m.count }}건 / 평균 {{ m.avgReturn >= 0 ? '+' : '' }}{{ m.avgReturn }}%</p>
             </div>
           </div>
         </div>
 
         <!-- 핵심 요인 -->
         <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <div v-if="accuracy.bestFactors.length > 0" class="bg-white rounded-xl border border-slate-200 p-5">
+          <div v-if="accuracy.bestFactors.length > 0" class="bg-surface-1 rounded-xl border border-border p-5">
             <h3 class="font-semibold text-red-700 mb-3">신뢰할 수 있는 요인</h3>
-            <div v-for="f in accuracy.bestFactors" :key="f.factor" class="flex items-center justify-between py-2 border-b border-slate-100 last:border-0">
-              <span class="text-sm text-slate-700">{{ f.factor }}</span>
-              <span class="text-sm font-bold text-red-600">{{ f.winRate }}% <span class="text-xs text-slate-400 font-normal">({{ f.count }}건)</span></span>
+            <div v-for="f in accuracy.bestFactors" :key="f.factor" class="flex items-center justify-between py-2 border-b border-border-subtle last:border-0">
+              <span class="text-sm text-txt-primary">{{ f.factor }}</span>
+              <span class="text-sm font-bold text-profit">{{ f.winRate }}% <span class="text-xs text-txt-tertiary font-normal">({{ f.count }}건)</span></span>
             </div>
           </div>
-          <div v-if="accuracy.worstFactors.length > 0" class="bg-white rounded-xl border border-slate-200 p-5">
+          <div v-if="accuracy.worstFactors.length > 0" class="bg-surface-1 rounded-xl border border-border p-5">
             <h3 class="font-semibold text-blue-700 mb-3">주의해야 할 요인</h3>
-            <div v-for="f in accuracy.worstFactors" :key="f.factor" class="flex items-center justify-between py-2 border-b border-slate-100 last:border-0">
-              <span class="text-sm text-slate-700">{{ f.factor }}</span>
-              <span class="text-sm font-bold text-blue-600">{{ f.winRate }}% <span class="text-xs text-slate-400 font-normal">({{ f.count }}건)</span></span>
+            <div v-for="f in accuracy.worstFactors" :key="f.factor" class="flex items-center justify-between py-2 border-b border-border-subtle last:border-0">
+              <span class="text-sm text-txt-primary">{{ f.factor }}</span>
+              <span class="text-sm font-bold text-loss">{{ f.winRate }}% <span class="text-xs text-txt-tertiary font-normal">({{ f.count }}건)</span></span>
             </div>
           </div>
         </div>
@@ -176,16 +176,16 @@
     <div v-if="activeTab === 'weights'">
       <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
         <!-- 현재 가중치 -->
-        <div class="bg-white rounded-xl border border-slate-200 p-5">
+        <div class="bg-surface-1 rounded-xl border border-border p-5">
           <div class="flex items-center justify-between mb-4">
-            <h3 class="font-semibold text-slate-800">현재 가중치</h3>
+            <h3 class="font-semibold text-txt-primary">현재 가중치</h3>
             <div class="flex gap-2">
               <button @click="runOptimize" :disabled="optimizing"
-                class="px-3 py-1.5 bg-blue-600 text-white rounded-lg text-xs hover:bg-blue-700 disabled:opacity-50">
+                class="px-3 py-1.5 bg-primary text-white rounded-lg text-xs hover:bg-primary-hover disabled:opacity-50">
                 {{ optimizing ? '최적화 중...' : '수동 최적화' }}
               </button>
               <button @click="doResetWeights"
-                class="px-3 py-1.5 border border-slate-300 text-slate-600 rounded-lg text-xs hover:bg-slate-50">
+                class="px-3 py-1.5 border border-border text-txt-secondary rounded-lg text-xs hover:bg-surface-2">
                 초기화
               </button>
             </div>
@@ -193,10 +193,10 @@
           <div class="space-y-2">
             <div v-for="(value, key) in weights" :key="key"
               class="flex items-center justify-between py-2 px-3 rounded-lg"
-              :class="value > 1.05 ? 'bg-red-50' : value < 0.95 ? 'bg-blue-50' : 'bg-slate-50'">
-              <span class="text-sm text-slate-700">{{ formatWeightName(key as string) }}</span>
+              :class="value > 1.05 ? 'bg-red-50' : value < 0.95 ? 'bg-blue-50' : 'bg-surface-2'">
+              <span class="text-sm text-txt-primary">{{ formatWeightName(key as string) }}</span>
               <span class="text-sm font-mono font-bold"
-                :class="value > 1.05 ? 'text-red-600' : value < 0.95 ? 'text-blue-600' : 'text-slate-600'">
+                :class="value > 1.05 ? 'text-profit' : value < 0.95 ? 'text-loss' : 'text-txt-secondary'">
                 {{ value }}
               </span>
             </div>
@@ -214,23 +214,23 @@
         </div>
 
         <!-- 변경 이력 -->
-        <div class="bg-white rounded-xl border border-slate-200 p-5">
-          <h3 class="font-semibold text-slate-800 mb-4">변경 이력</h3>
-          <div v-if="weightsHistory.length === 0" class="text-center py-8 text-slate-400 text-sm">변경 이력이 없습니다</div>
+        <div class="bg-surface-1 rounded-xl border border-border p-5">
+          <h3 class="font-semibold text-txt-primary mb-4">변경 이력</h3>
+          <div v-if="weightsHistory.length === 0" class="text-center py-8 text-txt-tertiary text-sm">변경 이력이 없습니다</div>
           <div v-else class="space-y-2 max-h-96 overflow-y-auto">
-            <div v-for="h in weightsHistory" :key="h.id" class="p-3 bg-slate-50 rounded-lg">
+            <div v-for="h in weightsHistory" :key="h.id" class="p-3 bg-surface-2 rounded-lg">
               <div class="flex items-center justify-between">
-                <span class="text-sm font-medium text-slate-700">{{ formatWeightName(h.score_type) }}</span>
-                <span class="text-xs text-slate-400">{{ formatDate(h.created_at) }}</span>
+                <span class="text-sm font-medium text-txt-primary">{{ formatWeightName(h.score_type) }}</span>
+                <span class="text-xs text-txt-tertiary">{{ formatDate(h.created_at) }}</span>
               </div>
               <div class="flex items-center gap-2 mt-1">
-                <span class="text-xs font-mono text-slate-500">{{ h.old_weight }}</span>
-                <span class="text-xs text-slate-400">-></span>
+                <span class="text-xs font-mono text-txt-secondary">{{ h.old_weight }}</span>
+                <span class="text-xs text-txt-tertiary">-></span>
                 <span class="text-xs font-mono font-bold"
-                  :class="h.new_weight > h.old_weight ? 'text-red-600' : 'text-blue-600'">
+                  :class="h.new_weight > h.old_weight ? 'text-profit' : 'text-loss'">
                   {{ h.new_weight }}
                 </span>
-                <span class="text-xs text-slate-400 ml-1">(r={{ h.correlation }}, n={{ h.sample_size }})</span>
+                <span class="text-xs text-txt-tertiary ml-1">(r={{ h.correlation }}, n={{ h.sample_size }})</span>
               </div>
             </div>
           </div>
@@ -241,12 +241,12 @@
     <!-- 백테스트 -->
     <div v-if="activeTab === 'backtest'">
       <!-- 과거 백테스트 결과 목록 -->
-      <div class="bg-white rounded-xl border border-slate-200 overflow-hidden">
-        <div class="px-5 py-3 border-b border-slate-200 flex items-center justify-between">
-          <h3 class="font-semibold text-slate-800">백테스트 결과</h3>
-          <button @click="loadBacktests" class="text-xs text-blue-600 hover:underline">새로고침</button>
+      <div class="bg-surface-1 rounded-xl border border-border overflow-hidden">
+        <div class="px-5 py-3 border-b border-border flex items-center justify-between">
+          <h3 class="font-semibold text-txt-primary">백테스트 결과</h3>
+          <button @click="loadBacktests" class="text-xs text-accent hover:underline">새로고침</button>
         </div>
-        <div v-if="backtests.length === 0" class="text-center py-16 text-slate-400">
+        <div v-if="backtests.length === 0" class="text-center py-16 text-txt-tertiary">
           <p class="text-4xl mb-3">🧪</p>
           <p>백테스트 결과가 없습니다</p>
           <p class="text-xs mt-1">API를 통해 백테스트를 실행하면 여기에 표시됩니다</p>
@@ -264,7 +264,7 @@
             <col />
           </colgroup>
           <thead>
-            <tr class="text-left text-xs text-slate-500 border-b border-slate-100">
+            <tr class="text-left text-xs text-txt-secondary border-b border-border-subtle">
               <th class="px-4 py-3 whitespace-nowrap">이름</th>
               <th class="px-4 py-3 whitespace-nowrap">시작일</th>
               <th class="px-4 py-3 whitespace-nowrap">종료일</th>
@@ -278,72 +278,72 @@
           </thead>
           <tbody>
             <tr v-for="bt in backtests" :key="bt.id"
-              class="border-b border-slate-50 hover:bg-slate-50 cursor-pointer"
+              class="border-b border-border-subtle hover:bg-surface-2 cursor-pointer"
               @click="selectedBacktest = selectedBacktest?.id === bt.id ? null : bt">
-              <td class="px-4 py-3 font-medium text-slate-800 truncate" :title="bt.name">{{ bt.name }}</td>
-              <td class="px-4 py-3 text-slate-600">{{ bt.start_date }}</td>
-              <td class="px-4 py-3 text-slate-600">{{ bt.end_date }}</td>
+              <td class="px-4 py-3 font-medium text-txt-primary truncate" :title="bt.name">{{ bt.name }}</td>
+              <td class="px-4 py-3 text-txt-secondary">{{ bt.start_date }}</td>
+              <td class="px-4 py-3 text-txt-secondary">{{ bt.end_date }}</td>
               <td class="px-4 py-3 text-right font-bold"
-                :class="bt.total_return >= 0 ? 'text-red-600' : 'text-blue-600'">
+                :class="bt.total_return >= 0 ? 'text-profit' : 'text-loss'">
                 {{ bt.total_return >= 0 ? '+' : '' }}{{ bt.total_return }}%
               </td>
-              <td class="px-4 py-3 text-right text-blue-600">-{{ bt.max_drawdown }}%</td>
-              <td class="px-4 py-3 text-right text-slate-700">{{ bt.win_rate }}%</td>
-              <td class="px-4 py-3 text-right text-slate-700">{{ bt.sharpe_ratio ?? '-' }}</td>
-              <td class="px-4 py-3 text-right text-slate-600">{{ bt.total_trades }}건</td>
-              <td class="px-4 py-3 text-xs text-slate-400">{{ formatDate(bt.created_at) }}</td>
+              <td class="px-4 py-3 text-right text-loss">-{{ bt.max_drawdown }}%</td>
+              <td class="px-4 py-3 text-right text-txt-primary">{{ bt.win_rate }}%</td>
+              <td class="px-4 py-3 text-right text-txt-primary">{{ bt.sharpe_ratio ?? '-' }}</td>
+              <td class="px-4 py-3 text-right text-txt-secondary">{{ bt.total_trades }}건</td>
+              <td class="px-4 py-3 text-xs text-txt-tertiary">{{ formatDate(bt.created_at) }}</td>
             </tr>
           </tbody>
         </table>
       </div>
 
       <!-- 선택된 백테스트 상세 -->
-      <div v-if="selectedBacktest" class="mt-6 bg-white rounded-xl border border-slate-200 p-5">
+      <div v-if="selectedBacktest" class="mt-6 bg-surface-1 rounded-xl border border-border p-5">
         <div class="flex items-center justify-between mb-4">
-          <h3 class="font-semibold text-slate-800">{{ selectedBacktest.name }} - 상세 정보</h3>
-          <button @click="selectedBacktest = null" class="text-slate-400 hover:text-slate-600 text-lg">&times;</button>
+          <h3 class="font-semibold text-txt-primary">{{ selectedBacktest.name }} - 상세 정보</h3>
+          <button @click="selectedBacktest = null" class="text-txt-tertiary hover:text-txt-secondary text-lg">&times;</button>
         </div>
         <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-4">
-          <div class="p-3 bg-slate-50 rounded-lg">
-            <p class="text-xs text-slate-500">총 수익률</p>
-            <p class="text-lg font-bold" :class="selectedBacktest.total_return >= 0 ? 'text-red-600' : 'text-blue-600'">
+          <div class="p-3 bg-surface-2 rounded-lg">
+            <p class="text-xs text-txt-secondary">총 수익률</p>
+            <p class="text-lg font-bold" :class="selectedBacktest.total_return >= 0 ? 'text-profit' : 'text-loss'">
               {{ selectedBacktest.total_return >= 0 ? '+' : '' }}{{ selectedBacktest.total_return }}%
             </p>
           </div>
-          <div class="p-3 bg-slate-50 rounded-lg">
-            <p class="text-xs text-slate-500">최대 낙폭 (MDD)</p>
-            <p class="text-lg font-bold text-blue-600">-{{ selectedBacktest.max_drawdown }}%</p>
+          <div class="p-3 bg-surface-2 rounded-lg">
+            <p class="text-xs text-txt-secondary">최대 낙폭 (MDD)</p>
+            <p class="text-lg font-bold text-loss">-{{ selectedBacktest.max_drawdown }}%</p>
           </div>
-          <div class="p-3 bg-slate-50 rounded-lg">
-            <p class="text-xs text-slate-500">승률</p>
-            <p class="text-lg font-bold text-slate-800">{{ selectedBacktest.win_rate }}%</p>
+          <div class="p-3 bg-surface-2 rounded-lg">
+            <p class="text-xs text-txt-secondary">승률</p>
+            <p class="text-lg font-bold text-txt-primary">{{ selectedBacktest.win_rate }}%</p>
           </div>
-          <div class="p-3 bg-slate-50 rounded-lg">
-            <p class="text-xs text-slate-500">손익비 (Profit Factor)</p>
-            <p class="text-lg font-bold text-slate-800">{{ selectedBacktest.profit_factor ?? '-' }}</p>
+          <div class="p-3 bg-surface-2 rounded-lg">
+            <p class="text-xs text-txt-secondary">손익비 (Profit Factor)</p>
+            <p class="text-lg font-bold text-txt-primary">{{ selectedBacktest.profit_factor ?? '-' }}</p>
           </div>
         </div>
         <div v-if="backtestDetail" class="grid grid-cols-3 gap-4">
-          <div class="p-3 bg-slate-50 rounded-lg text-center">
-            <p class="text-xs text-slate-500">총 거래</p>
-            <p class="text-lg font-bold text-slate-800">{{ backtestDetail.total_trades }}건</p>
+          <div class="p-3 bg-surface-2 rounded-lg text-center">
+            <p class="text-xs text-txt-secondary">총 거래</p>
+            <p class="text-lg font-bold text-txt-primary">{{ backtestDetail.total_trades }}건</p>
           </div>
-          <div class="p-3 bg-slate-50 rounded-lg text-center">
-            <p class="text-xs text-slate-500">평균 수익 (승)</p>
-            <p class="text-lg font-bold text-red-600">{{ backtestDetail.avg_win?.toLocaleString() || 0 }}</p>
+          <div class="p-3 bg-surface-2 rounded-lg text-center">
+            <p class="text-xs text-txt-secondary">평균 수익 (승)</p>
+            <p class="text-lg font-bold text-profit">{{ backtestDetail.avg_win?.toLocaleString() || 0 }}</p>
           </div>
-          <div class="p-3 bg-slate-50 rounded-lg text-center">
-            <p class="text-xs text-slate-500">평균 손실 (패)</p>
-            <p class="text-lg font-bold text-blue-600">{{ backtestDetail.avg_loss?.toLocaleString() || 0 }}</p>
+          <div class="p-3 bg-surface-2 rounded-lg text-center">
+            <p class="text-xs text-txt-secondary">평균 손실 (패)</p>
+            <p class="text-lg font-bold text-loss">{{ backtestDetail.avg_loss?.toLocaleString() || 0 }}</p>
           </div>
         </div>
         <!-- 거래 내역 -->
         <div v-if="backtestDetail?.results_json?.length > 0" class="mt-4">
-          <h4 class="text-sm font-medium text-slate-700 mb-2">거래 내역 (최근 {{ backtestDetail.results_json.length }}건)</h4>
+          <h4 class="text-sm font-medium text-txt-primary mb-2">거래 내역 (최근 {{ backtestDetail.results_json.length }}건)</h4>
           <div class="max-h-64 overflow-y-auto">
             <table class="w-full text-xs">
               <thead>
-                <tr class="text-left text-slate-500 border-b">
+                <tr class="text-left text-txt-secondary border-b">
                   <th class="px-3 py-2">날짜</th>
                   <th class="px-3 py-2">유형</th>
                   <th class="px-3 py-2 text-right">가격</th>
@@ -353,19 +353,19 @@
                 </tr>
               </thead>
               <tbody>
-                <tr v-for="(trade, i) in backtestDetail.results_json" :key="i" class="border-b border-slate-50">
-                  <td class="px-3 py-2 text-slate-600">{{ trade.date }}</td>
+                <tr v-for="(trade, i) in backtestDetail.results_json" :key="i" class="border-b border-border-subtle">
+                  <td class="px-3 py-2 text-txt-secondary">{{ trade.date }}</td>
                   <td class="px-3 py-2">
                     <span class="px-1.5 py-0.5 rounded text-xs font-medium"
                       :class="trade.type === 'BUY' ? 'bg-red-50 text-red-700' : 'bg-blue-50 text-blue-700'">
                       {{ trade.type }}
                     </span>
                   </td>
-                  <td class="px-3 py-2 text-right text-slate-700">{{ trade.price?.toLocaleString() }}</td>
-                  <td class="px-3 py-2 text-right text-slate-700">{{ trade.quantity }}</td>
-                  <td class="px-3 py-2 text-slate-500 truncate max-w-[200px]" :title="trade.reason">{{ trade.reason }}</td>
+                  <td class="px-3 py-2 text-right text-txt-primary">{{ trade.price?.toLocaleString() }}</td>
+                  <td class="px-3 py-2 text-right text-txt-primary">{{ trade.quantity }}</td>
+                  <td class="px-3 py-2 text-txt-secondary truncate max-w-[200px]" :title="trade.reason">{{ trade.reason }}</td>
                   <td class="px-3 py-2 text-right font-medium"
-                    :class="trade.pnl > 0 ? 'text-red-600' : trade.pnl < 0 ? 'text-blue-600' : 'text-slate-400'">
+                    :class="trade.pnl > 0 ? 'text-profit' : trade.pnl < 0 ? 'text-loss' : 'text-txt-tertiary'">
                     {{ trade.pnl !== undefined ? (trade.pnl >= 0 ? '+' : '') + Math.round(trade.pnl).toLocaleString() : '' }}
                   </td>
                 </tr>
@@ -377,25 +377,25 @@
     </div>
 
     <!-- 주간 학습 리포트 -->
-    <div class="bg-white rounded-xl border border-slate-200 shadow-sm p-5 mt-6">
+    <div class="bg-surface-1 rounded-xl border border-border shadow-sm p-5 mt-6">
       <div class="flex items-center justify-between mb-4">
-        <h3 class="font-semibold text-slate-800">주간 학습 리포트</h3>
-        <button @click="loadWeeklyReports" class="text-xs text-blue-600 hover:underline">새로고침</button>
+        <h3 class="font-semibold text-txt-primary">주간 학습 리포트</h3>
+        <button @click="loadWeeklyReports" class="text-xs text-accent hover:underline">새로고침</button>
       </div>
-      <div v-if="weeklyReports.length === 0" class="text-center py-8 text-slate-400 text-sm">
+      <div v-if="weeklyReports.length === 0" class="text-center py-8 text-txt-tertiary text-sm">
         아직 생성된 주간 리포트가 없습니다 (토요일 06:00 자동 생성)
       </div>
       <div v-else class="space-y-3">
-        <div v-for="r in weeklyReports" :key="r.id" class="border border-slate-100 rounded-lg p-4">
+        <div v-for="r in weeklyReports" :key="r.id" class="border border-border-subtle rounded-lg p-4">
           <div class="flex items-center justify-between mb-2">
-            <span class="text-xs text-slate-400">{{ r.created_at?.slice(0, 10) }}</span>
-            <div v-if="r.stats_json" class="flex gap-3 text-xs text-slate-500">
+            <span class="text-xs text-txt-tertiary">{{ r.created_at?.slice(0, 10) }}</span>
+            <div v-if="r.stats_json" class="flex gap-3 text-xs text-txt-secondary">
               <span>신호 {{ r.stats_json.totalSignals || 0 }}건</span>
               <span>체결 {{ r.stats_json.tradesExecuted || 0 }}건</span>
               <span>신뢰도 {{ Math.round(r.stats_json.avgConfidence || 0) }}%</span>
             </div>
           </div>
-          <p class="text-sm text-slate-700 whitespace-pre-line">{{ r.report }}</p>
+          <p class="text-sm text-txt-primary whitespace-pre-line">{{ r.report }}</p>
         </div>
       </div>
     </div>

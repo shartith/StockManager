@@ -295,7 +295,7 @@ export interface MarketContextData {
 let marketContextCache: { data: MarketContextData; fetchedAt: number } | null = null;
 const CONTEXT_CACHE_TTL = 30 * 60 * 1000; // 30분
 
-async function fetchYahooQuote(symbol: string): Promise<{ price: number; changePercent: number } | null> {
+export async function fetchYahooQuote(symbol: string): Promise<{ price: number; changePercent: number } | null> {
   try {
     const res = await fetch(
       `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?interval=1d&range=1d`,

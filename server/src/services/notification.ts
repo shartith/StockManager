@@ -25,8 +25,17 @@ export function createNotification(payload: NotificationPayload): number {
 
   logger.info({ type: payload.type, title: payload.title }, 'Notification created');
 
-  // TODO: 메신저 연동 (Telegram, Slack 등)
-  // sendToMessenger(payload);
+  // WebSocket push to connected clients
+  const broadcastChannel = (global as any).__wsBroadcastChannel;
+  if (broadcastChannel) {
+    broadcastChannel('notifications', {
+      id: lastId,
+      type: payload.type,
+      title: payload.title,
+      message: payload.message,
+      ticker: payload.ticker,
+    });
+  }
 
   return lastId;
 }

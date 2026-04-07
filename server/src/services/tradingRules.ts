@@ -23,6 +23,22 @@ export interface MarketTimeContext {
   isPreClose30min: boolean;
 }
 
+export interface SectorContext {
+  sectorRotation: 'IN' | 'OUT' | 'NEUTRAL';
+  sectorRank: number;
+  totalSectors: number;
+  breadthAdvanceDecline: number;
+  narrowLeadership: boolean;
+  divergenceWarning: string | null;
+}
+
+export interface QuoteContext {
+  spreadPercent: number;
+  depthImbalance: number;
+  topBookDepthKrw: number;
+  quality: 'GOOD' | 'FAIR' | 'POOR';
+}
+
 export interface PriceContext {
   gapPercent: number;
   intradayChangePercent: number;
@@ -73,6 +89,8 @@ export function applyTradingRules(
   timeContext: MarketTimeContext,
   priceContext: PriceContext,
   isHolding: boolean,
+  sectorContext?: SectorContext,
+  quoteContext?: QuoteContext,
 ): TradingRuleResult {
   const settings = getSettings();
   if (!settings.tradingRulesEnabled) {
@@ -256,6 +274,55 @@ export function applyTradingRules(
           totalConfidenceAdj += 30;
           triggered.push(rule.rule_id);
           reasons.push('SMA20+SMA60 하향 돌파 → 즉시 손절');
+        }
+        break;
+
+      // ── Rule 15: 섹터 역풍 — 약세 섹터 매수 자제 ──
+      case 'SECTOR_HEADWIND':
+        if (sectorContext && sectorContext.sectorRotation === 'OUT' && adjustedSignal === 'BUY') {
+          totalConfidenceAdj -= 20;
+          triggered.push(rule.rule_id);
+          reasons.push('섹터 로테이션 OUT — 매수 신뢰도 -20');
+        }
+        break;
+
+      // ── Rule 16: 시장 건전성 경고 — 괴리 시 관망 ──
+      case 'BREADTH_DIVERGENCE':
+        if (sectorContext && sectorContext.divergenceWarning && adjustedSignal === 'BUY') {
+          adjustedSignal = 'HOLD';
+          triggered.push(rule.rule_id);
+          reasons.push(`시장 건전성 경고: ${sectorContext.divergenceWarning}`);
+        }
+        break;
+
+      // ── Rule 17: 섹터 순풍 — 강세 섹터 매수 부스트 ──
+      case 'SECTOR_TAILWIND':
+        if (sectorContext && sectorContext.sectorRotation === 'IN' && sectorContext.sectorRank <= 3 && adjustedSignal === 'BUY') {
+          totalConfidenceAdj += 15;
+          triggered.push(rule.rule_id);
+          reasons.push(`섹터 모멘텀 상위 ${sectorContext.sectorRank}위 — 매수 신뢰도 +15`);
+        }
+        break;
+
+      // ── Rule 18: 협소 리더십 — 비주도 섹터 매수 자제 ──
+      case 'NARROW_LEADERSHIP':
+        if (sectorContext && sectorContext.narrowLeadership && adjustedSignal === 'BUY' && sectorContext.sectorRotation !== 'IN') {
+          totalConfidenceAdj -= 15;
+          triggered.push(rule.rule_id);
+          reasons.push('소수 섹터만 상승 주도 — 비주도 섹터 매수 신뢰도 -15');
+        }
+        break;
+
+      // ── Rule 19: 호가 품질 경고 — POOR 품질 매수 자제 ──
+      case 'POOR_QUOTE_QUALITY':
+        if (quoteContext && quoteContext.quality === 'POOR' && adjustedSignal === 'BUY') {
+          totalConfidenceAdj -= 20;
+          triggered.push(rule.rule_id);
+          reasons.push(`호가 품질 POOR (스프레드 ${quoteContext.spreadPercent.toFixed(2)}%) — 매수 신뢰도 -20`);
+          if (settings.tradingRulesStrictMode) {
+            adjustedSignal = 'HOLD';
+            reasons.push('엄격 모드 — HOLD 전환');
+          }
         }
         break;
     }

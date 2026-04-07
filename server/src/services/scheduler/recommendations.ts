@@ -301,8 +301,15 @@ export async function runRecommendationRefresh() {
           const reason = `${decision.reasoning} [목표가: ${decision.targetPrice?.toLocaleString() ?? '-'}, 손절가: ${decision.stopLossPrice?.toLocaleString() ?? '-'}]`;
           execute("UPDATE recommendations SET confidence = ?, reason = ? WHERE id = ?", [decision.confidence, reason, rec.id]);
 
-          // 스코어링 평가
-          const scoreResult = await evaluateAndScore(rec.ticker, market, decision, indicators, input.volumeAnalysis);
+          // 스코어링 평가 (호가 품질 포함)
+          let quoteBook = undefined;
+          try {
+            const { getQuoteBook } = await import('../quoteBook');
+            quoteBook = (await getQuoteBook(rec.ticker, market as any)) ?? undefined;
+          } catch (err) {
+            logger.debug({ err, ticker: rec.ticker }, 'Quote book fetch skipped for scoring');
+          }
+          const scoreResult = await evaluateAndScore(rec.ticker, market, decision, indicators, input.volumeAnalysis, undefined, quoteBook);
           if (scoreResult.promoted) {
             logger.info(`[Scheduler] 자동 승격: ${rec.ticker} → ${scoreResult.promotedTo} (${scoreResult.totalScore}점)`);
           }

@@ -100,8 +100,19 @@ export function getSectorAllocation(): Map<string, { value: number; percent: num
 
 // ── Promotion Eligibility Check ──
 
+/** 호가 품질 최소 요건 — POOR 품질 종목은 promotion 차단 */
+interface QuoteQualityInfo {
+  quality: 'GOOD' | 'FAIR' | 'POOR';
+  spreadPercent: number;
+}
+
 /** Check if a stock can be promoted to watchlist/auto-trade */
-export function checkPromotionEligibility(ticker: string, market: string, sector: string): PromotionCheck {
+export function checkPromotionEligibility(
+  ticker: string,
+  market: string,
+  sector: string,
+  quoteQuality?: QuoteQualityInfo,
+): PromotionCheck {
   const settings = getSettings();
   const portfolio = getTotalPortfolioValue();
 
@@ -109,6 +120,20 @@ export function checkPromotionEligibility(ticker: string, market: string, sector
   const maxPerStockPercent = settings.portfolioMaxPerStockPercent ?? 20;
   const maxSectorPercent = settings.portfolioMaxSectorPercent ?? 40;
   const minCashPercent = settings.portfolioMinCashPercent ?? 10;
+
+  // 0. Check quote quality (liquidity) — reject POOR quality stocks
+  if (quoteQuality && quoteQuality.quality === 'POOR') {
+    return {
+      allowed: false,
+      reason: `호가 품질 부족 — 스프레드 ${quoteQuality.spreadPercent.toFixed(2)}% (슬리피지 위험)`,
+      availableCapital: portfolio.cashValue,
+      currentHoldingCount: portfolio.holdingCount,
+      maxHoldings,
+      targetAllocation: 0,
+      sectorExposure: 0,
+      cashPercent: portfolio.totalValue > 0 ? (portfolio.cashValue / portfolio.totalValue) * 100 : 0,
+    };
+  }
 
   // 1. Check holding count
   if (portfolio.holdingCount >= maxHoldings) {

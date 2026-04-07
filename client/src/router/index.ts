@@ -11,6 +11,7 @@ const router = createRouter({
     { path: '/dividends', name: 'dividends', component: () => import('@/views/Dividends.vue') },
     { path: '/alerts', name: 'alerts', component: () => import('@/views/Alerts.vue') },
     { path: '/chart', name: 'chart', component: () => import('@/views/ChartView.vue') },
+    { path: '/heatmap', name: 'heatmap', component: () => import('@/views/Heatmap.vue') },
     { path: '/feedback', name: 'feedback', component: () => import('@/views/Feedback.vue') },
     { path: '/settings', name: 'settings', component: () => import('@/views/Settings.vue') },
   ],

@@ -397,6 +397,36 @@ export async function executeOrder(req: OrderRequest): Promise<OrderResult> {
     return { success: false, message: '주문 수량 0 — 주문가능금액 부족 또는 가격 대비 한도 부족', quantity: 0, price: orderPrice, fee: 0 };
   }
 
+  // 2.5. 호가 품질 최후 방어선 (매수 주문 한정, KRX만)
+  if (req.orderType === 'BUY' && req.market === 'KRX') {
+    try {
+      const { getQuoteBook } = await import('./quoteBook');
+      const { logSystemEvent } = await import('./systemEvent');
+      const qb = await getQuoteBook(req.ticker, req.market);
+      if (qb) {
+        const orderValue = orderPrice * quantity;
+        // 호가 깊이가 주문금액의 2배 미만이면 취소 (슬리피지 과도)
+        if (qb.topBookDepthKrw < orderValue * 2) {
+          await logSystemEvent('WARN', 'LOW_LIQUIDITY',
+            `매수 주문 취소 — 호가 깊이 부족`,
+            `depth ${qb.topBookDepthKrw.toLocaleString()}원 < 주문금액 2배 ${(orderValue * 2).toLocaleString()}원 (spread ${qb.spreadPercent.toFixed(2)}%)`,
+            req.ticker);
+          return { success: false, message: `호가 깊이 부족 — 주문 취소 (depth ${qb.topBookDepthKrw.toLocaleString()}원)`, quantity, price: orderPrice, fee: 0 };
+        }
+        // 스프레드가 1.0% 초과면 취소 (체결 시 즉시 손실 과대)
+        if (qb.spreadPercent > 1.0) {
+          await logSystemEvent('WARN', 'WIDE_SPREAD',
+            `매수 주문 취소 — 스프레드 과대`,
+            `스프레드 ${qb.spreadPercent.toFixed(2)}% > 1.0% 임계값 (호가 품질 ${qb.quality})`,
+            req.ticker);
+          return { success: false, message: `스프레드 과대 ${qb.spreadPercent.toFixed(2)}% — 주문 취소`, quantity, price: orderPrice, fee: 0 };
+        }
+      }
+    } catch (err) {
+      logger.debug({ err, ticker: req.ticker }, 'Quote book pre-order check skipped');
+    }
+  }
+
   // 3. 리스크 체크
   const riskCheck = checkRiskLimits(req.orderType, orderPrice * quantity);
   if (!riskCheck.allowed) {

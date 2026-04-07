@@ -117,13 +117,17 @@ export async function runContinuousMonitor(market: Market) {
     prices = await getMultipleStockPrices(tickers, tickerMarkets);
   } catch (err) { logger.error({ err }, 'Failed to fetch multiple stock prices'); return; }
 
-  // WebSocket으로 실시간 시세 브로드캐스트
+  // WebSocket으로 실시간 시세 브로드캐스트 (channel-based)
   if (prices.size > 0) {
-    const broadcast = (global as any).__wsBroadcast;
-    if (broadcast) {
-      const priceData: Record<string, number> = {};
-      prices.forEach((price, ticker) => { priceData[ticker] = price; });
-      broadcast({ type: 'prices', market, data: priceData, timestamp: new Date().toISOString() });
+    const broadcastChannel = (global as any).__wsBroadcastChannel;
+    const broadcastLegacy = (global as any).__wsBroadcast;
+    const priceData: Record<string, number> = {};
+    prices.forEach((price, ticker) => { priceData[ticker] = price; });
+
+    if (broadcastChannel) {
+      broadcastChannel('prices', { market, prices: priceData });
+    } else if (broadcastLegacy) {
+      broadcastLegacy({ type: 'prices', market, data: priceData, timestamp: new Date().toISOString() });
     }
   }
 

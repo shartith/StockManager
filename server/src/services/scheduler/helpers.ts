@@ -287,6 +287,47 @@ export async function analyzeStock(stock: any, market: Market, phase: AnalysisPh
     input.portfolioContext = getPortfolioRiskContext();
   } catch {}
 
+  // Sector rotation context from heatmap data
+  try {
+    const { getSectorRotationContext, formatSectorContextForLLM, getSectorForStock } = await import('../sectorMomentum');
+    const sectorCtx = await getSectorRotationContext(market === 'KRX' ? 'KRX' : 'US');
+    const { momentum, rank } = getSectorForStock(sectorCtx, stock.sector || '');
+    if (momentum) {
+      input.sectorContext = {
+        currentSectorMomentum: momentum,
+        sectorRotation: momentum.rotationSignal,
+        sectorRank: rank,
+        totalSectors: sectorCtx.sectors.length,
+      };
+      input.marketBreadth = {
+        advanceDeclineRatio: sectorCtx.breadth.advanceDeclineRatio,
+        narrowLeadership: sectorCtx.breadth.narrowLeadership,
+        divergenceWarning: sectorCtx.breadth.divergenceWarning,
+      };
+    }
+    if (marketContextStr) {
+      input.marketContext = marketContextStr + formatSectorContextForLLM(sectorCtx);
+    }
+  } catch (err) {
+    logger.debug({ err, ticker: stock.ticker }, 'Sector rotation context fetch skipped');
+  }
+
+  // Quote book (bid/ask) quality — KRX only
+  try {
+    const { getQuoteBook } = await import('../quoteBook');
+    const qb = await getQuoteBook(stock.ticker, market);
+    if (qb) {
+      input.quoteBook = {
+        spreadPercent: qb.spreadPercent,
+        depthImbalance: qb.depthImbalance,
+        topBookDepthKrw: qb.topBookDepthKrw,
+        quality: qb.quality,
+      };
+    }
+  } catch (err) {
+    logger.debug({ err, ticker: stock.ticker }, 'Quote book fetch skipped');
+  }
+
   let decision;
   try {
     decision = await getTradeDecision(input, phase);

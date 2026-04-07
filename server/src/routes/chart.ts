@@ -5,6 +5,7 @@ import { startScheduler } from '../services/scheduler';
 import { queryOne, execute, logAudit } from '../db';
 import { getMarketContext } from '../services/stockPrice';
 import { getDomesticOrderableAmount } from '../services/kisOrder';
+import { getQuoteBook, type Market } from '../services/quoteBook';
 import { validate } from '../middleware/validate';
 import { asyncHandler } from '../middleware/errorHandler';
 import { saveConfigSchema } from '../schemas';
@@ -702,6 +703,30 @@ router.post('/balance/import', asyncHandler(async (_req: Request, res: Response)
   } catch (err: any) {
     res.status(500).json({ error: '잔고 가져오기 실패' });
   }
+}));
+
+// 호가(Bid/Ask) 조회
+router.get('/quote-book/:ticker', asyncHandler(async (req: Request, res: Response) => {
+  const tickerParam = req.params.ticker;
+  const ticker = Array.isArray(tickerParam) ? tickerParam[0] : tickerParam;
+  if (!ticker) {
+    res.status(400).json({ error: 'ticker required' });
+    return;
+  }
+  const market = ((req.query.market as string) || 'KRX').toUpperCase() as Market;
+
+  if (!['KRX', 'NYSE', 'NASDAQ', 'AMEX', 'NASD'].includes(market)) {
+    res.status(400).json({ error: 'market must be KRX | NYSE | NASDAQ | AMEX | NASD' });
+    return;
+  }
+
+  const qb = await getQuoteBook(ticker, market);
+  if (!qb) {
+    res.status(404).json({ error: '호가 조회 실패 또는 미지원 시장' });
+    return;
+  }
+
+  res.json(qb);
 }));
 
 export default router;

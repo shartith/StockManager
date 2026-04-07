@@ -1,7 +1,7 @@
 <template>
   <div class="max-w-2xl">
-    <h2 class="text-2xl font-bold text-slate-800 mb-2">설정</h2>
-    <p class="text-slate-500 text-sm mb-8">한국투자증권 API 연동 및 앱 설정을 관리합니다.</p>
+    <h2 class="text-2xl font-bold text-txt-primary mb-2">설정</h2>
+    <p class="text-txt-secondary text-sm mb-8">한국투자증권 API 연동 및 앱 설정을 관리합니다.</p>
 
     <!-- 현재 상태 배지 -->
     <div class="flex items-center gap-2 mb-6">
@@ -19,29 +19,29 @@
     <form @submit.prevent="saveConfig" class="space-y-6">
 
       <!-- 섹션 1: API 인증 -->
-      <div class="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
-        <div class="px-6 py-4 bg-slate-50 border-b border-slate-200">
-          <h3 class="text-sm font-semibold text-slate-700">API 인증 정보</h3>
-          <p class="text-xs text-slate-500 mt-0.5">
-            <a href="https://apiportal.koreainvestment.com" target="_blank" class="text-blue-500 hover:underline">KIS Developers 포털</a>에서 앱을 등록하고 발급받은 키를 입력하세요.
+      <div class="bg-surface-1 rounded-xl border border-border shadow-sm overflow-hidden">
+        <div class="px-6 py-4 bg-surface-2 border-b border-border">
+          <h3 class="text-sm font-semibold text-txt-primary">API 인증 정보</h3>
+          <p class="text-xs text-txt-secondary mt-0.5">
+            <a href="https://apiportal.koreainvestment.com" target="_blank" class="text-accent hover:underline">KIS Developers 포털</a>에서 앱을 등록하고 발급받은 키를 입력하세요.
           </p>
         </div>
         <div class="p-6 space-y-4">
           <div>
-            <label class="block text-sm font-medium text-slate-700 mb-1">
+            <label class="block text-sm font-medium text-txt-primary mb-1">
               App Key <span class="text-red-500">*</span>
             </label>
             <input
               v-model="form.appKey"
               type="password"
               placeholder="P-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
-              class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-blue-500"
+              class="w-full border border-border rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-accent"
               required
             />
-            <p class="text-xs text-slate-400 mt-1">KIS Developers에서 앱 등록 후 발급받은 App Key</p>
+            <p class="text-xs text-txt-tertiary mt-1">KIS Developers에서 앱 등록 후 발급받은 App Key</p>
           </div>
           <div>
-            <label class="block text-sm font-medium text-slate-700 mb-1">
+            <label class="block text-sm font-medium text-txt-primary mb-1">
               App Secret <span class="text-red-500">*</span>
               <span v-if="secretSaved" class="ml-2 text-xs font-normal text-green-600 bg-green-50 px-1.5 py-0.5 rounded">저장됨</span>
             </label>
@@ -49,52 +49,52 @@
               v-model="form.appSecret"
               type="password"
               :placeholder="secretSaved ? '변경할 경우에만 입력 (비워두면 기존 값 유지)' : 'xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx'"
-              class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-blue-500"
+              class="w-full border border-border rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-accent"
               :required="!secretSaved"
             />
-            <p class="text-xs text-slate-400 mt-1">App Key에 대응하는 App Secret</p>
+            <p class="text-xs text-txt-tertiary mt-1">App Key에 대응하는 App Secret</p>
           </div>
         </div>
       </div>
 
       <!-- 섹션 2: 계좌 정보 -->
-      <div class="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
-        <div class="px-6 py-4 bg-slate-50 border-b border-slate-200">
-          <h3 class="text-sm font-semibold text-slate-700">계좌 정보</h3>
-          <p class="text-xs text-slate-500 mt-0.5">주문 기능을 사용하려면 계좌번호가 필요합니다. 시세 조회만 사용하는 경우 생략 가능합니다.</p>
+      <div class="bg-surface-1 rounded-xl border border-border shadow-sm overflow-hidden">
+        <div class="px-6 py-4 bg-surface-2 border-b border-border">
+          <h3 class="text-sm font-semibold text-txt-primary">계좌 정보</h3>
+          <p class="text-xs text-txt-secondary mt-0.5">주문 기능을 사용하려면 계좌번호가 필요합니다. 시세 조회만 사용하는 경우 생략 가능합니다.</p>
         </div>
         <div class="p-6 space-y-4">
           <div class="grid grid-cols-3 gap-4">
             <div class="col-span-2">
-              <label class="block text-sm font-medium text-slate-700 mb-1">계좌번호</label>
+              <label class="block text-sm font-medium text-txt-primary mb-1">계좌번호</label>
               <input
                 v-model="form.accountNo"
                 type="text"
                 placeholder="12345678"
                 maxlength="8"
-                class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-blue-500"
+                class="w-full border border-border rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-accent"
               />
-              <p class="text-xs text-slate-400 mt-1">계좌번호 8자리 (숫자만)</p>
+              <p class="text-xs text-txt-tertiary mt-1">계좌번호 8자리 (숫자만)</p>
             </div>
             <div>
-              <label class="block text-sm font-medium text-slate-700 mb-1">상품코드</label>
+              <label class="block text-sm font-medium text-txt-primary mb-1">상품코드</label>
               <input
                 v-model="form.accountProductCode"
                 type="text"
                 placeholder="01"
                 maxlength="2"
-                class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-blue-500"
+                class="w-full border border-border rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-accent"
               />
-              <p class="text-xs text-slate-400 mt-1">보통 01</p>
+              <p class="text-xs text-txt-tertiary mt-1">보통 01</p>
             </div>
           </div>
         </div>
       </div>
 
       <!-- 섹션 3: 거래 환경 -->
-      <div class="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
-        <div class="px-6 py-4 bg-slate-50 border-b border-slate-200">
-          <h3 class="text-sm font-semibold text-slate-700">거래 환경</h3>
+      <div class="bg-surface-1 rounded-xl border border-border shadow-sm overflow-hidden">
+        <div class="px-6 py-4 bg-surface-2 border-b border-border">
+          <h3 class="text-sm font-semibold text-txt-primary">거래 환경</h3>
         </div>
         <div class="p-6">
           <div class="flex gap-3">
@@ -102,7 +102,7 @@
               type="button"
               @click="form.isVirtual = true"
               class="flex-1 py-3 px-4 rounded-xl border-2 text-sm font-medium transition-all"
-              :class="form.isVirtual ? 'border-amber-400 bg-amber-50 text-amber-700' : 'border-slate-200 text-slate-500 hover:border-slate-300'"
+              :class="form.isVirtual ? 'border-amber-400 bg-amber-50 text-amber-700' : 'border-border text-txt-secondary hover:border-border-hover'"
             >
               <div class="text-lg mb-1">🧪</div>
               <div class="font-semibold">모의투자</div>
@@ -112,7 +112,7 @@
               type="button"
               @click="form.isVirtual = false"
               class="flex-1 py-3 px-4 rounded-xl border-2 text-sm font-medium transition-all"
-              :class="!form.isVirtual ? 'border-blue-400 bg-blue-50 text-blue-700' : 'border-slate-200 text-slate-500 hover:border-slate-300'"
+              :class="!form.isVirtual ? 'border-blue-400 bg-blue-50 text-blue-700' : 'border-border text-txt-secondary hover:border-border-hover'"
             >
               <div class="text-lg mb-1">💹</div>
               <div class="font-semibold">실계좌</div>
@@ -126,10 +126,10 @@
       </div>
 
       <!-- 섹션 4: Ollama (로컬 LLM) -->
-      <div class="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
-        <div class="px-6 py-4 bg-slate-50 border-b border-slate-200">
-          <h3 class="text-sm font-semibold text-slate-700">Ollama (로컬 LLM)</h3>
-          <p class="text-xs text-slate-500 mt-0.5">매수/매도 판단에 사용할 로컬 LLM을 설정합니다.</p>
+      <div class="bg-surface-1 rounded-xl border border-border shadow-sm overflow-hidden">
+        <div class="px-6 py-4 bg-surface-2 border-b border-border">
+          <h3 class="text-sm font-semibold text-txt-primary">Ollama (로컬 LLM)</h3>
+          <p class="text-xs text-txt-secondary mt-0.5">매수/매도 판단에 사용할 로컬 LLM을 설정합니다.</p>
         </div>
         <div class="p-6 space-y-4">
 
@@ -138,14 +138,14 @@
             <label class="flex items-center gap-3 cursor-pointer">
               <div class="relative">
                 <input type="checkbox" v-model="form.ollamaEnabled" class="sr-only" />
-                <div class="w-11 h-6 rounded-full transition-colors" :class="form.ollamaEnabled ? 'bg-blue-600' : 'bg-slate-200'"></div>
+                <div class="w-11 h-6 rounded-full transition-colors" :class="form.ollamaEnabled ? 'bg-primary' : 'bg-surface-3'"></div>
                 <div class="absolute top-1 left-1 w-4 h-4 bg-white rounded-full shadow transition-transform" :class="form.ollamaEnabled ? 'translate-x-5' : 'translate-x-0'"></div>
               </div>
-              <span class="text-sm font-medium text-slate-700">Ollama 활성화</span>
+              <span class="text-sm font-medium text-txt-primary">Ollama 활성화</span>
             </label>
             <span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium"
-              :class="ollamaConnected ? 'bg-green-100 text-green-700' : 'bg-slate-100 text-slate-500'">
-              <span class="w-1.5 h-1.5 rounded-full" :class="ollamaConnected ? 'bg-green-500' : 'bg-slate-400'"></span>
+              :class="ollamaConnected ? 'bg-green-100 text-green-700' : 'bg-surface-3 text-txt-secondary'">
+              <span class="w-1.5 h-1.5 rounded-full" :class="ollamaConnected ? 'bg-green-500' : 'bg-txt-tertiary'"></span>
               {{ ollamaConnected ? '연결됨' : '미연결' }}
             </span>
           </div>
@@ -157,7 +157,7 @@
               <div>
                 <p class="text-xs text-amber-700 mb-1">1. Homebrew로 설치 (Mac):</p>
                 <div class="flex items-center gap-2">
-                  <code class="flex-1 bg-white px-3 py-1.5 rounded border border-amber-200 text-xs font-mono text-slate-700">brew install ollama</code>
+                  <code class="flex-1 bg-white px-3 py-1.5 rounded border border-amber-200 text-xs font-mono text-txt-primary">brew install ollama</code>
                   <button type="button" @click="copyToClipboard('brew install ollama')"
                     class="px-2 py-1.5 bg-amber-100 text-amber-700 rounded text-xs hover:bg-amber-200 transition whitespace-nowrap">
                     {{ copiedCmd === 'brew install ollama' ? '복사됨' : '복사' }}
@@ -167,7 +167,7 @@
               <div>
                 <p class="text-xs text-amber-700 mb-1">2. Ollama 서버 실행:</p>
                 <div class="flex items-center gap-2">
-                  <code class="flex-1 bg-white px-3 py-1.5 rounded border border-amber-200 text-xs font-mono text-slate-700">ollama serve</code>
+                  <code class="flex-1 bg-white px-3 py-1.5 rounded border border-amber-200 text-xs font-mono text-txt-primary">ollama serve</code>
                   <button type="button" @click="copyToClipboard('ollama serve')"
                     class="px-2 py-1.5 bg-amber-100 text-amber-700 rounded text-xs hover:bg-amber-200 transition whitespace-nowrap">
                     {{ copiedCmd === 'ollama serve' ? '복사됨' : '복사' }}
@@ -177,7 +177,7 @@
               <div>
                 <p class="text-xs text-amber-700 mb-1">3. 또는 공식 앱 다운로드:</p>
                 <a href="https://ollama.com/download" target="_blank"
-                  class="inline-flex items-center gap-1 text-xs text-blue-600 hover:underline">
+                  class="inline-flex items-center gap-1 text-xs text-accent hover:underline">
                   ollama.com/download
                 </a>
               </div>
@@ -191,23 +191,23 @@
           <!-- Ollama URL / 모델 설정 -->
           <div v-if="form.ollamaEnabled" class="space-y-4">
             <div>
-              <label class="block text-sm font-medium text-slate-700 mb-1">Ollama URL</label>
+              <label class="block text-sm font-medium text-txt-primary mb-1">Ollama URL</label>
               <input v-model="form.ollamaUrl" type="text" placeholder="http://localhost:11434"
-                class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                class="w-full border border-border rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-accent" />
             </div>
             <div>
-              <label class="block text-sm font-medium text-slate-700 mb-1">사용 모델</label>
+              <label class="block text-sm font-medium text-txt-primary mb-1">사용 모델</label>
               <div class="flex gap-2">
                 <select v-if="ollamaModels.length > 0" v-model="form.ollamaModel"
-                  class="flex-1 border border-slate-300 rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-blue-500">
+                  class="flex-1 border border-border rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-accent">
                   <option v-for="m in ollamaModels" :key="m.name" :value="m.name">
                     {{ m.name }} ({{ formatModelSize(m.size) }})
                   </option>
                 </select>
                 <input v-else v-model="form.ollamaModel" type="text" placeholder="llama3.1"
-                  class="flex-1 border border-slate-300 rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                  class="flex-1 border border-border rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-accent" />
                 <button type="button" @click="loadOllamaModels"
-                  class="px-3 py-2 border border-slate-300 rounded-lg text-xs text-slate-600 hover:bg-slate-50 transition whitespace-nowrap">
+                  class="px-3 py-2 border border-border rounded-lg text-xs text-txt-secondary hover:bg-surface-2 transition whitespace-nowrap">
                   새로고침
                 </button>
               </div>
@@ -215,26 +215,26 @@
           </div>
 
           <!-- 모델 관리 (연결 시) -->
-          <div v-if="ollamaConnected" class="border-t border-slate-100 pt-4 space-y-3">
+          <div v-if="ollamaConnected" class="border-t border-border-subtle pt-4 space-y-3">
             <div class="flex items-center justify-between">
-              <h4 class="text-sm font-medium text-slate-700">설치된 모델</h4>
-              <button type="button" @click="loadOllamaModels" class="text-xs text-blue-600 hover:underline">새로고침</button>
+              <h4 class="text-sm font-medium text-txt-primary">설치된 모델</h4>
+              <button type="button" @click="loadOllamaModels" class="text-xs text-accent hover:underline">새로고침</button>
             </div>
 
             <!-- 모델 목록 -->
-            <div v-if="ollamaModels.length === 0" class="text-sm text-slate-400 py-2">설치된 모델이 없습니다. 아래에서 다운로드하세요.</div>
+            <div v-if="ollamaModels.length === 0" class="text-sm text-txt-tertiary py-2">설치된 모델이 없습니다. 아래에서 다운로드하세요.</div>
             <div v-else class="space-y-1">
               <div v-for="m in ollamaModels" :key="m.name"
                 class="flex items-center justify-between px-3 py-2 rounded-lg"
-                :class="form.ollamaModel === m.name ? 'bg-blue-50 border border-blue-200' : 'bg-slate-50'">
+                :class="form.ollamaModel === m.name ? 'bg-blue-50 border border-blue-200' : 'bg-surface-2'">
                 <div class="flex items-center gap-2">
-                  <span v-if="form.ollamaModel === m.name" class="text-xs text-blue-600 font-medium">사용 중</span>
-                  <span class="text-sm font-mono text-slate-700">{{ m.name }}</span>
-                  <span class="text-xs text-slate-400">{{ formatModelSize(m.size) }}</span>
+                  <span v-if="form.ollamaModel === m.name" class="text-xs text-accent font-medium">사용 중</span>
+                  <span class="text-sm font-mono text-txt-primary">{{ m.name }}</span>
+                  <span class="text-xs text-txt-tertiary">{{ formatModelSize(m.size) }}</span>
                 </div>
                 <div class="flex gap-2">
                   <button v-if="form.ollamaModel !== m.name" type="button" @click="form.ollamaModel = m.name"
-                    class="text-xs text-blue-600 hover:underline">선택</button>
+                    class="text-xs text-accent hover:underline">선택</button>
                   <button type="button" @click="deleteModel(m.name)"
                     class="text-xs text-red-500 hover:underline">삭제</button>
                 </div>
@@ -242,21 +242,21 @@
             </div>
 
             <!-- 모델 다운로드 -->
-            <div class="bg-slate-50 rounded-lg p-4 space-y-3">
-              <h4 class="text-sm font-medium text-slate-700">모델 다운로드</h4>
+            <div class="bg-surface-2 rounded-lg p-4 space-y-3">
+              <h4 class="text-sm font-medium text-txt-primary">모델 다운로드</h4>
               <div class="flex gap-2 flex-wrap">
                 <button type="button" v-for="rec in recommendedModels" :key="rec.name"
                   @click="pullModelName = rec.name"
                   class="px-3 py-1.5 rounded-lg text-xs font-medium border transition"
-                  :class="pullModelName === rec.name ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-slate-600 border-slate-300 hover:bg-slate-50'">
-                  {{ rec.name }} <span class="text-slate-400 font-normal">({{ rec.size }})</span>
+                  :class="pullModelName === rec.name ? 'bg-primary text-white border-primary' : 'bg-surface-1 text-txt-secondary border-border hover:bg-surface-2'">
+                  {{ rec.name }} <span class="text-txt-tertiary font-normal">({{ rec.size }})</span>
                 </button>
               </div>
               <div class="flex gap-2">
                 <input v-model="pullModelName" type="text" placeholder="모델명 (예: llama3.1, qwen3:4b)"
-                  class="flex-1 border border-slate-300 rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                  class="flex-1 border border-border rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-accent" />
                 <button type="button" @click="pullModel" :disabled="pulling || !pullModelName"
-                  class="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 disabled:opacity-50 transition whitespace-nowrap">
+                  class="px-4 py-2 bg-primary text-white rounded-lg text-sm font-medium hover:bg-primary-hover disabled:opacity-50 transition whitespace-nowrap">
                   {{ pulling ? '다운로드 중...' : '다운로드' }}
                 </button>
               </div>
@@ -264,11 +264,11 @@
               <!-- 다운로드 진행 상태 -->
               <div v-if="pullStatus" class="space-y-2">
                 <div class="flex items-center justify-between text-xs">
-                  <span class="text-slate-600">{{ pullStatus }}</span>
-                  <span v-if="pullProgress > 0" class="text-slate-500">{{ pullProgress }}%</span>
+                  <span class="text-txt-secondary">{{ pullStatus }}</span>
+                  <span v-if="pullProgress > 0" class="text-txt-secondary">{{ pullProgress }}%</span>
                 </div>
-                <div v-if="pullProgress > 0" class="w-full bg-slate-200 rounded-full h-2 overflow-hidden">
-                  <div class="h-full bg-blue-600 rounded-full transition-all" :style="{ width: pullProgress + '%' }"></div>
+                <div v-if="pullProgress > 0" class="w-full bg-surface-3 rounded-full h-2 overflow-hidden">
+                  <div class="h-full bg-primary rounded-full transition-all" :style="{ width: pullProgress + '%' }"></div>
                 </div>
               </div>
               <div v-if="pullError" class="text-xs text-red-600">{{ pullError }}</div>
@@ -279,48 +279,48 @@
       </div>
 
       <!-- 섹션: DART (금융감독원 공시) -->
-      <div class="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
-        <div class="px-6 py-4 bg-slate-50 border-b border-slate-200">
-          <h3 class="text-sm font-semibold text-slate-700">DART (금융감독원 공시)</h3>
-          <p class="text-xs text-slate-500 mt-0.5">
+      <div class="bg-surface-1 rounded-xl border border-border shadow-sm overflow-hidden">
+        <div class="px-6 py-4 bg-surface-2 border-b border-border">
+          <h3 class="text-sm font-semibold text-txt-primary">DART (금융감독원 공시)</h3>
+          <p class="text-xs text-txt-secondary mt-0.5">
             재무제표(매출, 영업이익, ROE)와 실시간 공시 데이터를 조회합니다.
-            <a href="https://opendart.fss.or.kr/" target="_blank" class="text-blue-600 hover:underline ml-1">API 키 발급</a>
+            <a href="https://opendart.fss.or.kr/" target="_blank" class="text-accent hover:underline ml-1">API 키 발급</a>
           </p>
         </div>
         <div class="p-6 space-y-4">
           <label class="flex items-center gap-3 cursor-pointer">
             <div class="relative inline-block">
               <input type="checkbox" v-model="form.dartEnabled" class="sr-only" />
-              <div class="w-9 h-5 rounded-full transition-colors" :class="form.dartEnabled ? 'bg-blue-600' : 'bg-slate-200'"></div>
+              <div class="w-9 h-5 rounded-full transition-colors" :class="form.dartEnabled ? 'bg-primary' : 'bg-surface-3'"></div>
               <div class="absolute top-0.5 left-0.5 w-4 h-4 bg-white rounded-full shadow transition-transform" :class="form.dartEnabled ? 'translate-x-4' : 'translate-x-0'"></div>
             </div>
-            <span class="text-sm font-medium text-slate-700">DART 활성화</span>
+            <span class="text-sm font-medium text-txt-primary">DART 활성화</span>
             <span v-if="dartKeySaved" class="text-xs px-1.5 py-0.5 rounded bg-green-50 text-green-600">API 연결됨</span>
           </label>
           <div v-if="form.dartEnabled" class="space-y-3">
             <div>
-              <label class="block text-sm font-medium text-slate-700 mb-1">
+              <label class="block text-sm font-medium text-txt-primary mb-1">
                 DART API Key
                 <span v-if="dartKeySaved" class="ml-2 text-xs font-normal text-green-600 bg-green-50 px-1.5 py-0.5 rounded">저장됨</span>
               </label>
               <input v-model="form.dartApiKey" type="password"
                 :placeholder="dartKeySaved ? '변경할 경우에만 입력' : 'DART OpenAPI 인증키 입력'"
-                class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-blue-500" />
-              <p class="text-xs text-slate-400 mt-1">opendart.fss.or.kr에서 발급받은 인증키</p>
+                class="w-full border border-border rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-accent" />
+              <p class="text-xs text-txt-tertiary mt-1">opendart.fss.or.kr에서 발급받은 인증키</p>
             </div>
           </div>
         </div>
       </div>
 
       <!-- 섹션 5: AI 분석 옵션 -->
-      <div class="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
-        <div class="px-6 py-4 bg-slate-50 border-b border-slate-200">
-          <h3 class="text-sm font-semibold text-slate-700">AI 분석 옵션</h3>
-          <p class="text-xs text-slate-500 mt-0.5">LLM 매매 판단의 투자 스타일과 분석 방식을 설정합니다.</p>
+      <div class="bg-surface-1 rounded-xl border border-border shadow-sm overflow-hidden">
+        <div class="px-6 py-4 bg-surface-2 border-b border-border">
+          <h3 class="text-sm font-semibold text-txt-primary">AI 분석 옵션</h3>
+          <p class="text-xs text-txt-secondary mt-0.5">LLM 매매 판단의 투자 스타일과 분석 방식을 설정합니다.</p>
         </div>
         <div class="p-6 space-y-4">
           <div>
-            <label class="block text-sm font-medium text-slate-700 mb-2">투자 스타일</label>
+            <label class="block text-sm font-medium text-txt-primary mb-2">투자 스타일</label>
             <div class="grid grid-cols-2 md:grid-cols-4 gap-2">
               <button type="button" v-for="opt in [
                 { v: 'balanced', l: '균형형', d: 'RSI·MACD 등 종합 판단' },
@@ -329,9 +329,9 @@
                 { v: 'momentum', l: '모멘텀', d: '추세 추종·돌파 패턴 중심' },
               ]" :key="opt.v" @click="form.investmentStyle = opt.v"
                 class="py-2.5 px-3 rounded-lg border-2 text-center transition-all"
-                :class="form.investmentStyle === opt.v ? 'border-blue-400 bg-blue-50' : 'border-slate-200 hover:border-slate-300'">
-                <div class="text-sm font-medium" :class="form.investmentStyle === opt.v ? 'text-blue-700' : 'text-slate-700'">{{ opt.l }}</div>
-                <div class="text-xs mt-0.5" :class="form.investmentStyle === opt.v ? 'text-blue-500' : 'text-slate-400'">{{ opt.d }}</div>
+                :class="form.investmentStyle === opt.v ? 'border-blue-400 bg-blue-50' : 'border-border hover:border-border-hover'">
+                <div class="text-sm font-medium" :class="form.investmentStyle === opt.v ? 'text-blue-700' : 'text-txt-primary'">{{ opt.l }}</div>
+                <div class="text-xs mt-0.5" :class="form.investmentStyle === opt.v ? 'text-blue-500' : 'text-txt-tertiary'">{{ opt.d }}</div>
               </button>
             </div>
           </div>
@@ -339,86 +339,86 @@
             <label class="flex items-center gap-3 cursor-pointer">
               <div class="relative inline-block">
                 <input type="checkbox" v-model="form.debateMode" class="sr-only" />
-                <div class="w-9 h-5 rounded-full transition-colors" :class="form.debateMode ? 'bg-blue-600' : 'bg-slate-200'"></div>
+                <div class="w-9 h-5 rounded-full transition-colors" :class="form.debateMode ? 'bg-primary' : 'bg-surface-3'"></div>
                 <div class="absolute top-0.5 left-0.5 w-4 h-4 bg-white rounded-full shadow transition-transform" :class="form.debateMode ? 'translate-x-4' : 'translate-x-0'"></div>
               </div>
-              <span class="text-sm font-medium text-slate-700">토론 모드 (강세/약세 분석)</span>
+              <span class="text-sm font-medium text-txt-primary">토론 모드 (강세/약세 분석)</span>
             </label>
-            <p class="text-xs text-slate-500 mt-1 ml-12">LLM이 강세·약세 관점을 각각 분석한 뒤 종합 판단합니다. 정확도가 높아지지만 분석 시간이 3배로 늘어납니다.</p>
+            <p class="text-xs text-txt-secondary mt-1 ml-12">LLM이 강세·약세 관점을 각각 분석한 뒤 종합 판단합니다. 정확도가 높아지지만 분석 시간이 3배로 늘어납니다.</p>
           </div>
           <div>
-            <label class="block text-sm font-medium text-slate-700 mb-1">손절 기준 (%)</label>
+            <label class="block text-sm font-medium text-txt-primary mb-1">손절 기준 (%)</label>
             <div class="flex items-center gap-3">
               <input v-model.number="form.stopLossPercent" type="number" min="1" max="20" step="0.5"
-                class="w-24 border border-slate-300 rounded-lg px-3 py-2 text-sm text-center focus:outline-none focus:ring-2 focus:ring-blue-500" />
-              <span class="text-xs text-slate-500">매입가 대비 -{{ form.stopLossPercent }}% 도달 시 자동 손절 매도</span>
+                class="w-24 border border-border rounded-lg px-3 py-2 text-sm text-center focus:outline-none focus:ring-2 focus:ring-accent" />
+              <span class="text-xs text-txt-secondary">매입가 대비 -{{ form.stopLossPercent }}% 도달 시 자동 손절 매도</span>
             </div>
           </div>
         </div>
       </div>
 
       <!-- 섹션 6: 자동매매 설정 -->
-      <div class="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
-        <div class="px-6 py-4 bg-slate-50 border-b border-slate-200">
-          <h3 class="text-sm font-semibold text-slate-700">자동매매</h3>
-          <p class="text-xs text-slate-500 mt-0.5">자동매매 활성화 및 리스크 관리 설정</p>
+      <div class="bg-surface-1 rounded-xl border border-border shadow-sm overflow-hidden">
+        <div class="px-6 py-4 bg-surface-2 border-b border-border">
+          <h3 class="text-sm font-semibold text-txt-primary">자동매매</h3>
+          <p class="text-xs text-txt-secondary mt-0.5">자동매매 활성화 및 리스크 관리 설정</p>
         </div>
         <div class="p-6 space-y-4">
           <label class="flex items-center gap-3 cursor-pointer">
             <div class="relative">
               <input type="checkbox" v-model="form.autoTradeEnabled" class="sr-only" />
-              <div class="w-11 h-6 rounded-full transition-colors" :class="form.autoTradeEnabled ? 'bg-blue-600' : 'bg-slate-200'"></div>
+              <div class="w-11 h-6 rounded-full transition-colors" :class="form.autoTradeEnabled ? 'bg-primary' : 'bg-surface-3'"></div>
               <div class="absolute top-1 left-1 w-4 h-4 bg-white rounded-full shadow transition-transform" :class="form.autoTradeEnabled ? 'translate-x-5' : 'translate-x-0'"></div>
             </div>
-            <span class="text-sm font-medium text-slate-700">자동매매 활성화</span>
+            <span class="text-sm font-medium text-txt-primary">자동매매 활성화</span>
           </label>
-          <div v-if="!form.autoTradeEnabled" class="p-3 bg-slate-50 rounded-lg border border-slate-200">
-            <p class="text-xs text-slate-500">자동매매가 비활성화되어 있습니다. 매매 신호는 생성되지만 주문은 실행되지 않습니다.</p>
+          <div v-if="!form.autoTradeEnabled" class="p-3 bg-surface-2 rounded-lg border border-border">
+            <p class="text-xs text-txt-secondary">자동매매가 비활성화되어 있습니다. 매매 신호는 생성되지만 주문은 실행되지 않습니다.</p>
           </div>
           <div v-if="form.autoTradeEnabled" class="p-3 bg-red-50 rounded-lg border border-red-200">
             <p class="text-xs text-red-600">⚠️ 자동매매가 활성화되면 LLM 판단에 따라 실제 주문이 실행됩니다.</p>
           </div>
           <div class="grid grid-cols-3 gap-4">
             <div>
-              <label class="block text-sm font-medium text-slate-700 mb-1">총 최대 투자금액</label>
+              <label class="block text-sm font-medium text-txt-primary mb-1">총 최대 투자금액</label>
               <input v-model.number="form.autoTradeMaxInvestment" type="number" min="0" step="1000000"
-                class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
-              <p class="text-xs text-slate-400 mt-1">{{ formatCurrency(form.autoTradeMaxInvestment) }}</p>
+                class="w-full border border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-accent" />
+              <p class="text-xs text-txt-tertiary mt-1">{{ formatCurrency(form.autoTradeMaxInvestment) }}</p>
             </div>
             <div>
-              <label class="block text-sm font-medium text-slate-700 mb-1">종목당 최대</label>
+              <label class="block text-sm font-medium text-txt-primary mb-1">종목당 최대</label>
               <input v-model.number="form.autoTradeMaxPerStock" type="number" min="0" step="500000"
-                class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
-              <p class="text-xs text-slate-400 mt-1">{{ formatCurrency(form.autoTradeMaxPerStock) }}</p>
+                class="w-full border border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-accent" />
+              <p class="text-xs text-txt-tertiary mt-1">{{ formatCurrency(form.autoTradeMaxPerStock) }}</p>
             </div>
             <div>
-              <label class="block text-sm font-medium text-slate-700 mb-1">일일 최대 거래</label>
+              <label class="block text-sm font-medium text-txt-primary mb-1">일일 최대 거래</label>
               <input v-model.number="form.autoTradeMaxDailyTrades" type="number" min="1" max="100"
-                class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
-              <p class="text-xs text-slate-400 mt-1">{{ form.autoTradeMaxDailyTrades }}회</p>
+                class="w-full border border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-accent" />
+              <p class="text-xs text-txt-tertiary mt-1">{{ form.autoTradeMaxDailyTrades }}회</p>
             </div>
           </div>
         </div>
       </div>
 
       <!-- 섹션 7: 스케줄 설정 -->
-      <div class="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
-        <div class="px-6 py-4 bg-slate-50 border-b border-slate-200">
-          <h3 class="text-sm font-semibold text-slate-700">매매 스케줄</h3>
-          <p class="text-xs text-slate-500 mt-0.5">시장별 자동 분석/매매 스케줄 (주말 제외)</p>
+      <div class="bg-surface-1 rounded-xl border border-border shadow-sm overflow-hidden">
+        <div class="px-6 py-4 bg-surface-2 border-b border-border">
+          <h3 class="text-sm font-semibold text-txt-primary">매매 스케줄</h3>
+          <p class="text-xs text-txt-secondary mt-0.5">시장별 자동 분석/매매 스케줄 (주말 제외)</p>
         </div>
         <div class="p-6 space-y-6">
           <!-- KRX -->
           <div>
             <div class="flex items-center justify-between mb-3">
               <div class="flex items-center gap-2">
-                <span class="text-sm font-semibold text-slate-700">🇰🇷 KRX (한국거래소)</span>
-                <span class="text-xs text-slate-400">09:00 ~ 15:30 KST</span>
+                <span class="text-sm font-semibold text-txt-primary">🇰🇷 KRX (한국거래소)</span>
+                <span class="text-xs text-txt-tertiary">09:00 ~ 15:30 KST</span>
               </div>
               <label class="flex items-center gap-2 cursor-pointer">
                 <div class="relative">
                   <input type="checkbox" v-model="form.scheduleKrx.enabled" class="sr-only" />
-                  <div class="w-9 h-5 rounded-full transition-colors" :class="form.scheduleKrx.enabled ? 'bg-blue-600' : 'bg-slate-200'"></div>
+                  <div class="w-9 h-5 rounded-full transition-colors" :class="form.scheduleKrx.enabled ? 'bg-primary' : 'bg-surface-3'"></div>
                   <div class="absolute top-0.5 left-0.5 w-4 h-4 bg-white rounded-full shadow transition-transform" :class="form.scheduleKrx.enabled ? 'translate-x-4' : 'translate-x-0'"></div>
                 </div>
               </label>
@@ -426,26 +426,26 @@
             <div v-if="form.scheduleKrx.enabled" class="grid grid-cols-2 gap-2">
               <label v-for="s in scheduleSlots" :key="'krx-'+s.key"
                 class="flex items-center gap-2 p-2 rounded-lg border text-xs cursor-pointer"
-                :class="form.scheduleKrx[s.key] ? 'border-blue-200 bg-blue-50' : 'border-slate-200'">
-                <input type="checkbox" v-model="form.scheduleKrx[s.key]" class="rounded text-blue-600" />
+                :class="form.scheduleKrx[s.key] ? 'border-blue-200 bg-blue-50' : 'border-border'">
+                <input type="checkbox" v-model="form.scheduleKrx[s.key]" class="rounded text-accent" />
                 <div>
-                  <span class="font-medium text-slate-700">{{ s.label }}</span>
-                  <span class="text-slate-400 ml-1">{{ s.krxTime }}</span>
+                  <span class="font-medium text-txt-primary">{{ s.label }}</span>
+                  <span class="text-txt-tertiary ml-1">{{ s.krxTime }}</span>
                 </div>
               </label>
             </div>
           </div>
           <!-- NYSE -->
-          <div class="border-t border-slate-100 pt-6">
+          <div class="border-t border-border-subtle pt-6">
             <div class="flex items-center justify-between mb-3">
               <div class="flex items-center gap-2">
-                <span class="text-sm font-semibold text-slate-700">🇺🇸 NYSE/NASDAQ</span>
-                <span class="text-xs text-slate-400">09:30 ~ 16:00 ET</span>
+                <span class="text-sm font-semibold text-txt-primary">🇺🇸 NYSE/NASDAQ</span>
+                <span class="text-xs text-txt-tertiary">09:30 ~ 16:00 ET</span>
               </div>
               <label class="flex items-center gap-2 cursor-pointer">
                 <div class="relative">
                   <input type="checkbox" v-model="form.scheduleNyse.enabled" class="sr-only" />
-                  <div class="w-9 h-5 rounded-full transition-colors" :class="form.scheduleNyse.enabled ? 'bg-blue-600' : 'bg-slate-200'"></div>
+                  <div class="w-9 h-5 rounded-full transition-colors" :class="form.scheduleNyse.enabled ? 'bg-primary' : 'bg-surface-3'"></div>
                   <div class="absolute top-0.5 left-0.5 w-4 h-4 bg-white rounded-full shadow transition-transform" :class="form.scheduleNyse.enabled ? 'translate-x-4' : 'translate-x-0'"></div>
                 </div>
               </label>
@@ -453,11 +453,11 @@
             <div v-if="form.scheduleNyse.enabled" class="grid grid-cols-2 gap-2">
               <label v-for="s in scheduleSlots" :key="'nyse-'+s.key"
                 class="flex items-center gap-2 p-2 rounded-lg border text-xs cursor-pointer"
-                :class="form.scheduleNyse[s.key] ? 'border-blue-200 bg-blue-50' : 'border-slate-200'">
-                <input type="checkbox" v-model="form.scheduleNyse[s.key]" class="rounded text-blue-600" />
+                :class="form.scheduleNyse[s.key] ? 'border-blue-200 bg-blue-50' : 'border-border'">
+                <input type="checkbox" v-model="form.scheduleNyse[s.key]" class="rounded text-accent" />
                 <div>
-                  <span class="font-medium text-slate-700">{{ s.label }}</span>
-                  <span class="text-slate-400 ml-1">{{ s.nyseTime }}</span>
+                  <span class="font-medium text-txt-primary">{{ s.label }}</span>
+                  <span class="text-txt-tertiary ml-1">{{ s.nyseTime }}</span>
                 </div>
               </label>
             </div>
@@ -466,60 +466,60 @@
       </div>
 
       <!-- 섹션: 포트폴리오 운영 -->
-      <div class="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
-        <div class="px-6 py-4 bg-slate-50 border-b border-slate-200">
-          <h3 class="text-sm font-semibold text-slate-700">포트폴리오 운영</h3>
-          <p class="text-xs text-slate-500 mt-0.5">포트폴리오 분산 투자 및 리밸런싱 정책을 설정합니다.</p>
+      <div class="bg-surface-1 rounded-xl border border-border shadow-sm overflow-hidden">
+        <div class="px-6 py-4 bg-surface-2 border-b border-border">
+          <h3 class="text-sm font-semibold text-txt-primary">포트폴리오 운영</h3>
+          <p class="text-xs text-txt-secondary mt-0.5">포트폴리오 분산 투자 및 리밸런싱 정책을 설정합니다.</p>
         </div>
         <div class="p-6 space-y-4">
           <!-- 최대 보유 종목 수 -->
           <div>
-            <label class="block text-sm font-medium text-slate-700 mb-1">최대 보유 종목 수</label>
+            <label class="block text-sm font-medium text-txt-primary mb-1">최대 보유 종목 수</label>
             <input v-model.number="form.portfolioMaxHoldings" type="number" min="3" max="50"
-              class="w-24 border border-slate-300 rounded-lg px-3 py-2 text-sm text-center focus:outline-none focus:ring-2 focus:ring-blue-500" />
-            <p class="text-xs text-slate-400 mt-1">포트폴리오에 보유할 수 있는 최대 종목 수</p>
+              class="w-24 border border-border rounded-lg px-3 py-2 text-sm text-center focus:outline-none focus:ring-2 focus:ring-accent" />
+            <p class="text-xs text-txt-tertiary mt-1">포트폴리오에 보유할 수 있는 최대 종목 수</p>
           </div>
           <!-- 종목당 최대 비율 -->
           <div>
-            <label class="block text-sm font-medium text-slate-700 mb-1">종목당 최대 비율</label>
+            <label class="block text-sm font-medium text-txt-primary mb-1">종목당 최대 비율</label>
             <div class="flex items-center gap-2">
               <input v-model.number="form.portfolioMaxPerStockPercent" type="number" min="5" max="50"
-                class="w-24 border border-slate-300 rounded-lg px-3 py-2 text-sm text-center focus:outline-none focus:ring-2 focus:ring-blue-500" />
-              <span class="text-sm text-slate-500">%</span>
+                class="w-24 border border-border rounded-lg px-3 py-2 text-sm text-center focus:outline-none focus:ring-2 focus:ring-accent" />
+              <span class="text-sm text-txt-secondary">%</span>
             </div>
-            <p class="text-xs text-slate-400 mt-1">총 자산 대비 단일 종목 최대 투자 비율</p>
+            <p class="text-xs text-txt-tertiary mt-1">총 자산 대비 단일 종목 최대 투자 비율</p>
           </div>
           <!-- 섹터당 최대 비율 -->
           <div>
-            <label class="block text-sm font-medium text-slate-700 mb-1">섹터당 최대 비율</label>
+            <label class="block text-sm font-medium text-txt-primary mb-1">섹터당 최대 비율</label>
             <div class="flex items-center gap-2">
               <input v-model.number="form.portfolioMaxSectorPercent" type="number" min="20" max="80"
-                class="w-24 border border-slate-300 rounded-lg px-3 py-2 text-sm text-center focus:outline-none focus:ring-2 focus:ring-blue-500" />
-              <span class="text-sm text-slate-500">%</span>
+                class="w-24 border border-border rounded-lg px-3 py-2 text-sm text-center focus:outline-none focus:ring-2 focus:ring-accent" />
+              <span class="text-sm text-txt-secondary">%</span>
             </div>
-            <p class="text-xs text-slate-400 mt-1">동일 섹터에 집중 투자할 수 있는 최대 비율</p>
+            <p class="text-xs text-txt-tertiary mt-1">동일 섹터에 집중 투자할 수 있는 최대 비율</p>
           </div>
           <!-- 최소 현금 보유 비율 -->
           <div>
-            <label class="block text-sm font-medium text-slate-700 mb-1">최소 현금 보유 비율</label>
+            <label class="block text-sm font-medium text-txt-primary mb-1">최소 현금 보유 비율</label>
             <div class="flex items-center gap-2">
               <input v-model.number="form.portfolioMinCashPercent" type="number" min="0" max="50"
-                class="w-24 border border-slate-300 rounded-lg px-3 py-2 text-sm text-center focus:outline-none focus:ring-2 focus:ring-blue-500" />
-              <span class="text-sm text-slate-500">%</span>
+                class="w-24 border border-border rounded-lg px-3 py-2 text-sm text-center focus:outline-none focus:ring-2 focus:ring-accent" />
+              <span class="text-sm text-txt-secondary">%</span>
             </div>
-            <p class="text-xs text-slate-400 mt-1">투자 후에도 유지해야 할 최소 현금 비율</p>
+            <p class="text-xs text-txt-tertiary mt-1">투자 후에도 유지해야 할 최소 현금 비율</p>
           </div>
           <!-- 자동 리밸런싱 -->
           <div>
             <label class="flex items-center gap-3 cursor-pointer">
               <div class="relative inline-block">
                 <input type="checkbox" v-model="form.portfolioRebalanceEnabled" class="sr-only" />
-                <div class="w-9 h-5 rounded-full transition-colors" :class="form.portfolioRebalanceEnabled ? 'bg-blue-600' : 'bg-slate-200'"></div>
+                <div class="w-9 h-5 rounded-full transition-colors" :class="form.portfolioRebalanceEnabled ? 'bg-primary' : 'bg-surface-3'"></div>
                 <div class="absolute top-0.5 left-0.5 w-4 h-4 bg-white rounded-full shadow transition-transform" :class="form.portfolioRebalanceEnabled ? 'translate-x-4' : 'translate-x-0'"></div>
               </div>
-              <span class="text-sm font-medium text-slate-700">자동 리밸런싱</span>
+              <span class="text-sm font-medium text-txt-primary">자동 리밸런싱</span>
             </label>
-            <p class="text-xs text-slate-500 mt-1 ml-12">주간 1회 비중 초과/부족 종목 자동 제안</p>
+            <p class="text-xs text-txt-secondary mt-1 ml-12">주간 1회 비중 초과/부족 종목 자동 제안</p>
           </div>
         </div>
       </div>
@@ -535,31 +535,31 @@
       />
 
       <!-- 섹션: 데이터 동기화 (NAS) -->
-      <div class="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
-        <div class="px-6 py-4 bg-slate-50 border-b border-slate-200">
-          <h3 class="text-sm font-semibold text-slate-700">데이터 동기화 (NAS)</h3>
-          <p class="text-xs text-slate-500 mt-0.5">NAS에 데이터를 자동으로 백업/동기화합니다. 여러 기기에서 동일한 데이터를 유지할 수 있습니다.</p>
+      <div class="bg-surface-1 rounded-xl border border-border shadow-sm overflow-hidden">
+        <div class="px-6 py-4 bg-surface-2 border-b border-border">
+          <h3 class="text-sm font-semibold text-txt-primary">데이터 동기화 (NAS)</h3>
+          <p class="text-xs text-txt-secondary mt-0.5">NAS에 데이터를 자동으로 백업/동기화합니다. 여러 기기에서 동일한 데이터를 유지할 수 있습니다.</p>
         </div>
         <div class="p-6 space-y-4">
           <!-- NAS 동기화 활성화 토글 -->
           <label class="flex items-center gap-3 cursor-pointer">
             <div class="relative">
               <input type="checkbox" v-model="form.nasSyncEnabled" class="sr-only" />
-              <div class="w-11 h-6 rounded-full transition-colors" :class="form.nasSyncEnabled ? 'bg-blue-600' : 'bg-slate-200'"></div>
+              <div class="w-11 h-6 rounded-full transition-colors" :class="form.nasSyncEnabled ? 'bg-primary' : 'bg-surface-3'"></div>
               <div class="absolute top-1 left-1 w-4 h-4 bg-white rounded-full shadow transition-transform" :class="form.nasSyncEnabled ? 'translate-x-5' : 'translate-x-0'"></div>
             </div>
-            <span class="text-sm font-medium text-slate-700">NAS 동기화 활성화</span>
+            <span class="text-sm font-medium text-txt-primary">NAS 동기화 활성화</span>
           </label>
 
           <div v-if="form.nasSyncEnabled" class="space-y-4">
             <!-- NAS 경로 -->
             <div>
-              <label class="block text-sm font-medium text-slate-700 mb-1">NAS 경로</label>
+              <label class="block text-sm font-medium text-txt-primary mb-1">NAS 경로</label>
               <div class="flex gap-2">
                 <input v-model="form.nasSyncPath" type="text" placeholder="/Volumes/NAS/StockManager"
-                  class="flex-1 border border-slate-300 rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                  class="flex-1 border border-border rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-accent" />
                 <button type="button" @click="validateNasPath" :disabled="validating || !form.nasSyncPath"
-                  class="px-4 py-2 border border-slate-300 rounded-lg text-sm font-medium text-slate-600 hover:bg-slate-50 disabled:opacity-50 transition whitespace-nowrap">
+                  class="px-4 py-2 border border-border rounded-lg text-sm font-medium text-txt-secondary hover:bg-surface-2 disabled:opacity-50 transition whitespace-nowrap">
                   {{ validating ? '확인 중...' : '경로 테스트' }}
                 </button>
               </div>
@@ -567,53 +567,53 @@
                 :class="syncValidateResult.startsWith('OK') ? 'text-green-600' : 'text-red-600'">
                 {{ syncValidateResult }}
               </p>
-              <p class="text-xs text-slate-400 mt-1">마운트된 NAS 공유 폴더 경로를 입력하세요</p>
+              <p class="text-xs text-txt-tertiary mt-1">마운트된 NAS 공유 폴더 경로를 입력하세요</p>
             </div>
 
             <!-- 기기 ID -->
             <div>
-              <label class="block text-sm font-medium text-slate-700 mb-1">기기 ID</label>
+              <label class="block text-sm font-medium text-txt-primary mb-1">기기 ID</label>
               <input v-model="form.nasDeviceId" type="text" placeholder="hostname"
-                class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-blue-500" />
-              <p class="text-xs text-slate-400 mt-1">이 기기를 식별하는 고유 이름 (비워두면 호스트명 사용)</p>
+                class="w-full border border-border rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-accent" />
+              <p class="text-xs text-txt-tertiary mt-1">이 기기를 식별하는 고유 이름 (비워두면 호스트명 사용)</p>
             </div>
 
             <!-- 동기화 시간 -->
             <div>
-              <label class="block text-sm font-medium text-slate-700 mb-1">동기화 시간 (Cron 표현식)</label>
+              <label class="block text-sm font-medium text-txt-primary mb-1">동기화 시간 (Cron 표현식)</label>
               <input v-model="form.nasSyncTime" type="text" placeholder="0 20 * * *"
-                class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-blue-500" />
-              <p class="text-xs text-slate-400 mt-1">기본값: 매일 오후 8시 (0 20 * * *)</p>
+                class="w-full border border-border rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-accent" />
+              <p class="text-xs text-txt-tertiary mt-1">기본값: 매일 오후 8시 (0 20 * * *)</p>
             </div>
 
             <!-- 마지막 동기화 정보 -->
-            <div v-if="syncStatus?.lastSync" class="bg-slate-50 rounded-lg p-4">
-              <h4 class="text-sm font-medium text-slate-700 mb-2">마지막 동기화 정보</h4>
+            <div v-if="syncStatus?.lastSync" class="bg-surface-2 rounded-lg p-4">
+              <h4 class="text-sm font-medium text-txt-primary mb-2">마지막 동기화 정보</h4>
               <div class="grid grid-cols-2 gap-2 text-xs">
                 <div>
-                  <span class="text-slate-500">동기화 시각:</span>
-                  <span class="ml-1 text-slate-700 font-medium">{{ new Date(syncStatus.lastSync.lastSyncAt).toLocaleString('ko-KR') }}</span>
+                  <span class="text-txt-secondary">동기화 시각:</span>
+                  <span class="ml-1 text-txt-primary font-medium">{{ new Date(syncStatus.lastSync.lastSyncAt).toLocaleString('ko-KR') }}</span>
                 </div>
                 <div>
-                  <span class="text-slate-500">기기:</span>
-                  <span class="ml-1 text-slate-700 font-medium">{{ syncStatus.lastSync.deviceId }}</span>
+                  <span class="text-txt-secondary">기기:</span>
+                  <span class="ml-1 text-txt-primary font-medium">{{ syncStatus.lastSync.deviceId }}</span>
                 </div>
                 <div>
-                  <span class="text-slate-500">테이블:</span>
-                  <span class="ml-1 text-slate-700 font-medium">{{ syncStatus.lastSync.tablesExported }}개</span>
+                  <span class="text-txt-secondary">테이블:</span>
+                  <span class="ml-1 text-txt-primary font-medium">{{ syncStatus.lastSync.tablesExported }}개</span>
                 </div>
                 <div>
-                  <span class="text-slate-500">레코드:</span>
-                  <span class="ml-1 text-slate-700 font-medium">{{ syncStatus.lastSync.totalRecords.toLocaleString() }}건</span>
+                  <span class="text-txt-secondary">레코드:</span>
+                  <span class="ml-1 text-txt-primary font-medium">{{ syncStatus.lastSync.totalRecords.toLocaleString() }}건</span>
                 </div>
               </div>
             </div>
-            <div v-else class="text-xs text-slate-400">아직 동기화된 기록이 없습니다.</div>
+            <div v-else class="text-xs text-txt-tertiary">아직 동기화된 기록이 없습니다.</div>
 
             <!-- 지금 동기화 버튼 -->
             <div>
               <button type="button" @click="runSyncNow" :disabled="syncing"
-                class="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 disabled:opacity-50 transition">
+                class="px-4 py-2 bg-primary text-white rounded-lg text-sm font-medium hover:bg-primary-hover disabled:opacity-50 transition">
                 {{ syncing ? '동기화 중...' : '지금 동기화' }}
               </button>
               <p v-if="syncResultMessage" class="text-xs mt-2"
@@ -625,12 +625,36 @@
         </div>
       </div>
 
+      <!-- 섹션: 데이터 새로고침 -->
+      <div class="bg-surface-1 rounded-xl border border-border shadow-sm overflow-hidden">
+        <div class="px-6 py-4 bg-surface-2 border-b border-border">
+          <h3 class="text-sm font-semibold text-txt-primary">데이터 새로고침</h3>
+          <p class="text-xs text-txt-secondary mt-0.5">실시간 데이터 업데이트 방식과 주기를 설정합니다.</p>
+        </div>
+        <div class="p-6 space-y-4">
+          <div>
+            <label class="block text-sm font-medium text-txt-primary mb-2">자동 새로고침 간격</label>
+            <div class="grid grid-cols-4 gap-2">
+              <button type="button" v-for="opt in refreshOptions" :key="opt.value"
+                @click="selectedRefreshInterval = opt.value"
+                class="py-2.5 px-3 rounded-xl border-2 text-sm font-medium transition-all text-center"
+                :class="selectedRefreshInterval === opt.value
+                  ? 'border-accent bg-accent-dim text-accent'
+                  : 'border-border text-txt-secondary hover:border-border-hover'">
+                {{ opt.label }}
+              </button>
+            </div>
+            <p class="text-xs text-txt-tertiary mt-2">WebSocket 연결 시 서버 푸시로 즉시 업데이트되며, 연결 끊김 시 선택한 간격으로 폴링합니다.</p>
+          </div>
+        </div>
+      </div>
+
       <!-- 저장 버튼 -->
       <div class="flex items-center gap-3">
         <button
           type="submit"
           :disabled="saving"
-          class="bg-blue-600 text-white px-6 py-2.5 rounded-lg text-sm font-medium hover:bg-blue-700 disabled:opacity-50 transition"
+          class="bg-primary text-white px-6 py-2.5 rounded-lg text-sm font-medium hover:bg-primary-hover disabled:opacity-50 transition"
         >
           {{ saving ? '저장 중...' : '설정 저장' }}
         </button>
@@ -641,10 +665,10 @@
     </form>
 
     <!-- 전략 관리 -->
-    <div class="mt-8 bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
-      <div class="px-6 py-4 bg-slate-50 border-b border-slate-200">
-        <h3 class="text-sm font-semibold text-slate-700">전략 내보내기 / 가져오기</h3>
-        <p class="text-xs text-slate-500 mt-0.5">학습된 가중치와 설정을 다른 컴퓨터에 이식하거나, LoRA 학습 데이터를 추출합니다.</p>
+    <div class="mt-8 bg-surface-1 rounded-xl border border-border shadow-sm overflow-hidden">
+      <div class="px-6 py-4 bg-surface-2 border-b border-border">
+        <h3 class="text-sm font-semibold text-txt-primary">전략 내보내기 / 가져오기</h3>
+        <p class="text-xs text-txt-secondary mt-0.5">학습된 가중치와 설정을 다른 컴퓨터에 이식하거나, LoRA 학습 데이터를 추출합니다.</p>
       </div>
       <div class="p-6 space-y-4">
         <!-- 전체 설정 백업/복원 (API 키 포함) -->
@@ -669,10 +693,10 @@
         </div>
 
         <!-- 전략 내보내기 (credentials 제외) -->
-        <div class="border-t border-slate-100 pt-4">
+        <div class="border-t border-border-subtle pt-4">
           <div class="flex items-center gap-3">
             <button @click="doExportStrategy" :disabled="strategyExporting"
-              class="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm hover:bg-blue-700 disabled:opacity-50">
+              class="px-4 py-2 bg-primary text-white rounded-lg text-sm hover:bg-primary-hover disabled:opacity-50">
               {{ strategyExporting ? '내보내는 중...' : '전략 내보내기 (API키 미포함)' }}
             </button>
             <span v-if="strategyExportMsg" class="text-xs text-green-600">{{ strategyExportMsg }}</span>
@@ -681,10 +705,10 @@
 
         <!-- 전략 가져오기 -->
         <div>
-          <label class="block text-sm font-medium text-slate-700 mb-1">전략 가져오기</label>
+          <label class="block text-sm font-medium text-txt-primary mb-1">전략 가져오기</label>
           <div class="flex gap-2">
             <input type="file" ref="strategyFileInput" accept=".json" @change="onStrategyFileSelect"
-              class="flex-1 text-sm border border-slate-300 rounded-lg px-3 py-2 file:mr-3 file:py-1 file:px-3 file:rounded file:border-0 file:text-xs file:bg-blue-50 file:text-blue-700" />
+              class="flex-1 text-sm border border-border rounded-lg px-3 py-2 file:mr-3 file:py-1 file:px-3 file:rounded file:border-0 file:text-xs file:bg-blue-50 file:text-blue-700" />
             <button @click="doImportStrategy" :disabled="!strategyFile || strategyImporting"
               class="px-4 py-2 bg-green-600 text-white rounded-lg text-sm hover:bg-green-700 disabled:opacity-50">
               {{ strategyImporting ? '적용 중...' : '적용' }}
@@ -696,21 +720,21 @@
         </div>
 
         <!-- LoRA 학습 데이터 -->
-        <div class="border-t border-slate-100 pt-4">
+        <div class="border-t border-border-subtle pt-4">
           <div class="flex items-center justify-between mb-2">
-            <span class="text-sm font-medium text-slate-700">LoRA 학습 데이터</span>
-            <button @click="loadLoraStatus" class="text-xs text-blue-600 hover:underline">새로고침</button>
+            <span class="text-sm font-medium text-txt-primary">LoRA 학습 데이터</span>
+            <button @click="loadLoraStatus" class="text-xs text-accent hover:underline">새로고침</button>
           </div>
           <div v-if="loraStatus" class="space-y-2">
             <div class="flex items-center gap-3">
-              <div class="flex-1 bg-slate-100 rounded-full h-3 overflow-hidden">
+              <div class="flex-1 bg-surface-3 rounded-full h-3 overflow-hidden">
                 <div class="h-full rounded-full transition-all" :class="loraStatus.ready ? 'bg-green-500' : 'bg-blue-500'"
                   :style="{ width: Math.min(loraStatus.percent, 100) + '%' }"></div>
               </div>
-              <span class="text-xs text-slate-500 w-24 text-right">{{ loraStatus.count.toLocaleString() }} / 5,000</span>
+              <span class="text-xs text-txt-secondary w-24 text-right">{{ loraStatus.count.toLocaleString() }} / 5,000</span>
             </div>
             <p v-if="loraStatus.ready" class="text-xs text-green-600">학습 데이터 준비 완료! 내보내기 가능합니다.</p>
-            <p v-else class="text-xs text-slate-400">데이터가 충분히 쌓이면 자동으로 LoRA 학습 데이터가 생성됩니다.</p>
+            <p v-else class="text-xs text-txt-tertiary">데이터가 충분히 쌓이면 자동으로 LoRA 학습 데이터가 생성됩니다.</p>
             <button v-if="loraStatus.ready" @click="doExportLora" :disabled="loraExporting"
               class="px-4 py-2 bg-purple-600 text-white rounded-lg text-sm hover:bg-purple-700 disabled:opacity-50">
               {{ loraExporting ? '생성 중...' : 'LoRA 데이터 내보내기 (JSONL)' }}
@@ -735,11 +759,25 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue';
+import { ref, computed, onMounted, watch } from 'vue';
 import { chartApi, analysisApi, feedbackApi, nasSyncApi } from '@/api';
 import TradingRulesSection from '@/components/TradingRulesSection.vue';
+import { setRefreshInterval, getRefreshInterval } from '@/composables/useAutoRefresh';
 
 const configStatus = ref({ configured: false, isVirtual: true, hasAccount: false });
+
+// 데이터 새로고침 설정
+const refreshOptions = [
+  { label: '10초', value: 10000 },
+  { label: '30초', value: 30000 },
+  { label: '60초', value: 60000 },
+  { label: '수동', value: 0 },
+];
+const selectedRefreshInterval = ref(getRefreshInterval());
+
+watch(selectedRefreshInterval, (val) => {
+  setRefreshInterval(val);
+});
 
 const dartKeySaved = ref(false);
 
