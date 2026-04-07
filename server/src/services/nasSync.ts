@@ -139,29 +139,105 @@ function exportTableIncremental(tableName: string, lastSyncAt: string | null, ou
   return rows.length;
 }
 
-/** Export settings snapshot (without secrets) */
-function exportSettingsSnapshot(outputDir: string): void {
-  const settings = getSettings();
-  const { kisAppKey, kisAppSecret, dartApiKey, ...safeSettings } = settings;
-  const snapshot = {
-    ...safeSettings,
-    kisAppKey: kisAppKey ? '****' : '',
-    kisAppSecret: kisAppSecret ? '****' : '',
-    dartApiKey: dartApiKey ? '****' : '',
-    _exportedAt: new Date().toISOString(),
-    _hostname: os.hostname(),
-    _platform: os.platform(),
-    _arch: os.arch(),
-  };
+/**
+ * Fields that contain secrets. Masked when exporting to EXTERNAL locations
+ * (e.g., NAS share, removable media). Preserved when exporting to LOCAL
+ * user-home backups so users can recover after a brew upgrade.
+ *
+ * Includes known AppSettings fields and dynamic/extended fields
+ * (e.g., externalAiApiKey added in v4.5.0).
+ */
+const SECRET_FIELDS = [
+  'kisAppKey',
+  'kisAppSecret',
+  'dartApiKey',
+  'externalAiApiKey',
+  'nasPassword',
+  'ollamaApiKey', // future-proof for hosted Ollama
+] as const;
+
+/**
+ * Fields that are device-specific and MUST NOT propagate via NAS sync to
+ * other machines (different RAM/CPU/account/storage). When restoring a
+ * snapshot on another device, these fields are kept from the local settings
+ * rather than overwritten.
+ *
+ * Background: a single NAS-shared settings.json caused iMac with 2.4b model
+ * and MacBook with 7.8b model to overwrite each other on every sync, leading
+ * to OOM crashes when the bigger model loaded on the smaller machine.
+ */
+const DEVICE_SPECIFIC_FIELDS = [
+  'ollamaModel',          // model size depends on local RAM/GPU
+  'ollamaUrl',            // may differ if user uses remote Ollama on one device
+  'kisAccountNo',         // each device may have a different account
+  'kisAccountProductCode',
+  'kisAppKey',            // already secret, but also device-scoped
+  'kisAppSecret',
+  'nasSyncPath',          // mount point varies per OS / mount config
+  'nasSyncEnabled',
+  'nasHost',
+  'nasShare',
+  'nasUsername',
+  'nasPassword',
+  'nasAutoMount',
+  'deviceId',
+  'externalAiApiKey',     // user may use different provider keys per device
+] as const;
+
+function maskSecret(value: unknown): string {
+  return value ? '****' : '';
+}
+
+/**
+ * Export settings snapshot.
+ *
+ * @param outputDir destination folder
+ * @param includeSecrets if true, real secret values are written (for local
+ *                       backups that the user wants to use for restore).
+ *                       if false (default), all SECRET_FIELDS are masked
+ *                       (for shared/external NAS storage).
+ */
+function exportSettingsSnapshot(outputDir: string, includeSecrets: boolean): void {
+  const settings = getSettings() as unknown as Record<string, unknown>;
+
+  const snapshot: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(settings)) {
+    if (!includeSecrets && (SECRET_FIELDS as readonly string[]).includes(key)) {
+      snapshot[key] = maskSecret(value);
+    } else {
+      snapshot[key] = value;
+    }
+  }
+
+  snapshot._exportedAt = new Date().toISOString();
+  snapshot._hostname = os.hostname();
+  snapshot._platform = os.platform();
+  snapshot._arch = os.arch();
+  snapshot._secretsIncluded = includeSecrets;
+  // Hint to any future restore tool: these fields should NOT overwrite
+  // local values when syncing to a different machine.
+  snapshot._deviceSpecificFields = DEVICE_SPECIFIC_FIELDS;
+
   fs.writeFileSync(
     path.join(outputDir, 'settings-snapshot.json'),
     JSON.stringify(snapshot, null, 2),
-    'utf-8'
+    'utf-8',
   );
 }
 
+export interface NasSyncOptions {
+  /**
+   * Whether the settings snapshot should include real secret values.
+   * - true  → local backup mode (user clicked "로컬 백업" — keys preserved for restore)
+   * - false → external/shared NAS mode (user clicked "NAS 동기화" — keys masked)
+   * Defaults to false (safe default for shared storage).
+   */
+  includeSecrets?: boolean;
+}
+
 /** Run full NAS sync */
-export async function runNasSync(): Promise<SyncResult> {
+export async function runNasSync(options: NasSyncOptions = {}): Promise<SyncResult> {
+  const includeSecrets = options.includeSecrets === true;
   const settings = getSettings();
   const timestamp = new Date().toISOString();
 
@@ -218,8 +294,8 @@ export async function runNasSync(): Promise<SyncResult> {
       }
     }
 
-    // Export settings snapshot
-    exportSettingsSnapshot(dateDir);
+    // Export settings snapshot — secrets included only when caller opts in
+    exportSettingsSnapshot(dateDir, includeSecrets);
 
     // Update last sync time
     updateLastSyncTime(deviceDir, {

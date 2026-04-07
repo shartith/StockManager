@@ -12,6 +12,9 @@ server/dist/
 data/*.db
 data/settings.json
 
+# NAS sync local backups (user data, never tracked)
+stock-data/
+
 # Environment
 .env
 .env.*

@@ -6,7 +6,9 @@ import compression from 'compression';
 import rateLimit from 'express-rate-limit';
 import http from 'http';
 import crypto from 'crypto';
-import { execFile } from 'child_process';
+import { spawn } from 'child_process';
+import fs from 'fs';
+import os from 'os';
 import { initializeDB, saveDB, queryOne } from './db';
 import logger from './logger';
 import { initWebSocket, broadcast, broadcastRaw, closeAll as closeWs, setWsLogger } from './services/websocket';
@@ -190,35 +192,63 @@ app.post('/api/update', (req, res) => {
   try {
     res.json({ success: true, message: '업데이트를 시작합니다. 약 1~2분 후 페이지를 새로고침하세요.' });
 
-    // Run in background: brew upgrade → stop current → start new version
-    // The entire sequence must complete before the process exits
+    // Spawn a DETACHED background process so it survives our own shutdown.
+    //
+    // Why detached: brew upgrade → stock-manager stop → stock-manager start.
+    // The 'stop' step kills THIS server process. If the upgrade child were a
+    // normal child process, it would receive SIGHUP/SIGPIPE when the parent
+    // dies, never executing the 'start' step.
+    //
+    // detached: true   → new session, survives parent SIGTERM
+    // stdio: 'ignore'  → no shared file descriptors (fully decoupled)
+    // unref()          → parent's event loop does not wait for child
     setTimeout(() => {
-      logger.info('[Update] brew update && brew upgrade stock-manager 실행');
-
-      // Detect if running from brew (libexec) or local dev
       const isBrew = __dirname.includes('/libexec/') || __dirname.includes('/Cellar/');
       const restartCmd = isBrew
-        ? 'stock-manager stop; sleep 1; stock-manager start'
-        : `node "${process.argv[1]}" stop; sleep 1; node "${process.argv[1]}" start`;
+        ? 'stock-manager stop; sleep 3; stock-manager start'
+        : `node "${process.argv[1]}" stop; sleep 3; node "${process.argv[1]}" start`;
 
       const updateCmd = [
+        'echo "[$(date)] update started"',
         'brew update',
         'brew upgrade stock-manager',
+        'sleep 1',
         restartCmd,
+        'echo "[$(date)] update finished"',
       ].join(' && ');
 
-      execFile('/bin/sh', ['-c', updateCmd], {
-        timeout: 300000, // 5 minutes for brew update + upgrade + restart
+      // Log file for the detached updater (otherwise output is lost)
+      const dataDir = process.env.STOCK_MANAGER_DATA || `${os.homedir()}/.stock-manager`;
+      try { fs.mkdirSync(dataDir, { recursive: true }); } catch {}
+      const updateLog = `${dataDir}/update.log`;
+      let outFd: number;
+      let errFd: number;
+      try {
+        outFd = fs.openSync(updateLog, 'a');
+        errFd = fs.openSync(updateLog, 'a');
+      } catch (err) {
+        logger.error({ err, updateLog }, '[Update] log file open failed');
+        return;
+      }
+
+      logger.info({ updateLog }, '[Update] spawning detached updater');
+
+      const child = spawn('/bin/sh', ['-c', updateCmd], {
+        detached: true,
+        stdio: ['ignore', outFd, errFd],
         env: { ...process.env, PATH: `/opt/homebrew/bin:/usr/local/bin:${process.env.PATH}` },
-      }, (err, stdout, stderr) => {
-        if (err) logger.error({ err }, '[Update] 오류');
-        if (stdout) logger.info({ stdout }, '[Update] stdout');
-        if (stderr) logger.info({ stderr }, '[Update] stderr');
-        // If stock-manager restart succeeded, this process is already replaced.
-        // If it failed, exit so the user can manually restart.
-        logger.info('[Update] 완료, 현재 프로세스 종료');
-        process.exit(0);
       });
+
+      // Disconnect child from parent — parent can die without killing child
+      child.unref();
+
+      // Close our copies of the file descriptors (child has its own)
+      try { fs.closeSync(outFd); } catch {}
+      try { fs.closeSync(errFd); } catch {}
+
+      logger.info({ pid: child.pid }, '[Update] detached updater started');
+      // Do NOT call process.exit() here — let the detached child kill us
+      // via `stock-manager stop` when the time comes.
     }, 1000);
   } catch (err: unknown) {
     logger.error({ err }, '[Update] 실패');

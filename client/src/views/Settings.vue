@@ -610,14 +610,24 @@
             </div>
             <div v-else class="text-xs text-txt-tertiary">아직 동기화된 기록이 없습니다.</div>
 
-            <!-- 지금 동기화 버튼 -->
-            <div>
-              <button type="button" @click="runSyncNow" :disabled="syncing"
-                class="px-4 py-2 bg-primary text-white rounded-lg text-sm font-medium hover:bg-primary-hover disabled:opacity-50 transition">
-                {{ syncing ? '동기화 중...' : '지금 동기화' }}
-              </button>
+            <!-- 동기화 / 백업 버튼 -->
+            <div class="space-y-2">
+              <div class="flex flex-wrap gap-2">
+                <button type="button" @click="runSyncNow" :disabled="syncing"
+                  class="px-4 py-2 bg-primary text-white rounded-lg text-sm font-medium hover:bg-primary-hover disabled:opacity-50 transition">
+                  {{ syncing ? '처리 중...' : '🌐 NAS 동기화' }}
+                </button>
+                <button type="button" @click="runLocalBackup" :disabled="syncing"
+                  class="px-4 py-2 bg-surface-2 text-txt-primary border border-border rounded-lg text-sm font-medium hover:bg-surface-3 disabled:opacity-50 transition">
+                  {{ syncing ? '처리 중...' : '💾 로컬 백업 (API 키 포함)' }}
+                </button>
+              </div>
+              <p class="text-xs text-txt-tertiary">
+                <strong>NAS 동기화</strong>: 외부/공유 저장소용 — API 키가 마스킹됩니다.<br />
+                <strong>로컬 백업</strong>: brew 업그레이드 후 복구를 위해 API 키가 포함됩니다. 안전한 개인 저장소에만 사용하세요.
+              </p>
               <p v-if="syncResultMessage" class="text-xs mt-2"
-                :class="syncResultError ? 'text-red-600' : 'text-green-600'">
+                :class="syncResultError ? 'text-profit' : 'text-green-500'">
                 {{ syncResultMessage }}
               </p>
             </div>
@@ -1121,12 +1131,33 @@ async function runSyncNow() {
   try {
     const { data } = await nasSyncApi.run();
     syncResultMessage.value = data.success
-      ? `동기화 완료 — ${data.tablesExported}개 테이블, ${data.totalRecords.toLocaleString()}건 레코드`
+      ? `NAS 동기화 완료 — ${data.tablesExported}개 테이블, ${data.totalRecords.toLocaleString()}건 (API 키 마스킹)`
       : data.message;
     syncResultError.value = !data.success;
     await loadSyncStatus();
   } catch (err: any) {
     syncResultMessage.value = err.response?.data?.message || '동기화 실패';
+    syncResultError.value = true;
+  }
+  syncing.value = false;
+}
+
+async function runLocalBackup() {
+  if (!confirm('로컬 백업은 API 키를 평문으로 포함합니다.\n이 백업 파일은 안전한 개인 저장소(외부 노출 없음)에만 보관하세요.\n\n계속하시겠습니까?')) {
+    return;
+  }
+  syncing.value = true;
+  syncResultMessage.value = '';
+  syncResultError.value = false;
+  try {
+    const { data } = await nasSyncApi.backup();
+    syncResultMessage.value = data.success
+      ? `로컬 백업 완료 — ${data.tablesExported}개 테이블, ${data.totalRecords.toLocaleString()}건 (API 키 포함)`
+      : data.message;
+    syncResultError.value = !data.success;
+    await loadSyncStatus();
+  } catch (err: any) {
+    syncResultMessage.value = err.response?.data?.message || '백업 실패';
     syncResultError.value = true;
   }
   syncing.value = false;

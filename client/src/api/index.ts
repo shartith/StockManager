@@ -158,7 +158,10 @@ export const systemEventsApi = {
 // NAS 동기화 API
 export const nasSyncApi = {
   getStatus: () => api.get('/nas-sync/status'),
+  /** NAS 동기화: 외부/공유 저장소용 — API 키 마스킹 */
   run: () => api.post('/nas-sync/run'),
+  /** 로컬 백업: brew upgrade 후 복구를 위해 API 키 포함 */
+  backup: () => api.post('/nas-sync/backup'),
   validate: (path: string) => api.post('/nas-sync/validate', { path }),
 };
 

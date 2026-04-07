@@ -1,8 +1,30 @@
 import fs from 'fs';
+import os from 'os';
 import path from 'path';
 
-const DATA_DIR = process.env.STOCK_MANAGER_DATA || path.join(__dirname, '../../../data');
+// Persistent location: prefer STOCK_MANAGER_DATA env var, then ~/.stock-manager/
+// (NEVER fall back to a path inside the package — would be wiped on brew upgrade)
+const DATA_DIR = process.env.STOCK_MANAGER_DATA || path.join(os.homedir(), '.stock-manager');
 const SETTINGS_PATH = path.join(DATA_DIR, 'settings.json');
+
+/**
+ * Snapshot externally-provided environment variables AT MODULE LOAD TIME,
+ * before any internal code mutates process.env. Used to decide whether
+ * secrets should be stripped from the on-disk JSON.
+ *
+ * If the user provided keys via OS env vars at startup, they are stored here.
+ * If they only entered keys via the UI, ENV_SECRETS will be undefined and
+ * keys WILL be persisted to settings.json (so they survive restart).
+ */
+const ENV_SECRETS: Readonly<{
+  kisAppKey: string | undefined;
+  kisAppSecret: string | undefined;
+  dartApiKey: string | undefined;
+}> = {
+  kisAppKey: process.env.KIS_APP_KEY,
+  kisAppSecret: process.env.KIS_APP_SECRET,
+  dartApiKey: process.env.DART_API_KEY,
+};
 
 export interface MarketScheduleConfig {
   enabled: boolean;
@@ -146,12 +168,13 @@ export function getSettings(): AppSettings {
     _cache = { ...DEFAULT_SETTINGS };
   }
 
-  // Environment variable priority for secrets
-  if (process.env.KIS_APP_KEY) _cache!.kisAppKey = process.env.KIS_APP_KEY;
-  if (process.env.KIS_APP_SECRET) _cache!.kisAppSecret = process.env.KIS_APP_SECRET;
-  if (process.env.DART_API_KEY) _cache!.dartApiKey = process.env.DART_API_KEY;
+  // External env vars (set BEFORE this module loaded) take priority over file values
+  if (ENV_SECRETS.kisAppKey) _cache!.kisAppKey = ENV_SECRETS.kisAppKey;
+  if (ENV_SECRETS.kisAppSecret) _cache!.kisAppSecret = ENV_SECRETS.kisAppSecret;
+  if (ENV_SECRETS.dartApiKey) _cache!.dartApiKey = ENV_SECRETS.dartApiKey;
 
-  // 환경변수로도 동기화
+  // Sync to process.env so other modules (e.g. KIS API client) can read them.
+  // This does NOT affect strip logic in saveSettings — that uses ENV_SECRETS snapshot.
   if (_cache!.kisAppKey) process.env.KIS_APP_KEY = _cache!.kisAppKey;
   if (_cache!.kisAppSecret) process.env.KIS_APP_SECRET = _cache!.kisAppSecret;
   process.env.KIS_VIRTUAL = _cache!.kisVirtual ? 'true' : 'false';
@@ -166,18 +189,25 @@ export function saveSettings(partial: Partial<AppSettings>) {
   const dir = path.dirname(SETTINGS_PATH);
   if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
 
-  // Strip secrets before writing to JSON if set via env vars
+  // Strip secrets ONLY if they were originally provided via external env vars.
+  // Keys entered through the UI MUST be persisted to settings.json so they
+  // survive process restart and brew upgrade.
   const { kisAppKey, kisAppSecret, dartApiKey, ...safeSettings } = _cache;
   const toSave = {
     ...safeSettings,
-    ...(process.env.KIS_APP_KEY ? {} : { kisAppKey }),
-    ...(process.env.KIS_APP_SECRET ? {} : { kisAppSecret }),
-    ...(process.env.DART_API_KEY ? {} : { dartApiKey }),
+    ...(ENV_SECRETS.kisAppKey ? {} : { kisAppKey }),
+    ...(ENV_SECRETS.kisAppSecret ? {} : { kisAppSecret }),
+    ...(ENV_SECRETS.dartApiKey ? {} : { dartApiKey }),
   };
   fs.writeFileSync(SETTINGS_PATH, JSON.stringify(toSave, null, 2), 'utf-8');
 
-  // 환경변수 동기화
+  // Sync to process.env for runtime use by other modules
   if (_cache.kisAppKey) process.env.KIS_APP_KEY = _cache.kisAppKey;
   if (_cache.kisAppSecret) process.env.KIS_APP_SECRET = _cache.kisAppSecret;
   process.env.KIS_VIRTUAL = _cache.kisVirtual ? 'true' : 'false';
+}
+
+/** Test-only: clear cache so tests can re-initialize. Production code should not call this. */
+export function _clearSettingsCache(): void {
+  _cache = null;
 }

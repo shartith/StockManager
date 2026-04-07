@@ -247,8 +247,9 @@ switch (command) {
         return;
       }
 
-      console.log('\n  NAS 동기화 실행 중...');
-      const result = await runNasSync();
+      const includeSecrets = process.argv.includes('--backup') || process.argv.includes('--include-secrets');
+      console.log(includeSecrets ? '\n  로컬 백업 실행 중 (API 키 포함)...' : '\n  NAS 동기화 실행 중 (API 키 마스킹)...');
+      const result = await runNasSync({ includeSecrets });
       console.log(`  ${result.success ? '✓' : '✗'} ${result.message}`);
       if (result.syncPath) console.log(`  경로: ${result.syncPath}`);
       console.log('');
@@ -284,8 +285,9 @@ switch (command) {
     stock-manager backup                   Full config backup (API keys included)
     stock-manager restore <file>           Restore full config from backup
 
-  NAS Sync:
-    stock-manager sync                     Run NAS data sync now
+  NAS Sync / Backup:
+    stock-manager sync                     NAS sync (API keys masked)
+    stock-manager sync --backup            Local backup (API keys INCLUDED, for restore)
     stock-manager sync --status            Show NAS sync status
 `);
 }

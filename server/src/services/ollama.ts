@@ -227,23 +227,114 @@ export async function getTradeDecision(
   return getTradeDecisionSingle(input, phase, settings);
 }
 
-async function callOllama(model: string, url: string, prompt: string, system: string, numPredict: number = 1024): Promise<string> {
-  const res = await fetch(`${url}/api/generate`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      model,
-      prompt,
-      system,
-      stream: false,
-      format: 'json',
-      options: { temperature: 0.2, num_predict: numPredict, top_p: 0.9 },
-    }),
+// ─── Ollama call resilience ─────────────────────────────────
+//
+// Root cause of v4.4.x OLLAMA_DOWN bursts (285+ failures/day):
+//   1. fetch() had NO timeout — hung calls blocked the event loop
+//   2. Concurrent calls overwhelmed Ollama's single-instance generation
+//   3. No retry on transient "fetch failed" errors
+//   4. No keep_alive — model unloaded between calls, cold-start each time
+//
+// This fix introduces:
+//   - AbortController-based timeout (default 120s, configurable)
+//   - Module-level mutex serializing all Ollama calls (Ollama can only
+//     process one generation at a time per model anyway)
+//   - 3-attempt retry with exponential backoff for transient network errors
+//   - keep_alive: '15m' to keep the model resident in memory between calls
+
+const OLLAMA_TIMEOUT_MS = 120_000;  // 2 minutes per request
+const OLLAMA_KEEP_ALIVE = '15m';
+const OLLAMA_RETRY_ATTEMPTS = 3;
+const OLLAMA_RETRY_BASE_DELAY_MS = 1_000;
+
+/**
+ * Module-level promise chain that serializes all callOllama invocations.
+ * Ollama processes one generation at a time per model — concurrent fetches
+ * just queue up at the OS socket layer and time out. Serializing in-process
+ * gives us clean error handling and predictable behaviour.
+ */
+let ollamaQueue: Promise<unknown> = Promise.resolve();
+
+function sleep(ms: number): Promise<void> {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+function isRetriableError(err: unknown): boolean {
+  if (!(err instanceof Error)) return false;
+  const msg = err.message.toLowerCase();
+  // Network-level transient failures worth retrying
+  return msg.includes('fetch failed')
+    || msg.includes('econnrefused')
+    || msg.includes('econnreset')
+    || msg.includes('socket hang up')
+    || msg.includes('aborted')
+    || msg.includes('etimedout');
+}
+
+async function callOllamaRaw(
+  model: string,
+  url: string,
+  prompt: string,
+  system: string,
+  numPredict: number,
+): Promise<string> {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), OLLAMA_TIMEOUT_MS);
+
+  try {
+    const res = await fetch(`${url}/api/generate`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      signal: controller.signal,
+      body: JSON.stringify({
+        model,
+        prompt,
+        system,
+        stream: false,
+        format: 'json',
+        keep_alive: OLLAMA_KEEP_ALIVE,
+        options: { temperature: 0.2, num_predict: numPredict, top_p: 0.9 },
+      }),
+    });
+
+    if (!res.ok) {
+      const errText = await res.text().catch(() => '');
+      throw new Error(`Ollama 요청 실패 (HTTP ${res.status}): ${errText.slice(0, 200)}`);
+    }
+    const data = await res.json() as { response?: string; thinking?: string };
+    return data.response || data.thinking || '';
+  } finally {
+    clearTimeout(timeoutId);
+  }
+}
+
+async function callOllama(
+  model: string,
+  url: string,
+  prompt: string,
+  system: string,
+  numPredict: number = 1024,
+): Promise<string> {
+  // Serialize via module-level queue (mutex)
+  const task = ollamaQueue.catch(() => undefined).then(async () => {
+    let lastErr: unknown;
+    for (let attempt = 0; attempt < OLLAMA_RETRY_ATTEMPTS; attempt++) {
+      try {
+        return await callOllamaRaw(model, url, prompt, system, numPredict);
+      } catch (err) {
+        lastErr = err;
+        if (attempt === OLLAMA_RETRY_ATTEMPTS - 1) break;
+        if (!isRetriableError(err)) break;
+        const delay = OLLAMA_RETRY_BASE_DELAY_MS * Math.pow(2, attempt);
+        logger.debug({ err: (err as Error).message, attempt: attempt + 1, delay }, 'Ollama call failed, retrying');
+        await sleep(delay);
+      }
+    }
+    throw lastErr instanceof Error ? lastErr : new Error('Ollama 호출 실패');
   });
 
-  if (!res.ok) throw new Error(`Ollama 요청 실패: ${await res.text()}`);
-  const data: any = await res.json();
-  return data.response || data.thinking || '';
+  ollamaQueue = task.catch(() => undefined);
+  return task as Promise<string>;
 }
 
 async function getTradeDecisionSingle(input: StockAnalysisInput, phase: AnalysisPhase, settings: any): Promise<TradeDecision> {

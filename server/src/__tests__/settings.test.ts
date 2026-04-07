@@ -153,38 +153,51 @@ describe('settings', () => {
     });
 
     it('environment variable KIS_APP_KEY overrides file value', async () => {
-      const fsModule = await import('fs');
-      vi.mocked(fsModule.default.existsSync).mockReturnValue(true);
-      vi.mocked(fsModule.default.readFileSync).mockReturnValue(
-        JSON.stringify({ kisAppKey: 'file-key' })
-      );
+      // ENV_SECRETS snapshots at module load — set env BEFORE re-importing
+      vi.resetModules();
       process.env.KIS_APP_KEY = 'env-key';
-
-      const settings = getSettings();
+      vi.doMock('fs', () => ({
+        default: {
+          existsSync: vi.fn().mockReturnValue(true),
+          readFileSync: vi.fn().mockReturnValue(JSON.stringify({ kisAppKey: 'file-key' })),
+          writeFileSync: vi.fn(),
+          mkdirSync: vi.fn(),
+        },
+      }));
+      const mod = await import('../services/settings');
+      const settings = mod.getSettings();
       expect(settings.kisAppKey).toBe('env-key');
     });
 
     it('environment variable KIS_APP_SECRET overrides file value', async () => {
-      const fsModule = await import('fs');
-      vi.mocked(fsModule.default.existsSync).mockReturnValue(true);
-      vi.mocked(fsModule.default.readFileSync).mockReturnValue(
-        JSON.stringify({ kisAppSecret: 'file-secret' })
-      );
+      vi.resetModules();
       process.env.KIS_APP_SECRET = 'env-secret';
-
-      const settings = getSettings();
+      vi.doMock('fs', () => ({
+        default: {
+          existsSync: vi.fn().mockReturnValue(true),
+          readFileSync: vi.fn().mockReturnValue(JSON.stringify({ kisAppSecret: 'file-secret' })),
+          writeFileSync: vi.fn(),
+          mkdirSync: vi.fn(),
+        },
+      }));
+      const mod = await import('../services/settings');
+      const settings = mod.getSettings();
       expect(settings.kisAppSecret).toBe('env-secret');
     });
 
     it('environment variable DART_API_KEY overrides file value', async () => {
-      const fsModule = await import('fs');
-      vi.mocked(fsModule.default.existsSync).mockReturnValue(true);
-      vi.mocked(fsModule.default.readFileSync).mockReturnValue(
-        JSON.stringify({ dartApiKey: 'file-dart' })
-      );
+      vi.resetModules();
       process.env.DART_API_KEY = 'env-dart';
-
-      const settings = getSettings();
+      vi.doMock('fs', () => ({
+        default: {
+          existsSync: vi.fn().mockReturnValue(true),
+          readFileSync: vi.fn().mockReturnValue(JSON.stringify({ dartApiKey: 'file-dart' })),
+          writeFileSync: vi.fn(),
+          mkdirSync: vi.fn(),
+        },
+      }));
+      const mod = await import('../services/settings');
+      const settings = mod.getSettings();
       expect(settings.dartApiKey).toBe('env-dart');
     });
 
@@ -247,58 +260,89 @@ describe('settings', () => {
       );
     });
 
-    it('strips secrets from file when set via env vars', async () => {
-      const fsModule = await import('fs');
-      vi.mocked(fsModule.default.existsSync).mockReturnValue(false);
+    it('strips secrets from file when set via env vars BEFORE module load', async () => {
+      // ENV_SECRETS is snapshotted at module load time. To test this path,
+      // set env vars and then re-import the module so the snapshot picks them up.
+      vi.resetModules();
       process.env.KIS_APP_KEY = 'env-key';
       process.env.KIS_APP_SECRET = 'env-secret';
       process.env.DART_API_KEY = 'env-dart';
 
-      getSettings();
-      saveSettings({ ollamaModel: 'test' });
+      vi.doMock('fs', () => ({
+        default: {
+          existsSync: vi.fn().mockReturnValue(false),
+          readFileSync: vi.fn(),
+          writeFileSync: vi.fn(),
+          mkdirSync: vi.fn(),
+        },
+        existsSync: vi.fn().mockReturnValue(false),
+        readFileSync: vi.fn(),
+        writeFileSync: vi.fn(),
+        mkdirSync: vi.fn(),
+      }));
+
+      const mod = await import('../services/settings');
+      const fsModule = await import('fs');
+
+      mod.getSettings();
+      mod.saveSettings({ ollamaModel: 'test' });
 
       const writtenData = JSON.parse(
-        vi.mocked(fsModule.default.writeFileSync).mock.calls[0][1] as string
+        vi.mocked(fsModule.default.writeFileSync).mock.calls[0][1] as string,
       );
-      // Secrets should NOT be in the written file when set via env
+      // Secrets should NOT be in the written file when set via external env
       expect(writtenData.kisAppKey).toBeUndefined();
       expect(writtenData.kisAppSecret).toBeUndefined();
       expect(writtenData.dartApiKey).toBeUndefined();
     });
 
-    it('includes secrets in file when NOT set via env vars initially', async () => {
-      // Important: getSettings syncs file keys BACK to process.env
-      // so after getSettings(), process.env.KIS_APP_KEY will be set from file.
-      // saveSettings then checks process.env to decide whether to strip.
-      // Since getSettings sets process.env from the file values, they ARE in env.
-      // This means secrets loaded from the file get synced to env and then stripped.
-      // This is the actual behavior of the code: once loaded, secrets go to env.
+    it('preserves UI-entered secrets in file across multiple saves (regression for v4.5.1 bug)', async () => {
+      // BUG: Previously, the second saveSettings() call would strip kisAppKey/kisAppSecret
+      // because saveSettings used process.env.KIS_APP_KEY as the strip trigger, and
+      // getSettings/saveSettings themselves set process.env after the first save.
+      // FIX: ENV_SECRETS is now snapshotted at module load time. Internal env sync
+      // does not affect strip behavior.
+      const fsModule = await import('fs');
+      vi.mocked(fsModule.default.existsSync).mockReturnValue(false);
+
+      // Simulate UI flow: user enters keys and saves
+      getSettings();
+      saveSettings({ kisAppKey: 'user-entered-key', kisAppSecret: 'user-entered-secret' });
+
+      const firstSave = JSON.parse(
+        vi.mocked(fsModule.default.writeFileSync).mock.calls[0][1] as string,
+      );
+      expect(firstSave.kisAppKey).toBe('user-entered-key');
+      expect(firstSave.kisAppSecret).toBe('user-entered-secret');
+
+      // User changes another setting and saves again — keys MUST still be in file
+      saveSettings({ ollamaModel: 'updated-model' });
+
+      const secondSave = JSON.parse(
+        vi.mocked(fsModule.default.writeFileSync).mock.calls[1][1] as string,
+      );
+      expect(secondSave.kisAppKey).toBe('user-entered-key');
+      expect(secondSave.kisAppSecret).toBe('user-entered-secret');
+      expect(secondSave.ollamaModel).toBe('updated-model');
+    });
+
+    it('preserves file-loaded secrets across saves when no external env vars set', async () => {
       const fsModule = await import('fs');
       vi.mocked(fsModule.default.existsSync).mockReturnValue(true);
       vi.mocked(fsModule.default.readFileSync).mockReturnValue(
-        JSON.stringify({ kisAppKey: 'file-key', kisAppSecret: 'file-secret', dartApiKey: 'file-dart' })
+        JSON.stringify({ kisAppKey: 'file-key', kisAppSecret: 'file-secret', dartApiKey: 'file-dart' }),
       );
 
       getSettings();
-      // After getSettings, process.env is set from file values
-      expect(process.env.KIS_APP_KEY).toBe('file-key');
-      expect(process.env.KIS_APP_SECRET).toBe('file-secret');
-
+      // Internal env sync happens (so other modules can read), but ENV_SECRETS snapshot is empty
       saveSettings({ ollamaModel: 'test' });
 
       const writtenData = JSON.parse(
-        vi.mocked(fsModule.default.writeFileSync).mock.calls[0][1] as string
+        vi.mocked(fsModule.default.writeFileSync).mock.calls[0][1] as string,
       );
-      // Secrets are stripped because they were synced to process.env by getSettings
-      // This verifies the actual behavior: file -> env sync -> strip on save
-      expect(writtenData.kisAppKey).toBeUndefined();
-      expect(writtenData.kisAppSecret).toBeUndefined();
-      // dartApiKey is NOT synced to env by getSettings (only checked, not set)
-      // Actually let's check: getSettings only syncs KIS keys, not DART
-      // The code: if (_cache!.kisAppKey) process.env.KIS_APP_KEY = _cache!.kisAppKey;
-      // There's no process.env.DART_API_KEY = ... in getSettings
-      // But saveSettings checks: process.env.DART_API_KEY ? {} : { dartApiKey }
-      // Since we cleared DART_API_KEY in beforeEach, it should be included
+      // Keys must be preserved — they were entered via UI/file, not external env
+      expect(writtenData.kisAppKey).toBe('file-key');
+      expect(writtenData.kisAppSecret).toBe('file-secret');
       expect(writtenData.dartApiKey).toBe('file-dart');
     });
 
