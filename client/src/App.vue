@@ -210,7 +210,7 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted, provide, h } from 'vue';
 import { useRouter } from 'vue-router';
-import { notificationsApi, versionApi } from '@/api';
+import { notificationsApi, versionApi, setGlobalErrorReporter } from '@/api';
 import { useWebSocket } from '@/composables/useWebSocket';
 import { getRefreshInterval } from '@/composables/useAutoRefresh';
 import ConnectionStatus from '@/components/ConnectionStatus.vue';
@@ -329,6 +329,12 @@ const menuItems = [
 // Toast
 const toastRef = ref<InstanceType<typeof ToastNotification> | null>(null);
 provide('toast', toastRef);
+
+// v4.7.0: route global API errors through the toast singleton.
+// Components can opt out per-request via { suppressGlobalToast: true }.
+setGlobalErrorReporter((message: string) => {
+  toastRef.value?.show({ type: 'error', message });
+});
 
 // WebSocket notification listener
 wsOn('notifications', (data: unknown) => {

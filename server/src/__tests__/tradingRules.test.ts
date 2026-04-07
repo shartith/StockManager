@@ -535,6 +535,43 @@ describe('applyTradingRules', () => {
       );
       expect(result.triggeredRules).not.toContain('MORNING_SURGE_SELL');
     });
+
+    // ── v4.7.0: ATR-based dynamic threshold ─────────────────
+    // threshold = max(2.0, atrPercent × 1.5)
+    //
+    // Low-volatility stock (atr 1.0): threshold = max(2.0, 1.5) = 2.0%
+    // Mid-volatility stock (atr 2.0): threshold = max(2.0, 3.0) = 3.0% (default)
+    // High-volatility stock (atr 5.0): threshold = max(2.0, 7.5) = 7.5%
+
+    it('low-volatility stock: 2.5% gap triggers (threshold floor 2%)', () => {
+      const result = applyTradingRules(
+        makeSignal('HOLD'),
+        makeTimeContext({ isAfternoon: false }),
+        makePriceContext({ gapPercent: 2.5, atrPercent: 1.0 }),
+        true,
+      );
+      expect(result.triggeredRules).toContain('MORNING_SURGE_SELL');
+    });
+
+    it('high-volatility stock: 5% gap does NOT trigger (threshold raised to 7.5%)', () => {
+      const result = applyTradingRules(
+        makeSignal('HOLD'),
+        makeTimeContext({ isAfternoon: false }),
+        makePriceContext({ gapPercent: 5, atrPercent: 5.0 }),
+        true,
+      );
+      expect(result.triggeredRules).not.toContain('MORNING_SURGE_SELL');
+    });
+
+    it('high-volatility stock: 8% gap triggers (above 7.5% threshold)', () => {
+      const result = applyTradingRules(
+        makeSignal('HOLD'),
+        makeTimeContext({ isAfternoon: false }),
+        makePriceContext({ gapPercent: 8, atrPercent: 5.0 }),
+        true,
+      );
+      expect(result.triggeredRules).toContain('MORNING_SURGE_SELL');
+    });
   });
 
   describe('Rule 2: AFTERNOON_SURGE_NO_BUY', () => {
@@ -1004,7 +1041,7 @@ describe('applyTradingRules', () => {
   });
 
   describe('settings threshold customization', () => {
-    it('uses custom gapThresholdPercent', () => {
+    it('uses custom gapThresholdPercent as fallback when ATR is unavailable', () => {
       vi.mocked(getSettings).mockReturnValue({
         tradingRulesEnabled: true,
         tradingRulesStrictMode: false,
@@ -1014,11 +1051,12 @@ describe('applyTradingRules', () => {
         sidewaysAtrPercent: 1.0,
       } as any);
       mockEnabledRules(['MORNING_SURGE_SELL']);
-      // gap 4% is below custom 5% threshold
+      // v4.7.0: setting atrPercent to 0 forces the static fallback path
+      // (otherwise ATR-based dynamic threshold takes precedence)
       const result = applyTradingRules(
         makeSignal('HOLD'),
         makeTimeContext({ isAfternoon: false }),
-        makePriceContext({ gapPercent: 4 }),
+        makePriceContext({ gapPercent: 4, atrPercent: 0 }),
         true,
       );
       expect(result.triggeredRules).not.toContain('MORNING_SURGE_SELL');

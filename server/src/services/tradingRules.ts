@@ -110,10 +110,39 @@ export function applyTradingRules(
   let totalConfidenceAdj = 0;
   const reasons: string[] = [];
 
-  const gapThreshold = settings.gapThresholdPercent ?? 3;
+  // ── Static fallbacks (used when ATR is unavailable) ──
+  const staticGapThreshold = settings.gapThresholdPercent ?? 3;
   const volumeSurge = settings.volumeSurgeRatio ?? 1.5;
   const lowVolume = settings.lowVolumeRatio ?? 0.7;
   const sidewaysAtr = settings.sidewaysAtrPercent ?? 1.0;
+
+  // ── v4.7.0: ATR-based dynamic threshold ─────────────────────
+  //
+  // A fixed 3% gap means very different things for a low-volatility large-cap
+  // (where 3% is a major event) vs. a small-cap penny stock (where 3% is
+  // intraday noise). Scaling the threshold by the stock's own ATR(14) makes
+  // each rule respect the security's natural volatility.
+  //
+  // Formula: threshold = max(staticFloor, atrPercent × multiplier)
+  //   - multiplier 1.5 ≈ 1.5σ daily move
+  //   - staticFloor prevents the threshold from collapsing to 0 in tests
+  //     or when ATR data is missing
+  //
+  // Examples:
+  //   - 삼성전자 (atr ≈ 1.5%) → gapThreshold = max(2, 2.25) = 2.25%
+  //   - 소형주 (atr ≈ 5%)    → gapThreshold = max(2, 7.5)  = 7.5%
+  const ATR_GAP_MULTIPLIER = 1.5;
+  const ATR_GAP_FLOOR = 2.0; // never below 2% even for very calm stocks
+  const gapThreshold = priceContext.atrPercent > 0
+    ? Math.max(ATR_GAP_FLOOR, priceContext.atrPercent * ATR_GAP_MULTIPLIER)
+    : staticGapThreshold;
+
+  // Volume surge ratio gets a small upward adjustment for high-volatility
+  // stocks where bursty volume is normal. atrPercent > 4 (extreme volatility)
+  // requires 2x volume to trigger; calmer stocks keep the standard 1.5x.
+  const dynamicVolumeSurge = priceContext.atrPercent > 4
+    ? volumeSurge + 0.5
+    : volumeSurge;
 
   for (const rule of rules) {
     switch (rule.rule_id) {
@@ -184,16 +213,16 @@ export function applyTradingRules(
 
       // ── Rule 7: 저점 + 거래량 급증 → 과감 매수 ──
       case 'LOW_VOLUME_SURGE_BUY':
-        if (priceContext.isAtLow && priceContext.volumeRatio >= volumeSurge) {
+        if (priceContext.isAtLow && priceContext.volumeRatio >= dynamicVolumeSurge) {
           totalConfidenceAdj += 25;
           triggered.push(rule.rule_id);
-          reasons.push(`저점 + 거래량 ${priceContext.volumeRatio.toFixed(1)}x → 매수 강화`);
+          reasons.push(`저점 + 거래량 ${priceContext.volumeRatio.toFixed(1)}x (≥${dynamicVolumeSurge.toFixed(1)}x) → 매수 강화`);
         }
         break;
 
       // ── Rule 8: 고점 + 거래량 급증 → 신속 매도 ──
       case 'HIGH_VOLUME_SURGE_SELL':
-        if (priceContext.isAtHigh && priceContext.volumeRatio >= volumeSurge && isHolding) {
+        if (priceContext.isAtHigh && priceContext.volumeRatio >= dynamicVolumeSurge && isHolding) {
           if (signal.signal !== 'SELL') {
             adjustedSignal = 'SELL';
             totalConfidenceAdj += 15;

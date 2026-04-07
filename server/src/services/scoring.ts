@@ -190,6 +190,45 @@ export async function evaluateAndScore(
         reason: `넓은 스프레드 ${quoteBook.spreadPercent.toFixed(2)}% — 슬리피지 위험`,
       });
     }
+
+    // ── v4.7.0: Quantitative EV penalty ─────────────────────
+    //
+    // The categorical GOOD/FAIR/POOR bands above only react at thresholds.
+    // This block adds a smooth, proportional penalty that reflects the
+    // *real* round-trip cost of taking a trade:
+    //
+    //   total_cost_pct = (½ × spread%) + entry_fee% + exit_fee%
+    //
+    // ½ × spread because immediate market entry crosses half the spread on
+    // the way in and the other half on the way out, but for a single BUY
+    // signal we only count the entry leg's worst case + the future exit's
+    // expected cost.
+    //
+    // Korean equity round-trip cost ≈ 0.40% (broker fee + tax + slippage).
+    // We convert this percentage cost into a score penalty: each 0.10%
+    // above a "free" 0.20% baseline costs 5 points. A clean large-cap
+    // (spread 0.05%) → 0 penalty. A POOR-quality small-cap with 0.8%
+    // spread → ~30-point penalty stacked on top of SPREAD_WIDE.
+    if (decision.signal === 'BUY') {
+      const KRX_ROUNDTRIP_FEE_PCT = 0.40;  // 매도세 + 거래세 + 위탁수수료
+      const FREE_COST_BUDGET_PCT = 0.20;   // 이 이하의 거래비용은 페널티 없음
+      const POINTS_PER_TENTH_PCT = 5;
+
+      const slippageCost = quoteBook.spreadPercent * 0.5;
+      const totalCostPct = slippageCost + KRX_ROUNDTRIP_FEE_PCT;
+      const excessCost = Math.max(0, totalCostPct - FREE_COST_BUDGET_PCT);
+
+      if (excessCost > 0) {
+        const evPenalty = Math.round(excessCost * 10 * POINTS_PER_TENTH_PCT);
+        if (evPenalty > 0) {
+          details.push({
+            type: 'SPREAD_WIDE',
+            value: -evPenalty,
+            reason: `EV 비용 페널티 ${totalCostPct.toFixed(2)}% (slip ${slippageCost.toFixed(2)} + fee ${KRX_ROUNDTRIP_FEE_PCT.toFixed(2)})`,
+          });
+        }
+      }
+    }
   }
 
   // 이번 라운드 점수 합산

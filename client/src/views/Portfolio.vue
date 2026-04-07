@@ -360,7 +360,11 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue';
 import { portfolioApi, transactionsApi, analysisApi } from '@/api';
-import ChartModal from '@/components/ChartModal.vue';
+// v4.7.0: lazy-load ChartModal to keep lightweight-charts (~170KB) out of
+// the initial Portfolio bundle. The chart only loads when the user clicks
+// the 차트 button.
+import { defineAsyncComponent } from 'vue';
+const ChartModal = defineAsyncComponent(() => import('@/components/ChartModal.vue'));
 import SummaryCard from '@/components/SummaryCard.vue';
 import TrendBadge from '@/components/TrendBadge.vue';
 

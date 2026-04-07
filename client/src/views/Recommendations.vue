@@ -131,9 +131,10 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue';
+import { ref, computed, onMounted, defineAsyncComponent } from 'vue';
 import { recommendationsApi } from '@/api';
-import ChartModal from '@/components/ChartModal.vue';
+// v4.7.0: lazy-load ChartModal (lightweight-charts ~170KB)
+const ChartModal = defineAsyncComponent(() => import('@/components/ChartModal.vue'));
 
 const chartModalVisible = ref(false);
 const chartModalTicker = ref('');

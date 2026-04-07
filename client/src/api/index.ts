@@ -1,9 +1,53 @@
 import axios from 'axios';
+import type { AxiosError } from 'axios';
 
 const api = axios.create({
   baseURL: '/api',
   headers: { 'Content-Type': 'application/json' },
 });
+
+// ─── Global error reporting (v4.7.0) ────────────────────────
+//
+// A single source of truth for surfacing API errors. Components used to
+// have ~18 empty `catch {}` blocks that swallowed errors silently. The
+// interceptor below extracts a useful message from the axios error and
+// hands it to the global toast handler installed by App.vue at boot time.
+//
+// Components that intentionally want to handle an error locally (e.g. the
+// settings save flow that shows inline validation messages) can opt out by
+// passing { suppressGlobalToast: true } in the request config.
+type ToastReporter = (message: string, opts?: { type?: 'error' | 'warning' }) => void;
+
+let toastReporter: ToastReporter | null = null;
+
+export function setGlobalErrorReporter(fn: ToastReporter): void {
+  toastReporter = fn;
+}
+
+function extractErrorMessage(error: AxiosError<{ error?: string; message?: string }>): string {
+  const data = error.response?.data;
+  if (data?.error) return data.error;
+  if (data?.message) return data.message;
+  if (error.message) return error.message;
+  return 'API 요청 실패';
+}
+
+api.interceptors.response.use(
+  response => response,
+  (error: AxiosError) => {
+    const config = error.config as { suppressGlobalToast?: boolean } | undefined;
+    if (!config?.suppressGlobalToast && toastReporter) {
+      const status = error.response?.status;
+      // Network errors and 5xx → user-visible toast.
+      // 4xx (validation, auth) is left to the caller because the UX is
+      // usually inline (form errors, login prompts).
+      if (!status || status >= 500) {
+        toastReporter(extractErrorMessage(error as AxiosError<{ error?: string }>));
+      }
+    }
+    return Promise.reject(error);
+  },
+);
 
 // 종목 API
 export const stocksApi = {

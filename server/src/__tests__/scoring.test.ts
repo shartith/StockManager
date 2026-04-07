@@ -703,6 +703,108 @@ describe('scoring engine', () => {
       expect(consDetail).toBeUndefined();
     });
   });
+
+  // ── v4.7.0: quoteBook + EV penalty ─────────────────────────
+
+  describe('quoteBook scoring (v4.5.0)', () => {
+    function makeQB(quality: 'GOOD' | 'FAIR' | 'POOR', spreadPercent: number, depthKrw = 50_000_000) {
+      return {
+        ticker: 'TEST', market: 'KRX' as const,
+        bids: [], asks: [],
+        midPrice: 1000,
+        spreadPercent,
+        depthImbalance: 1,
+        topBookDepthKrw: depthKrw,
+        quality,
+        fetchedAt: new Date().toISOString(),
+      };
+    }
+
+    it('GOOD quality awards SPREAD_TIGHT and BOOK_DEPTH_STRONG', async () => {
+      const result = await evaluateAndScore(
+        'TEST', 'KRX', makeDecision(), undefined, undefined, undefined,
+        makeQB('GOOD', 0.1),
+      );
+      expect(result.details.find(d => d.type === 'SPREAD_TIGHT')).toBeDefined();
+      expect(result.details.find(d => d.type === 'BOOK_DEPTH_STRONG')).toBeDefined();
+    });
+
+    it('POOR quality penalizes with SPREAD_WIDE', async () => {
+      const result = await evaluateAndScore(
+        'TEST', 'KRX', makeDecision(), undefined, undefined, undefined,
+        makeQB('POOR', 0.8),
+      );
+      const wide = result.details.filter(d => d.type === 'SPREAD_WIDE');
+      expect(wide.length).toBeGreaterThan(0);
+      expect(wide[0].value).toBeLessThan(0);
+    });
+  });
+
+  describe('quantitative EV penalty (v4.7.0)', () => {
+    function makeQB(spreadPercent: number, quality: 'GOOD' | 'FAIR' | 'POOR' = 'FAIR') {
+      return {
+        ticker: 'TEST', market: 'KRX' as const,
+        bids: [], asks: [],
+        midPrice: 1000,
+        spreadPercent,
+        depthImbalance: 1,
+        topBookDepthKrw: 50_000_000,
+        quality,
+        fetchedAt: new Date().toISOString(),
+      };
+    }
+
+    it('larger spread incurs larger (more negative) EV penalty for BUY', async () => {
+      const tight = await evaluateAndScore(
+        'TEST', 'KRX', makeDecision({ signal: 'BUY' }), undefined, undefined, undefined,
+        makeQB(0.0, 'GOOD'),
+      );
+      const wide = await evaluateAndScore(
+        'TEST', 'KRX', makeDecision({ signal: 'BUY' }), undefined, undefined, undefined,
+        makeQB(1.0, 'POOR'),
+      );
+
+      const tightEv = tight.details
+        .filter(d => d.type === 'SPREAD_WIDE' && d.reason.includes('EV 비용'))
+        .reduce((sum, d) => sum + d.value, 0);
+      const wideEv = wide.details
+        .filter(d => d.type === 'SPREAD_WIDE' && d.reason.includes('EV 비용'))
+        .reduce((sum, d) => sum + d.value, 0);
+
+      expect(wideEv).toBeLessThan(tightEv);
+    });
+
+    it('does NOT apply EV penalty for SELL signals', async () => {
+      const result = await evaluateAndScore(
+        'TEST', 'KRX', makeDecision({ signal: 'SELL' }), undefined, undefined, undefined,
+        makeQB(1.0, 'POOR'),
+      );
+      const evPenalty = result.details.find(
+        d => d.type === 'SPREAD_WIDE' && d.reason.includes('EV 비용'),
+      );
+      expect(evPenalty).toBeUndefined();
+    });
+
+    it('scales penalty with spread width', async () => {
+      const narrow = await evaluateAndScore(
+        'TEST', 'KRX', makeDecision({ signal: 'BUY' }), undefined, undefined, undefined,
+        makeQB(0.2, 'FAIR'),
+      );
+      const wide = await evaluateAndScore(
+        'TEST', 'KRX', makeDecision({ signal: 'BUY' }), undefined, undefined, undefined,
+        makeQB(2.0, 'POOR'),
+      );
+
+      const narrowEv = narrow.details
+        .filter(d => d.type === 'SPREAD_WIDE' && d.reason.includes('EV 비용'))
+        .reduce((sum, d) => sum + d.value, 0);
+      const wideEv = wide.details
+        .filter(d => d.type === 'SPREAD_WIDE' && d.reason.includes('EV 비용'))
+        .reduce((sum, d) => sum + d.value, 0);
+
+      expect(wideEv).toBeLessThan(narrowEv);
+    });
+  });
 });
 
 // ── getRecommendationScore ──
