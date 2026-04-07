@@ -143,17 +143,12 @@ function exportTableIncremental(tableName: string, lastSyncAt: string | null, ou
  * Fields that contain secrets. Masked when exporting to EXTERNAL locations
  * (e.g., NAS share, removable media). Preserved when exporting to LOCAL
  * user-home backups so users can recover after a brew upgrade.
- *
- * Includes known AppSettings fields and dynamic/extended fields
- * (e.g., externalAiApiKey added in v4.5.0).
  */
 const SECRET_FIELDS = [
   'kisAppKey',
   'kisAppSecret',
   'dartApiKey',
-  'externalAiApiKey',
   'nasPassword',
-  'ollamaApiKey', // future-proof for hosted Ollama
 ] as const;
 
 /**
@@ -181,7 +176,6 @@ const DEVICE_SPECIFIC_FIELDS = [
   'nasPassword',
   'nasAutoMount',
   'deviceId',
-  'externalAiApiKey',     // user may use different provider keys per device
 ] as const;
 
 function maskSecret(value: unknown): string {

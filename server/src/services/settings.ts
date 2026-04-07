@@ -154,13 +154,38 @@ const DEFAULT_SETTINGS: AppSettings = {
 
 let _cache: AppSettings | null = null;
 
+/**
+ * Legacy fields that were once stored in settings.json but are no longer used
+ * by any code path. They are stripped on load and on save so the file
+ * eventually self-cleans without forcing a manual migration.
+ *
+ * v4.5.0 introduced externalAi* fields for an external AI provider option,
+ * but the project pivoted to local-only Ollama. Those fields became dead
+ * config and a needless source of leaked secrets in NAS sync exports.
+ */
+const LEGACY_FIELDS = [
+  'externalAiApiKey',
+  'externalAiProvider',
+  'externalAiModel',
+] as const;
+
+function stripLegacyFields(obj: Record<string, unknown>): Record<string, unknown> {
+  const cleaned: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(obj)) {
+    if ((LEGACY_FIELDS as readonly string[]).includes(key)) continue;
+    cleaned[key] = value;
+  }
+  return cleaned;
+}
+
 export function getSettings(): AppSettings {
   if (_cache) return _cache;
 
   if (fs.existsSync(SETTINGS_PATH)) {
     try {
       const raw = fs.readFileSync(SETTINGS_PATH, 'utf-8');
-      _cache = { ...DEFAULT_SETTINGS, ...JSON.parse(raw) };
+      const parsed = stripLegacyFields(JSON.parse(raw));
+      _cache = { ...DEFAULT_SETTINGS, ...parsed } as AppSettings;
     } catch {
       _cache = { ...DEFAULT_SETTINGS };
     }

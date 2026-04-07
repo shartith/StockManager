@@ -87,8 +87,11 @@ class ApiRateLimitQueue {
 }
 
 // 싱글턴 인스턴스
-// KIS API: 초당 15건 (20건 제한에서 여유 확보), 동시 1건 (직렬화)
-export const kisApiQueue = new ApiRateLimitQueue(15, 1);
+// KIS API: 초당 15건 (20건 제한에서 여유 확보), 동시 3건 (병렬 처리)
+// v4.5.3: maxConcurrent 1 → 3 으로 증가. KIS는 호출 카운트 기반 rate limit이고
+// 동시 연결 수 자체는 제한이 없으므로, 3건 동시 호출하면서 초당 15건 큐에 의해
+// 자동으로 throttled. 효과: 100종목 가격 조회 7초 → 2.5초.
+export const kisApiQueue = new ApiRateLimitQueue(15, 3);
 
 // Yahoo Finance: 초당 5건, 동시 3건 (병렬 허용)
 export const yahooApiQueue = new ApiRateLimitQueue(5, 3);

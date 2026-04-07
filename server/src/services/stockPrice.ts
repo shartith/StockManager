@@ -96,16 +96,58 @@ export async function getStockPrice(ticker: string): Promise<number | null> {
   return getYahooStockPrice(ticker);
 }
 
+// ─── Price cache (Fix #4) ────────────────────────────────────
+//
+// Avoid hitting KIS/Yahoo for every request. Stock prices change at most
+// every few seconds during market hours, and a 60s cache cuts redundant
+// calls drastically when the user refreshes the dashboard repeatedly.
+const PRICE_CACHE_TTL_MS = 60_000;
+const priceCache = new Map<string, { price: number; ts: number }>();
+
+function getCachedPrice(ticker: string): number | null {
+  const entry = priceCache.get(ticker);
+  if (!entry) return null;
+  if (Date.now() - entry.ts > PRICE_CACHE_TTL_MS) {
+    priceCache.delete(ticker);
+    return null;
+  }
+  return entry.price;
+}
+
+function setCachedPrice(ticker: string, price: number): void {
+  priceCache.set(ticker, { price, ts: Date.now() });
+}
+
+/** Test/manual: clear all cached prices. */
+export function invalidatePriceCache(): void {
+  priceCache.clear();
+}
+
 export async function getMultipleStockPrices(tickers: string[], tickerMarkets?: Map<string, string>): Promise<Map<string, number>> {
   const prices = new Map<string, number>();
   const settings = getSettings();
   const overseasMarkets = ['NASDAQ', 'NYSE', 'AMEX', 'NASD'];
 
+  // Resolve cache hits first; only fetch what's missing
+  const tickersToFetch: string[] = [];
+  for (const ticker of tickers) {
+    const cached = getCachedPrice(ticker);
+    if (cached !== null) {
+      prices.set(ticker, cached);
+    } else {
+      tickersToFetch.push(ticker);
+    }
+  }
+
+  if (tickersToFetch.length === 0) {
+    return prices;
+  }
+
   // 국내/해외 티커 분리
   const domesticTickers: string[] = [];
   const overseasTickers: string[] = [];
 
-  for (const ticker of tickers) {
+  for (const ticker of tickersToFetch) {
     const market = tickerMarkets?.get(ticker) || '';
     if (overseasMarkets.includes(market)) {
       overseasTickers.push(ticker);
@@ -114,19 +156,28 @@ export async function getMultipleStockPrices(tickers: string[], tickerMarkets?: 
     }
   }
 
-  // 국내 종목: KIS API 우선 (큐로 rate limit 관리), 실패 시 Yahoo fallback
+  // 국내 종목: KIS API 우선 (큐로 rate limit + 동시성 관리), 실패 시 Yahoo fallback
+  // v4.5.3: for-await 순차 처리 → Promise.all 병렬 등록.
+  // kisApiQueue가 maxConcurrent=3로 동시 처리하면서 초당 15건 throttle.
+  const recordPrice = (ticker: string, price: number): void => {
+    prices.set(ticker, price);
+    setCachedPrice(ticker, price);
+  };
+
   if (domesticTickers.length > 0 && settings.kisAppKey && settings.kisAppSecret) {
     try {
       const token = await getAccessToken();
-      for (const ticker of domesticTickers) {
-        const price = await kisApiCall(() => getKisStockPrice(ticker, token), `price-${ticker}`);
-        if (price !== null) prices.set(ticker, price);
-      }
+      await Promise.all(
+        domesticTickers.map(async ticker => {
+          const price = await kisApiCall(() => getKisStockPrice(ticker, token), `price-${ticker}`);
+          if (price !== null) recordPrice(ticker, price);
+        }),
+      );
     } catch {
       await Promise.allSettled(
         domesticTickers.map(async ticker => {
           const price = await yahooApiCall(() => getYahooStockPrice(ticker), `yahoo-${ticker}`);
-          if (price !== null) prices.set(ticker, price);
+          if (price !== null) recordPrice(ticker, price);
         })
       );
     }
@@ -134,7 +185,7 @@ export async function getMultipleStockPrices(tickers: string[], tickerMarkets?: 
     await Promise.allSettled(
       domesticTickers.map(async ticker => {
         const price = await yahooApiCall(() => getYahooStockPrice(ticker), `yahoo-${ticker}`);
-        if (price !== null) prices.set(ticker, price);
+        if (price !== null) recordPrice(ticker, price);
       })
     );
   }
@@ -146,12 +197,15 @@ export async function getMultipleStockPrices(tickers: string[], tickerMarkets?: 
     if (settings.kisAppKey && settings.kisAppSecret) {
       try {
         const token = await getAccessToken();
-        for (const ticker of overseasTickers) {
-          const market = tickerMarkets?.get(ticker) || '';
-          const exchCode = marketToExch[market] || 'NAS';
-          const price = await kisApiCall(() => getKisOverseasPrice(ticker, token, exchCode), `overseas-${ticker}`);
-          if (price !== null) prices.set(ticker, price);
-        }
+        // v4.5.3: 병렬 등록 (큐가 throttle)
+        await Promise.all(
+          overseasTickers.map(async ticker => {
+            const market = tickerMarkets?.get(ticker) || '';
+            const exchCode = marketToExch[market] || 'NAS';
+            const price = await kisApiCall(() => getKisOverseasPrice(ticker, token, exchCode), `overseas-${ticker}`);
+            if (price !== null) recordPrice(ticker, price);
+          }),
+        );
       } catch {}
     }
 
@@ -160,7 +214,7 @@ export async function getMultipleStockPrices(tickers: string[], tickerMarkets?: 
       await Promise.allSettled(
         missingOverseas.map(async ticker => {
           const price = await yahooApiCall(() => getYahooStockPrice(ticker), `yahoo-${ticker}`);
-          if (price !== null) prices.set(ticker, price);
+          if (price !== null) recordPrice(ticker, price);
         })
       );
     }
