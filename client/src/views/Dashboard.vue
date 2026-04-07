@@ -163,14 +163,28 @@
       </div>
     </Transition>
 
-    <!-- 가져오기 결과 -->
+    <!-- 동기화 결과 -->
     <Transition name="page-fade">
-      <div v-if="importResult" class="mb-4 p-4 rounded-xl border text-sm"
+      <div v-if="importResult" class="mb-4 p-4 rounded-xl border text-sm space-y-2"
         :class="importResult.error ? 'bg-profit/10 border-profit/20 text-profit' : 'bg-green-500/10 border-green-500/20 text-green-500'">
-        {{ importResult.error || importResult.message }}
-        <span v-if="importResult.imported?.length" class="ml-2 text-xs opacity-70">
-          ({{ importResult.imported.join(', ') }})
-        </span>
+        <div class="font-medium">{{ importResult.error || importResult.message }}</div>
+        <template v-if="!importResult.error">
+          <div v-if="syncAddedList.length" class="text-xs opacity-80">
+            <span class="font-semibold">신규:</span> {{ syncAddedList.join(', ') }}
+          </div>
+          <div v-if="syncAdjustedList.length" class="text-xs opacity-80">
+            <span class="font-semibold">조정:</span>
+            <span v-for="(a, i) in syncAdjustedList" :key="a.ticker">
+              {{ i > 0 ? ', ' : '' }}{{ a.ticker }} ({{ a.from }}→{{ a.to }})
+            </span>
+          </div>
+          <div v-if="syncRemovedList.length" class="text-xs opacity-80">
+            <span class="font-semibold">매도:</span>
+            <span v-for="(r, i) in syncRemovedList" :key="r.ticker">
+              {{ i > 0 ? ', ' : '' }}{{ r.ticker }} ({{ r.quantity }}주)
+            </span>
+          </div>
+        </template>
       </div>
     </Transition>
 
@@ -407,6 +421,28 @@ const { loading: autoRefreshLoading, refresh } = useAutoRefresh(
 );
 
 // Market items for ticker strip
+// 동기화 결과 파싱 (krx + overseas 합산)
+interface SyncAdjusted { ticker: string; from: number; to: number; delta: number; }
+interface SyncRemoved { ticker: string; quantity: number; }
+
+const syncAddedList = computed<string[]>(() => {
+  const r = importResult.value;
+  if (!r || r.error) return [];
+  return [...(r.krx?.added ?? []), ...(r.overseas?.added ?? [])];
+});
+
+const syncAdjustedList = computed<SyncAdjusted[]>(() => {
+  const r = importResult.value;
+  if (!r || r.error) return [];
+  return [...(r.krx?.adjusted ?? []), ...(r.overseas?.adjusted ?? [])];
+});
+
+const syncRemovedList = computed<SyncRemoved[]>(() => {
+  const r = importResult.value;
+  if (!r || r.error) return [];
+  return [...(r.krx?.removed ?? []), ...(r.overseas?.removed ?? [])];
+});
+
 const marketItems = computed(() => {
   if (!marketCtx.value) return [];
   const items: Array<{ label: string; price: number; change?: number; decimals: number; isUsd?: boolean }> = [];
