@@ -6,6 +6,13 @@ import { queryOne, queryAll, execute, logAudit } from '../db';
 import { getMarketContext } from '../services/stockPrice';
 import { getDomesticOrderableAmount } from '../services/kisOrder';
 import { getQuoteBook, type Market } from '../services/quoteBook';
+import {
+  reconcileMarket,
+  type KisHoldingSnapshot,
+  type SmHoldingRow,
+  type SyncResult,
+  type ReconcileDeps,
+} from '../services/portfolioReconcile';
 import { validate } from '../middleware/validate';
 import { asyncHandler } from '../middleware/errorHandler';
 import { saveConfigSchema } from '../schemas';
@@ -578,138 +585,52 @@ router.get('/balance', asyncHandler(async (_req: Request, res: Response) => {
 
 // KIS 계좌 잔고를 포트폴리오로 가져오기
 /**
- * KIS 잔고와 StockManager 보유 종목을 양방향 동기화한다.
- *
- * 동작 방식:
- *   - KIS에 있고 SM에 없음    → BUY 거래 생성 (added)
- *   - KIS에 있고 SM과 수량 다름 → 차이만큼 BUY/SELL 거래 생성 (adjusted)
- *   - KIS에 있고 SM과 수량 같음 → 변경 없음 (unchanged)
- *   - KIS에 없고 SM에 있음    → 보유 수량 전량 SELL 거래 생성 (removed)
- *
- * 시장(KRX/NASDAQ/NYSE/AMEX)별로 분리 처리하여 다른 시장의 종목이 영향받지 않는다.
+ * Real-DB ReconcileDeps adapter. Pure logic lives in
+ * services/portfolioReconcile.ts (so it can be unit tested).
  */
-
-interface KisHoldingSnapshot {
-  ticker: string;
-  name: string;
-  market: 'KRX' | 'NASDAQ' | 'NYSE' | 'AMEX';
-  quantity: number;
-  avgPrice: number;
-}
-
-interface SmHoldingRow {
-  stock_id: number;
-  ticker: string;
-  market: string;
-  current_qty: number;
-}
-
-interface SyncResult {
-  added: string[];
-  adjusted: { ticker: string; from: number; to: number; delta: number }[];
-  removed: { ticker: string; quantity: number }[];
-  unchanged: string[];
-}
-
-function getCurrentSmHoldings(markets: readonly string[]): SmHoldingRow[] {
-  const placeholders = markets.map(() => '?').join(',');
-  return queryAll(
-    `SELECT s.id as stock_id, s.ticker, s.market,
-            COALESCE(SUM(CASE WHEN t.type = 'BUY' THEN t.quantity ELSE -t.quantity END), 0) as current_qty
-     FROM stocks s
-     LEFT JOIN transactions t ON t.stock_id = s.id
-     WHERE s.market IN (${placeholders})
-     GROUP BY s.id
-     HAVING current_qty > 0`,
-    [...markets],
-  ) as SmHoldingRow[];
-}
-
-function reconcileMarket(
-  snapshots: KisHoldingSnapshot[],
-  markets: readonly string[],
-  defaultMarket: string,
-  today: string,
-  memoSource: string,
-): SyncResult {
-  const result: SyncResult = { added: [], adjusted: [], removed: [], unchanged: [] };
-  const kisMap = new Map<string, KisHoldingSnapshot>();
-  for (const s of snapshots) kisMap.set(s.ticker, s);
-
-  const smHoldings = getCurrentSmHoldings(markets);
-  const smTickers = new Set(smHoldings.map(h => h.ticker));
-
-  // 1. KIS에 있는 종목 처리 (신규 / 조정 / 변경없음)
-  for (const snap of snapshots) {
-    const existingStock = queryOne('SELECT id FROM stocks WHERE ticker = ?', [snap.ticker]);
-    let stockId: number;
-
-    if (!existingStock) {
-      execute(
-        'INSERT INTO stocks (ticker, name, market, sector) VALUES (?, ?, ?, ?)',
-        [snap.ticker, snap.name, snap.market || defaultMarket, ''],
-      );
-      const inserted = queryOne('SELECT id FROM stocks WHERE ticker = ?', [snap.ticker]);
-      if (!inserted) continue;
-      stockId = inserted.id;
-    } else {
-      stockId = existingStock.id;
-    }
-
-    const smHolding = smHoldings.find(h => h.ticker === snap.ticker);
-    const currentQty = smHolding?.current_qty ?? 0;
-    const delta = snap.quantity - currentQty;
-
-    if (delta === 0) {
-      result.unchanged.push(snap.ticker);
-      continue;
-    }
-
-    if (currentQty === 0) {
-      // 신규 매수
-      execute(
-        'INSERT INTO transactions (stock_id, type, quantity, price, fee, date, memo) VALUES (?, ?, ?, ?, ?, ?, ?)',
-        [stockId, 'BUY', snap.quantity, snap.avgPrice, 0, today, `${memoSource} (신규)`],
-      );
-      result.added.push(snap.ticker);
-    } else if (delta > 0) {
-      // 추가 매수
-      execute(
-        'INSERT INTO transactions (stock_id, type, quantity, price, fee, date, memo) VALUES (?, ?, ?, ?, ?, ?, ?)',
-        [stockId, 'BUY', delta, snap.avgPrice, 0, today, `${memoSource} (추가매수 동기화)`],
-      );
-      result.adjusted.push({ ticker: snap.ticker, from: currentQty, to: snap.quantity, delta });
-    } else {
-      // 부분 매도 (delta < 0)
-      execute(
-        'INSERT INTO transactions (stock_id, type, quantity, price, fee, date, memo) VALUES (?, ?, ?, ?, ?, ?, ?)',
-        [stockId, 'SELL', Math.abs(delta), snap.avgPrice, 0, today, `${memoSource} (부분매도 동기화)`],
-      );
-      result.adjusted.push({ ticker: snap.ticker, from: currentQty, to: snap.quantity, delta });
-    }
-  }
-
-  // 2. KIS에는 없는데 SM에는 있는 종목 → 전량 매도 처리
-  for (const sm of smHoldings) {
-    if (kisMap.has(sm.ticker)) continue;
-    if (sm.current_qty <= 0) continue;
-
-    // 마지막 매수 가격을 매도 가격으로 사용 (실제 매도가는 알 수 없음)
-    const lastBuy = queryOne(
-      "SELECT price FROM transactions WHERE stock_id = ? AND type = 'BUY' ORDER BY date DESC LIMIT 1",
-      [sm.stock_id],
-    );
-    const sellPrice = lastBuy?.price ?? 0;
-
+const dbReconcileDeps: ReconcileDeps = {
+  getCurrentSmHoldings(markets) {
+    const placeholders = markets.map(() => '?').join(',');
+    return queryAll(
+      `SELECT s.id as stock_id, s.ticker, s.market,
+              COALESCE(SUM(CASE WHEN t.type = 'BUY' THEN t.quantity ELSE -t.quantity END), 0) as current_qty
+       FROM stocks s
+       LEFT JOIN transactions t ON t.stock_id = s.id
+       WHERE s.market IN (${placeholders})
+       GROUP BY s.id
+       HAVING current_qty > 0`,
+      [...markets],
+    ) as SmHoldingRow[];
+  },
+  findStockId(ticker) {
+    const row = queryOne('SELECT id FROM stocks WHERE ticker = ?', [ticker]);
+    return row?.id ?? null;
+  },
+  insertStock(ticker, name, market) {
+    execute('INSERT INTO stocks (ticker, name, market, sector) VALUES (?, ?, ?, ?)', [ticker, name, market, '']);
+    const row = queryOne('SELECT id FROM stocks WHERE ticker = ?', [ticker]);
+    return row?.id ?? 0;
+  },
+  insertBuy(stockId, quantity, price, date, memo) {
     execute(
       'INSERT INTO transactions (stock_id, type, quantity, price, fee, date, memo) VALUES (?, ?, ?, ?, ?, ?, ?)',
-      [sm.stock_id, 'SELL', sm.current_qty, sellPrice, 0, today, `${memoSource} (전량매도 동기화)`],
+      [stockId, 'BUY', quantity, price, 0, date, memo],
     );
-    result.removed.push({ ticker: sm.ticker, quantity: sm.current_qty });
-  }
-
-  return result;
-}
+  },
+  insertSell(stockId, quantity, price, date, memo) {
+    execute(
+      'INSERT INTO transactions (stock_id, type, quantity, price, fee, date, memo) VALUES (?, ?, ?, ?, ?, ?, ?)',
+      [stockId, 'SELL', quantity, price, 0, date, memo],
+    );
+  },
+  getLastBuyPrice(stockId) {
+    const row = queryOne(
+      "SELECT price FROM transactions WHERE stock_id = ? AND type = 'BUY' ORDER BY date DESC LIMIT 1",
+      [stockId],
+    );
+    return row?.price ?? 0;
+  },
+};
 
 router.post('/balance/import', asyncHandler(async (_req: Request, res: Response) => {
   const { appKey, appSecret, baseUrl } = getKisConfig();
@@ -777,7 +698,7 @@ router.post('/balance/import', asyncHandler(async (_req: Request, res: Response)
       });
     }
 
-    const krxResult = reconcileMarket(krxSnapshots, ['KRX'], 'KRX', today, 'KIS 동기화');
+    const krxResult = reconcileMarket(krxSnapshots, ['KRX'], 'KRX', today, 'KIS 동기화', dbReconcileDeps);
 
     // 해외 잔고 스냅샷
     const marketMap: Record<string, 'NASDAQ' | 'NYSE' | 'AMEX'> = { NASD: 'NASDAQ', NYSE: 'NYSE', AMEX: 'AMEX' };
@@ -801,6 +722,7 @@ router.post('/balance/import', asyncHandler(async (_req: Request, res: Response)
         'NASDAQ',
         today,
         'KIS 동기화 (해외)',
+        dbReconcileDeps,
       );
     } catch {
       // 해외 잔고 가져오기 실패 시 국내만 처리

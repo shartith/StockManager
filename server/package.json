@@ -1,6 +1,6 @@
 {
   "name": "stock-manager-server",
-  "version": "4.5.3",
+  "version": "4.6.0",
   "private": true,
   "scripts": {
     "dev": "tsx watch src/index.ts",
@@ -11,6 +11,7 @@
   },
   "dependencies": {
     "@types/ws": "^8.18.1",
+    "better-sqlite3": "^12.8.0",
     "compression": "^1.8.1",
     "cors": "^2.8.5",
     "express": "^4.21.2",
@@ -18,11 +19,11 @@
     "helmet": "^8.1.0",
     "node-cron": "^4.2.1",
     "pino": "^10.3.1",
-    "sql.js": "^1.11.0",
     "ws": "^8.20.0",
     "zod": "^4.3.6"
   },
   "devDependencies": {
+    "@types/better-sqlite3": "^7.6.13",
     "@types/compression": "^1.8.1",
     "@types/cors": "^2.8.17",
     "@types/express": "^5.0.0",

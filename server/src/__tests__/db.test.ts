@@ -1,24 +1,13 @@
-import { describe, it, expect, vi, beforeAll, afterAll } from 'vitest';
+import { describe, it, expect, beforeAll } from 'vitest';
 
-// Mock fs to prevent actual file writes from saveDB
-vi.mock('fs', () => ({
-  default: {
-    existsSync: vi.fn().mockReturnValue(false),
-    readFileSync: vi.fn(),
-    writeFileSync: vi.fn(),
-    mkdirSync: vi.fn(),
-  },
-  existsSync: vi.fn().mockReturnValue(false),
-  readFileSync: vi.fn(),
-  writeFileSync: vi.fn(),
-  mkdirSync: vi.fn(),
-}));
+// v4.6.0: better-sqlite3 — use in-memory mode for test isolation.
+// Each test run starts with a fresh database; no fs mocking needed.
+process.env.STOCK_MANAGER_DB_PATH = ':memory:';
 
 import { initializeDB, queryAll, queryOne, execute, withTransaction, logAudit, getDB } from '../db';
 
 describe('db helper functions', () => {
   beforeAll(async () => {
-    // Initialize a real in-memory sql.js database
     await initializeDB();
   });
 
@@ -99,24 +88,24 @@ describe('db helper functions', () => {
 
   describe('withTransaction', () => {
     it('commits on success and persists data', () => {
-      // Use raw db.run instead of execute to avoid saveDB calling db.export mid-transaction
+      // v4.6.0: getDB() now returns better-sqlite3 Database — use prepare/run.
       const db = getDB();
       const result = withTransaction(() => {
-        db.run('INSERT INTO stocks (ticker, name, market) VALUES (?, ?, ?)', ['QA_TX1', 'TX Test', 'KRX']);
+        db.prepare('INSERT INTO stocks (ticker, name, market) VALUES (?, ?, ?)').run('QA_TX1', 'TX Test', 'KRX');
         return 'success';
       });
 
       expect(result).toBe('success');
       const row = queryOne("SELECT * FROM stocks WHERE ticker = 'QA_TX1'");
       expect(row).not.toBeNull();
-      expect(row.name).toBe('TX Test');
+      expect(row!.name).toBe('TX Test');
     });
 
     it('rolls back on error', () => {
       const db = getDB();
       expect(() =>
         withTransaction(() => {
-          db.run('INSERT INTO stocks (ticker, name, market) VALUES (?, ?, ?)', ['QA_TX2', 'Rollback Test', 'KRX']);
+          db.prepare('INSERT INTO stocks (ticker, name, market) VALUES (?, ?, ?)').run('QA_TX2', 'Rollback Test', 'KRX');
           throw new Error('intentional error');
         })
       ).toThrow('intentional error');
@@ -195,8 +184,9 @@ describe('db helper functions', () => {
     it('returns the database instance', () => {
       const db = getDB();
       expect(db).toBeDefined();
-      expect(typeof db.run).toBe('function');
+      // better-sqlite3 Database has prepare() and exec(), not run()
       expect(typeof db.prepare).toBe('function');
+      expect(typeof db.exec).toBe('function');
     });
   });
 });

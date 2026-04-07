@@ -308,7 +308,8 @@ async function callOllamaRaw(
   }
 }
 
-async function callOllama(
+/** Exported for unit tests only — production callers use getTradeDecision(). */
+export async function callOllama(
   model: string,
   url: string,
   prompt: string,

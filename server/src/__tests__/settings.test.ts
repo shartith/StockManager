@@ -369,4 +369,98 @@ describe('settings', () => {
       expect(settings.ollamaModel).toBe('updated-model');
     });
   });
+
+  // ── v4.5.3: Legacy field migration ──────────────────────────
+  //
+  // externalAi* fields were added in v4.5.0 for an external AI provider
+  // option, but the project pivoted to local-only Ollama. They became
+  // dead config and a leak risk in NAS sync exports. v4.5.3 strips them
+  // automatically on load and on next save.
+
+  describe('legacy field migration (v4.5.3)', () => {
+    it('strips externalAiApiKey from loaded settings', async () => {
+      const fsModule = await import('fs');
+      vi.mocked(fsModule.default.existsSync).mockReturnValue(true);
+      vi.mocked(fsModule.default.readFileSync).mockReturnValue(
+        JSON.stringify({
+          kisAppKey: 'real-key',
+          ollamaModel: 'exaone3.5:2.4b',
+          externalAiApiKey: 'sk-ant-api03-leaked-secret',
+          externalAiProvider: 'claude',
+          externalAiModel: 'claude-sonnet-4.6',
+        }),
+      );
+
+      const settings = getSettings() as unknown as Record<string, unknown>;
+      expect(settings.kisAppKey).toBe('real-key');
+      expect(settings.ollamaModel).toBe('exaone3.5:2.4b');
+      // Legacy fields must be stripped from cache
+      expect(settings.externalAiApiKey).toBeUndefined();
+      expect(settings.externalAiProvider).toBeUndefined();
+      expect(settings.externalAiModel).toBeUndefined();
+    });
+
+    it('omits legacy fields from next saveSettings write', async () => {
+      const fsModule = await import('fs');
+      vi.mocked(fsModule.default.existsSync).mockReturnValue(true);
+      vi.mocked(fsModule.default.readFileSync).mockReturnValue(
+        JSON.stringify({
+          kisAppKey: 'real-key',
+          externalAiApiKey: 'sk-ant-leaked',
+          externalAiProvider: 'claude',
+          externalAiModel: 'claude-sonnet-4.6',
+        }),
+      );
+
+      getSettings();
+      saveSettings({ ollamaModel: 'updated' });
+
+      const written = JSON.parse(
+        vi.mocked(fsModule.default.writeFileSync).mock.calls[0][1] as string,
+      );
+      expect(written.kisAppKey).toBe('real-key');
+      expect(written.ollamaModel).toBe('updated');
+      // Legacy fields must NOT be persisted on next save (self-cleaning migration)
+      expect(written.externalAiApiKey).toBeUndefined();
+      expect(written.externalAiProvider).toBeUndefined();
+      expect(written.externalAiModel).toBeUndefined();
+    });
+
+    it('handles malformed legacy fields gracefully', async () => {
+      const fsModule = await import('fs');
+      vi.mocked(fsModule.default.existsSync).mockReturnValue(true);
+      vi.mocked(fsModule.default.readFileSync).mockReturnValue(
+        JSON.stringify({
+          externalAiApiKey: null,
+          externalAiProvider: 12345,
+          externalAiModel: { nested: 'object' },
+          ollamaUrl: 'http://localhost:11434',
+        }),
+      );
+
+      // Should not throw despite weird types
+      const settings = getSettings();
+      expect(settings.ollamaUrl).toBe('http://localhost:11434');
+      expect((settings as unknown as Record<string, unknown>).externalAiApiKey).toBeUndefined();
+    });
+
+    it('does not strip non-legacy fields with similar names', async () => {
+      const fsModule = await import('fs');
+      vi.mocked(fsModule.default.existsSync).mockReturnValue(true);
+      vi.mocked(fsModule.default.readFileSync).mockReturnValue(
+        JSON.stringify({
+          kisAppKey: 'real-key',
+          ollamaModel: 'real-model',
+          ollamaUrl: 'real-url',
+          dartApiKey: 'real-dart',
+        }),
+      );
+
+      const settings = getSettings();
+      expect(settings.kisAppKey).toBe('real-key');
+      expect(settings.ollamaModel).toBe('real-model');
+      expect(settings.ollamaUrl).toBe('real-url');
+      expect(settings.dartApiKey).toBe('real-dart');
+    });
+  });
 });
