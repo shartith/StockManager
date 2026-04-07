@@ -202,7 +202,10 @@ export const systemEventsApi = {
   /** v4.7.1: 단일 이벤트 삭제 */
   delete: (id: number) => api.delete(`/system-events/${id}`),
   /** v4.7.1: 전체 이벤트 삭제 (resolved=true 시 해결된 것만) */
-  deleteAll: (onlyResolved = false) => api.delete('/system-events/all', { params: { resolved: onlyResolved } }),
+  deleteAll: (onlyResolved = false) =>
+    onlyResolved
+      ? api.delete('/system-events/all', { params: { resolved: true } })
+      : api.delete('/system-events/all'),
 };
 
 // NAS 동기화 API

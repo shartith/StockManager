@@ -237,7 +237,10 @@
               <span v-if="eventCounts.error > 0" class="text-[10px] px-1.5 py-0.5 bg-amber-500/10 text-amber-500 rounded font-medium">ERROR {{ eventCounts.error }}</span>
             </div>
             <div class="flex items-center gap-3">
-              <button @click="deleteAllEventsFn" class="text-xs text-profit hover:underline">
+              <button @click="deleteAllEventsFn"
+                :disabled="(eventCounts?.critical ?? 0) > 0"
+                :title="(eventCounts?.critical ?? 0) > 0 ? '미해결 CRITICAL 이벤트가 있습니다 — 먼저 확인 후 삭제하세요' : '모든 이벤트 삭제'"
+                class="text-xs text-profit hover:underline focus:outline-none focus-visible:ring-2 focus-visible:ring-profit rounded disabled:opacity-40 disabled:cursor-not-allowed disabled:no-underline">
                 모두 삭제
               </button>
               <button @click="showEvents = !showEvents" class="text-xs text-accent hover:underline">
@@ -383,10 +386,16 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue';
+import { ref, computed, onMounted, inject, type Ref } from 'vue';
 import { usePortfolioStore } from '@/stores/portfolio';
 import { chartApi, schedulerApi, analysisApi, systemEventsApi } from '@/api';
 import { useAutoRefresh } from '@/composables/useAutoRefresh';
+
+// v4.7.3: pull the toast singleton provided by App.vue so destructive
+// actions can report failures to the user.
+interface ToastShowOpts { type?: string; title?: string; message: string; duration?: number; }
+interface ToastInstance { show: (opts: ToastShowOpts) => void; }
+const toastRef = inject<Ref<ToastInstance | null> | null>('toast', null);
 import SummaryCard from '@/components/SummaryCard.vue';
 import AllocationChart from '@/components/AllocationChart.vue';
 import StockChart from '@/components/StockChart.vue';
@@ -565,15 +574,25 @@ async function resolveEventFn(id: number) {
 }
 
 async function deleteAllEventsFn() {
-  const total = eventCounts.value?.unresolved ?? 0;
+  // v4.7.3: confirm dialog count must match what the server actually deletes.
+  // systemEventsApi.deleteAll() (no args) deletes ALL events, not just
+  // unresolved ones, so use eventCounts.total instead of unresolved.
+  const total = eventCounts.value?.total ?? eventCounts.value?.unresolved ?? 0;
   if (total === 0) return;
-  if (!confirm(`시스템 이벤트 ${total}건을 모두 삭제하시겠습니까?\n이 작업은 되돌릴 수 없습니다.`)) return;
+  if (!confirm(`시스템 이벤트 ${total}건(해결된 이벤트 포함)을 모두 삭제하시겠습니까?\n이 작업은 되돌릴 수 없습니다.`)) return;
   try {
     await systemEventsApi.deleteAll();
     eventCounts.value = null;
     unresolvedEvents.value = [];
     await loadSystemEvents();
-  } catch {}
+  } catch (err) {
+    // v4.7.3: surface destructive-action failures
+    toastRef?.value?.show({
+      type: 'error',
+      title: '이벤트 삭제 실패',
+      message: err instanceof Error ? err.message : '서버에 요청을 전달하지 못했습니다.',
+    });
+  }
 }
 
 async function loadMarketContext() {

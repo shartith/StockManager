@@ -213,6 +213,7 @@
 import { ref, computed, onMounted, onUnmounted, provide, h } from 'vue';
 import { useRouter } from 'vue-router';
 import { notificationsApi, versionApi, setGlobalErrorReporter } from '@/api';
+import type { Notification } from '@/types';
 import { useWebSocket } from '@/composables/useWebSocket';
 import { getRefreshInterval } from '@/composables/useAutoRefresh';
 import ConnectionStatus from '@/components/ConnectionStatus.vue';
@@ -312,7 +313,9 @@ function toggleDarkMode() {
 }
 
 const unreadCount = ref(0);
-const notifications = ref<any[]>([]);
+// v4.7.3: typed reactive state — was any[] before, bypassing the project's
+// own Notification interface and silently allowing field typos.
+const notifications = ref<Notification[]>([]);
 let pollTimer: ReturnType<typeof setInterval> | null = null;
 
 const menuItems = [
@@ -394,10 +397,19 @@ async function deleteAllNotifs() {
     await notificationsApi.deleteAll();
     notifications.value = [];
     unreadCount.value = 0;
-  } catch {}
+  } catch (err) {
+    // v4.7.3: surface destructive-action failures instead of swallowing.
+    // axios interceptor handles 5xx via global toast; 4xx and network errors
+    // we report explicitly so the user knows the deletion did NOT succeed.
+    toastRef.value?.show({
+      type: 'error',
+      title: '알림 삭제 실패',
+      message: err instanceof Error ? err.message : '서버에 요청을 전달하지 못했습니다.',
+    });
+  }
 }
 
-function handleNotificationClick(n: any) {
+function handleNotificationClick(n: Notification) {
   if (!n.is_read) {
     notificationsApi.markAsRead(n.id);
     notifications.value = notifications.value.map(item =>

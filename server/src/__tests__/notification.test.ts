@@ -6,7 +6,7 @@ import { describe, it, expect, beforeAll, beforeEach } from 'vitest';
 
 process.env.STOCK_MANAGER_DB_PATH = ':memory:';
 
-import { initializeDB, execute } from '../db';
+import { initializeDB, execute, queryAll } from '../db';
 import {
   createNotification,
   getNotifications,
@@ -117,6 +117,26 @@ describe('notification CRUD', () => {
 
       const deleted = deleteAllNotifications();
       expect(deleted).toBe(2);
+    });
+
+    // v4.7.3: bulk delete writes an audit_log entry
+    it('writes an audit_log row with deleted/unread counts', () => {
+      createNotification({ type: 'INFO', title: 'a', message: '' });
+      createNotification({ type: 'INFO', title: 'b', message: '' });
+      const id = createNotification({ type: 'INFO', title: 'c-read', message: '' });
+      markAsRead(id);
+
+      execute('DELETE FROM audit_log');
+      deleteAllNotifications();
+
+      const rows = queryAll(
+        "SELECT * FROM audit_log WHERE entity_type = 'notifications' AND action = 'DELETE'",
+      );
+      expect(rows).toHaveLength(1);
+      const meta = JSON.parse(rows[0].new_value);
+      expect(meta.bulk).toBe(true);
+      expect(meta.deleted).toBe(3);
+      expect(meta.unreadDeleted).toBe(2);
     });
   });
 });

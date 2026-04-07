@@ -19,7 +19,12 @@ router.get('/unread-count', (_req: Request, res: Response) => {
 
 /** 단일 알림 읽음 처리 */
 router.patch('/:id/read', (req: Request, res: Response) => {
-  markAsRead(Number(req.params.id));
+  const id = Number(req.params.id);
+  if (!Number.isFinite(id)) {
+    res.status(400).json({ error: 'invalid id' });
+    return;
+  }
+  markAsRead(id);
   res.json({ message: '읽음 처리 완료' });
 });
 
@@ -40,7 +45,12 @@ router.delete('/all', (_req: Request, res: Response) => {
 
 /** 알림 삭제 */
 router.delete('/:id', (req: Request, res: Response) => {
-  deleteNotification(Number(req.params.id));
+  const id = Number(req.params.id);
+  if (!Number.isFinite(id)) {
+    res.status(400).json({ error: 'invalid id' });
+    return;
+  }
+  deleteNotification(id);
   res.json({ message: '삭제 완료' });
 });
 

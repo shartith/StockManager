@@ -21,7 +21,8 @@ vi.mock('../services/settings', () => ({
 // the production stock-manager.db file.
 process.env.STOCK_MANAGER_DB_PATH = ':memory:';
 
-import { initializeDB, queryAll, execute } from '../db';
+import { initializeDB, queryAll, queryOne, execute } from '../db';
+// queryAll is used by the audit-log assertion in the v4.7.3 test below.
 import {
   logSystemEvent,
   getRecentEvents,
@@ -123,8 +124,41 @@ describe('systemEvent CRUD', () => {
 
     it('returns 0 on an empty table', () => {
       execute('DELETE FROM system_events'); // wipe first
+      execute('DELETE FROM audit_log');     // also clean audit between tests
       const deleted = deleteAllEvents();
       expect(deleted).toBe(0);
+    });
+
+    // v4.7.3: audit log entry is written for every bulk delete
+    it('writes an audit_log row capturing bulk delete metadata', () => {
+      execute('DELETE FROM audit_log'); // start clean
+
+      deleteAllEvents();
+
+      const auditRows = queryAll(
+        "SELECT * FROM audit_log WHERE entity_type = 'system_events' AND action = 'DELETE'",
+      );
+      expect(auditRows).toHaveLength(1);
+      const newValue = JSON.parse(auditRows[0].new_value);
+      expect(newValue.bulk).toBe(true);
+      expect(newValue.onlyResolved).toBe(false);
+      expect(newValue.deleted).toBe(3);
+    });
+
+    it('audit log captures critical-deleted count when not onlyResolved', async () => {
+      execute('DELETE FROM system_events');
+      execute('DELETE FROM audit_log');
+      await logSystemEvent('CRITICAL', 'STOP_LOSS', 'crit unresolved');
+      await logSystemEvent('INFO', 'GENERAL', 'info');
+
+      deleteAllEvents();
+
+      const audit = queryOne(
+        "SELECT new_value FROM audit_log WHERE entity_type = 'system_events' AND action = 'DELETE' ORDER BY id DESC LIMIT 1",
+      );
+      const meta = JSON.parse(audit!.new_value);
+      expect(meta.criticalDeleted).toBe(1);
+      expect(meta.deleted).toBe(2);
     });
   });
 

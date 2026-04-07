@@ -3,7 +3,7 @@
  * 에러, 미대응 상황, 후속조치 필요 사항을 기록하고 UI에서 조회 가능하게 함
  */
 
-import { execute, queryAll, queryOne } from '../db';
+import { execute, queryAll, queryOne, logAudit } from '../db';
 import { getSettings } from './settings';
 import logger from '../logger';
 
@@ -80,7 +80,7 @@ export async function logSystemEvent(
 }
 
 /** 이벤트 해결 처리 */
-export function resolveEvent(eventId: number, resolution: string) {
+export function resolveEvent(eventId: number, resolution: string): void {
   // NOTE: SQLite parses double-quoted strings as column identifiers in
   // strict mode (which better-sqlite3 enforces). Use single quotes for
   // datetime() literals. sql.js was lenient about this.
@@ -116,7 +116,11 @@ export function getEventCounts(): { total: number; critical: number; error: numb
   return { total, critical, error, warn, unresolved };
 }
 
-/** 단일 이벤트 삭제 */
+/**
+ * 단일 시스템 이벤트 삭제.
+ * @param eventId 삭제할 이벤트의 id
+ * @returns 삭제된 행 수 (0 or 1)
+ */
 export function deleteEvent(eventId: number): number {
   const { changes } = execute('DELETE FROM system_events WHERE id = ?', [eventId]);
   return changes;
@@ -126,13 +130,38 @@ export function deleteEvent(eventId: number): number {
  * 전체 시스템 이벤트 삭제. v4.7.1: OLLAMA_DOWN burst 같은 누적 노이즈를
  * 사용자가 일괄 정리할 수 있도록.
  *
+ * v4.7.3 (security review fix):
+ *   - audit_log에 영구 기록 (어떤 카테고리/심각도가 몇 건 삭제되었는지)
+ *   - 삭제 전 unresolved CRITICAL 이벤트 카운트를 audit에 포함
+ *
  * @param onlyResolved true이면 해결 처리된 이벤트만 삭제 (기본 false)
  */
 export function deleteAllEvents(onlyResolved = false): number {
+  // Capture an audit snapshot of what is about to be deleted, including
+  // any unresolved CRITICAL events that the operator might be erasing.
+  const snapshot = queryOne(
+    onlyResolved
+      ? "SELECT COUNT(*) as total, SUM(CASE WHEN severity='CRITICAL' THEN 1 ELSE 0 END) as critical FROM system_events WHERE resolved = 1"
+      : "SELECT COUNT(*) as total, SUM(CASE WHEN severity='CRITICAL' AND resolved=0 THEN 1 ELSE 0 END) as critical FROM system_events",
+  );
+
   const sql = onlyResolved
     ? 'DELETE FROM system_events WHERE resolved = 1'
     : 'DELETE FROM system_events';
   const { changes } = execute(sql, []);
-  logger.info({ changes, onlyResolved }, 'System events bulk deleted');
+
+  // Persistent audit trail (separate from pino logging)
+  try {
+    logAudit('system_events', null, 'DELETE', null, {
+      bulk: true,
+      onlyResolved,
+      deleted: changes,
+      criticalDeleted: Number(snapshot?.critical ?? 0),
+    });
+  } catch {
+    // Audit log failure must not block the user-facing delete
+  }
+
+  logger.info({ changes, onlyResolved, criticalDeleted: snapshot?.critical }, 'System events bulk deleted');
   return changes;
 }

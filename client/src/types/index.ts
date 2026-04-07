@@ -52,7 +52,8 @@ export interface Notification {
   message: string;
   ticker: string;
   market: string;
-  is_read: boolean;
+  /** SQLite stores as 0/1, not boolean */
+  is_read: 0 | 1;
   action_url: string;
   created_at: string;
 }

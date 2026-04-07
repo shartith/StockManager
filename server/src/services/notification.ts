@@ -4,7 +4,7 @@
  * 추후: 메신저(Telegram, Slack 등) 연동 확장 가능
  */
 
-import { queryAll, queryOne, execute } from '../db';
+import { queryAll, queryOne, execute, logAudit } from '../db';
 import logger from '../logger';
 
 export interface NotificationPayload {
@@ -72,9 +72,25 @@ export function deleteNotification(id: number) {
 /**
  * 모든 알림 삭제. v4.7.1: 사용자가 알림 패널에서 일괄 정리할 수 있도록.
  * 삭제된 행 수를 반환하여 UI가 사용자에게 결과를 표시할 수 있게 한다.
+ *
+ * v4.7.3: audit_log에 영구 기록 (몇 건 / 미읽음 몇 건이 삭제되었는지).
  */
 export function deleteAllNotifications(): number {
+  const snapshot = queryOne(
+    'SELECT COUNT(*) as total, SUM(CASE WHEN is_read=0 THEN 1 ELSE 0 END) as unread FROM notifications',
+  );
   const { changes } = execute('DELETE FROM notifications', []);
-  logger.info({ changes }, 'All notifications deleted');
+
+  try {
+    logAudit('notifications', null, 'DELETE', null, {
+      bulk: true,
+      deleted: changes,
+      unreadDeleted: Number(snapshot?.unread ?? 0),
+    });
+  } catch {
+    // Audit log failure must not block the user-facing delete
+  }
+
+  logger.info({ changes, unread: snapshot?.unread }, 'All notifications deleted');
   return changes;
 }
