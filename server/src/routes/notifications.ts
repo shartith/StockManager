@@ -1,5 +1,5 @@
 import { Router, Request, Response } from 'express';
-import { getNotifications, getUnreadCount, markAsRead, markAllAsRead, deleteNotification } from '../services/notification';
+import { getNotifications, getUnreadCount, markAsRead, markAllAsRead, deleteNotification, deleteAllNotifications } from '../services/notification';
 
 const router = Router();
 
@@ -27,6 +27,15 @@ router.patch('/:id/read', (req: Request, res: Response) => {
 router.post('/read-all', (_req: Request, res: Response) => {
   markAllAsRead();
   res.json({ message: '전체 읽음 처리 완료' });
+});
+
+/**
+ * 전체 알림 삭제. NOTE: more specific path must be registered BEFORE the
+ * `/:id` parameter route, otherwise express matches "all" as an id.
+ */
+router.delete('/all', (_req: Request, res: Response) => {
+  const deleted = deleteAllNotifications();
+  res.json({ message: `${deleted}건 삭제 완료`, deleted });
 });
 
 /** 알림 삭제 */

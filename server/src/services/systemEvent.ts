@@ -112,3 +112,24 @@ export function getEventCounts(): { total: number; critical: number; error: numb
   const unresolved = queryOne("SELECT COUNT(*) as cnt FROM system_events WHERE resolved = 0")?.cnt || 0;
   return { total, critical, error, warn, unresolved };
 }
+
+/** 단일 이벤트 삭제 */
+export function deleteEvent(eventId: number): number {
+  const { changes } = execute('DELETE FROM system_events WHERE id = ?', [eventId]);
+  return changes;
+}
+
+/**
+ * 전체 시스템 이벤트 삭제. v4.7.1: OLLAMA_DOWN burst 같은 누적 노이즈를
+ * 사용자가 일괄 정리할 수 있도록.
+ *
+ * @param onlyResolved true이면 해결 처리된 이벤트만 삭제 (기본 false)
+ */
+export function deleteAllEvents(onlyResolved = false): number {
+  const sql = onlyResolved
+    ? 'DELETE FROM system_events WHERE resolved = 1'
+    : 'DELETE FROM system_events';
+  const { changes } = execute(sql, []);
+  logger.info({ changes, onlyResolved }, 'System events bulk deleted');
+  return changes;
+}

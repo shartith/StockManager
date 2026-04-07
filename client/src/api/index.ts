@@ -146,6 +146,8 @@ export const notificationsApi = {
   markAsRead: (id: number) => api.patch(`/notifications/${id}/read`),
   markAllAsRead: () => api.post('/notifications/read-all'),
   delete: (id: number) => api.delete(`/notifications/${id}`),
+  /** v4.7.1: 모든 알림 일괄 삭제 */
+  deleteAll: () => api.delete('/notifications/all'),
 };
 
 // 스케줄러 API
@@ -197,6 +199,10 @@ export const systemEventsApi = {
   getAll: (params?: { limit?: number; unresolved?: boolean }) => api.get('/system-events', { params }),
   getCounts: () => api.get('/system-events/counts'),
   resolve: (id: number, resolution?: string) => api.post(`/system-events/${id}/resolve`, { resolution }),
+  /** v4.7.1: 단일 이벤트 삭제 */
+  delete: (id: number) => api.delete(`/system-events/${id}`),
+  /** v4.7.1: 전체 이벤트 삭제 (resolved=true 시 해결된 것만) */
+  deleteAll: (onlyResolved = false) => api.delete('/system-events/all', { params: { resolved: onlyResolved } }),
 };
 
 // NAS 동기화 API

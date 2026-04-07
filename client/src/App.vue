@@ -165,9 +165,11 @@
         <div class="fixed top-0 right-0 w-full sm:w-96 h-full bg-surface-1 border-l border-border shadow-lg z-50 flex flex-col" @click.stop>
           <div class="flex items-center justify-between p-4 border-b border-border">
             <h3 class="font-bold text-txt-primary">알림</h3>
-            <div class="flex gap-2">
+            <div class="flex items-center gap-3">
               <button @click="markAllRead"
                 class="text-xs text-accent hover:underline focus:outline-none focus-visible:ring-2 focus-visible:ring-accent rounded">모두 읽음</button>
+              <button @click="deleteAllNotifs" :disabled="notifications.length === 0"
+                class="text-xs text-profit hover:underline focus:outline-none focus-visible:ring-2 focus-visible:ring-profit rounded disabled:opacity-40 disabled:cursor-not-allowed">모두 삭제</button>
               <button @click="showNotifications = false" aria-label="알림 패널 닫기"
                 class="text-txt-tertiary hover:text-txt-primary text-lg focus:outline-none focus-visible:ring-2 focus-visible:ring-accent rounded p-1">&times;</button>
             </div>
@@ -382,6 +384,16 @@ async function deleteNotif(id: number) {
     await notificationsApi.delete(id);
     notifications.value = notifications.value.filter(n => n.id !== id);
     await fetchUnreadCount();
+  } catch {}
+}
+
+async function deleteAllNotifs() {
+  if (notifications.value.length === 0) return;
+  if (!confirm(`알림 ${notifications.value.length}건을 모두 삭제하시겠습니까?\n이 작업은 되돌릴 수 없습니다.`)) return;
+  try {
+    await notificationsApi.deleteAll();
+    notifications.value = [];
+    unreadCount.value = 0;
   } catch {}
 }
 

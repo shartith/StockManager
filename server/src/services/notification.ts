@@ -68,3 +68,13 @@ export function markAllAsRead() {
 export function deleteNotification(id: number) {
   execute('DELETE FROM notifications WHERE id = ?', [id]);
 }
+
+/**
+ * 모든 알림 삭제. v4.7.1: 사용자가 알림 패널에서 일괄 정리할 수 있도록.
+ * 삭제된 행 수를 반환하여 UI가 사용자에게 결과를 표시할 수 있게 한다.
+ */
+export function deleteAllNotifications(): number {
+  const { changes } = execute('DELETE FROM notifications', []);
+  logger.info({ changes }, 'All notifications deleted');
+  return changes;
+}

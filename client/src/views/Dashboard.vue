@@ -236,9 +236,14 @@
               <span v-if="eventCounts.critical > 0" class="text-[10px] px-1.5 py-0.5 bg-profit/10 text-profit rounded font-medium">CRITICAL {{ eventCounts.critical }}</span>
               <span v-if="eventCounts.error > 0" class="text-[10px] px-1.5 py-0.5 bg-amber-500/10 text-amber-500 rounded font-medium">ERROR {{ eventCounts.error }}</span>
             </div>
-            <button @click="showEvents = !showEvents" class="text-xs text-accent hover:underline">
-              {{ showEvents ? '접기' : '펼치기' }}
-            </button>
+            <div class="flex items-center gap-3">
+              <button @click="deleteAllEventsFn" class="text-xs text-profit hover:underline">
+                모두 삭제
+              </button>
+              <button @click="showEvents = !showEvents" class="text-xs text-accent hover:underline">
+                {{ showEvents ? '접기' : '펼치기' }}
+              </button>
+            </div>
           </div>
           <div v-if="showEvents" class="max-h-64 overflow-y-auto">
             <div v-for="e in unresolvedEvents" :key="e.id" class="px-4 py-3 border-t border-border-subtle text-sm">
@@ -555,6 +560,18 @@ async function loadSystemEvents() {
 async function resolveEventFn(id: number) {
   try {
     await systemEventsApi.resolve(id, '대시보드에서 수동 해결');
+    await loadSystemEvents();
+  } catch {}
+}
+
+async function deleteAllEventsFn() {
+  const total = eventCounts.value?.unresolved ?? 0;
+  if (total === 0) return;
+  if (!confirm(`시스템 이벤트 ${total}건을 모두 삭제하시겠습니까?\n이 작업은 되돌릴 수 없습니다.`)) return;
+  try {
+    await systemEventsApi.deleteAll();
+    eventCounts.value = null;
+    unresolvedEvents.value = [];
     await loadSystemEvents();
   } catch {}
 }

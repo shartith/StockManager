@@ -30,7 +30,7 @@ import nasSyncRouter from './routes/nasSync';
 import heatmapRouter from './routes/heatmap';
 import { getSettings } from './services/settings';
 import { startScheduler, stopScheduler, getSchedulerStatus } from './services/scheduler';
-import { getRecentEvents, getUnresolvedEvents, getEventCounts, resolveEvent } from './services/systemEvent';
+import { getRecentEvents, getUnresolvedEvents, getEventCounts, resolveEvent, deleteEvent, deleteAllEvents } from './services/systemEvent';
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -277,6 +277,24 @@ app.post('/api/system-events/:id/resolve', (req, res) => {
   const { resolution } = req.body;
   resolveEvent(id, resolution || '수동 해결');
   res.json({ success: true });
+});
+
+// v4.7.1: bulk delete. /all must come BEFORE /:id so express does not
+// match "all" as a numeric id parameter.
+app.delete('/api/system-events/all', (req, res) => {
+  const onlyResolved = req.query.resolved === 'true';
+  const deleted = deleteAllEvents(onlyResolved);
+  res.json({ message: `${deleted}건 삭제 완료`, deleted });
+});
+
+app.delete('/api/system-events/:id', (req, res) => {
+  const id = Number(req.params.id);
+  if (!Number.isFinite(id)) {
+    res.status(400).json({ error: 'invalid id' });
+    return;
+  }
+  const deleted = deleteEvent(id);
+  res.json({ message: '삭제 완료', deleted });
 });
 
 // ── Production: client static files ──
