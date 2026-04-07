@@ -8,6 +8,10 @@ node_modules/
 client/dist/
 server/dist/
 
+# Test coverage reports
+server/coverage/
+client/coverage/
+
 # Database & settings (user-specific)
 data/*.db
 data/*.db-wal
