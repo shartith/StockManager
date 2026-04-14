@@ -148,6 +148,13 @@
       </div>
     </div>
 
+    <!-- 포트폴리오 히스토리 -->
+    <div class="mt-6 glass-card p-5">
+      <h3 class="font-semibold text-txt-primary mb-4">포트폴리오 히스토리</h3>
+      <p class="text-xs text-txt-tertiary mb-3">거래 내역 기반 누적 순투자/수수료 추이</p>
+      <div class="h-72"><PortfolioHistoryChart /></div>
+    </div>
+
     <!-- 자산 배분 -->
     <div v-if="summary && summary.allocation.length > 1" class="mt-6 glass-card p-5">
       <h3 class="font-semibold text-txt-primary mb-4">자산 배분</h3>
@@ -367,6 +374,7 @@ import { defineAsyncComponent } from 'vue';
 const ChartModal = defineAsyncComponent(() => import('@/components/ChartModal.vue'));
 import SummaryCard from '@/components/SummaryCard.vue';
 import TrendBadge from '@/components/TrendBadge.vue';
+import PortfolioHistoryChart from '@/components/PortfolioHistoryChart.vue';
 
 const chartModalVisible = ref(false);
 const chartModalTicker = ref('');

@@ -329,6 +329,17 @@
         </div>
       </div>
 
+      <!-- 포트폴리오 히스토리 -->
+      <div class="solid-card mb-8 overflow-hidden">
+        <div class="p-5 border-b border-border">
+          <h3 class="text-sm font-semibold text-txt-secondary">포트폴리오 히스토리 (누적 순투자 / 수수료)</h3>
+          <p class="text-xs text-txt-tertiary mt-1">transactions 테이블 기반, 날짜별 누적 매수/매도/수수료</p>
+        </div>
+        <div class="p-5 h-72">
+          <PortfolioHistoryChart />
+        </div>
+      </div>
+
       <!-- 보유 종목 테이블 -->
       <div class="solid-card overflow-hidden">
         <div class="p-5 border-b border-border">
@@ -399,6 +410,7 @@ const toastRef = inject<Ref<ToastInstance | null> | null>('toast', null);
 import SummaryCard from '@/components/SummaryCard.vue';
 import AllocationChart from '@/components/AllocationChart.vue';
 import StockChart from '@/components/StockChart.vue';
+import PortfolioHistoryChart from '@/components/PortfolioHistoryChart.vue';
 import AnimatedNumber from '@/components/AnimatedNumber.vue';
 import TrendBadge from '@/components/TrendBadge.vue';
 

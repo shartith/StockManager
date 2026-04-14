@@ -534,6 +534,148 @@
         v-model:sidewaysAtrPercent="form.sidewaysAtrPercent"
       />
 
+      <!-- 섹션: 매도 규칙 (v4.8.0) -->
+      <div class="bg-surface-1 rounded-xl border border-border shadow-sm overflow-hidden">
+        <div class="px-6 py-4 bg-surface-2 border-b border-border">
+          <div class="flex items-center justify-between">
+            <div>
+              <h3 class="text-sm font-semibold text-txt-primary">매도 규칙 (Hard Rules)</h3>
+              <p class="text-xs text-txt-secondary mt-0.5">LLM 없이 즉시 매도하는 4가지 조건. 매수 판단보다 우선 실행됩니다.</p>
+            </div>
+            <label class="flex items-center gap-2 cursor-pointer">
+              <div class="relative inline-block">
+                <input type="checkbox" v-model="form.sellRulesEnabled" class="sr-only" />
+                <div class="w-9 h-5 rounded-full transition-colors" :class="form.sellRulesEnabled ? 'bg-primary' : 'bg-surface-3'"></div>
+                <div class="absolute top-0.5 left-0.5 w-4 h-4 bg-white rounded-full shadow transition-transform" :class="form.sellRulesEnabled ? 'translate-x-4' : 'translate-x-0'"></div>
+              </div>
+              <span class="text-sm text-txt-primary">활성화</span>
+            </label>
+          </div>
+        </div>
+        <div class="p-6 space-y-4" :class="{ 'opacity-50 pointer-events-none': !form.sellRulesEnabled }">
+          <div>
+            <label class="block text-sm font-medium text-txt-primary mb-1">목표 수익률</label>
+            <div class="flex items-center gap-2">
+              <input v-model.number="form.targetProfitRate" type="number" step="0.1" min="0.5" max="50"
+                class="w-24 border border-border rounded-lg px-3 py-2 text-sm text-center focus:outline-none focus:ring-2 focus:ring-accent" />
+              <span class="text-sm text-txt-secondary">%</span>
+            </div>
+            <p class="text-xs text-txt-tertiary mt-1">매수가 대비 +N% 도달 시 전량 매도 (기본 3%)</p>
+          </div>
+          <div>
+            <label class="block text-sm font-medium text-txt-primary mb-1">손절 기준 (hard stop-loss)</label>
+            <div class="flex items-center gap-2">
+              <span class="text-sm text-txt-secondary">-</span>
+              <input v-model.number="form.hardStopLossRate" type="number" step="0.1" min="0.5" max="50"
+                class="w-24 border border-border rounded-lg px-3 py-2 text-sm text-center focus:outline-none focus:ring-2 focus:ring-accent" />
+              <span class="text-sm text-txt-secondary">%</span>
+            </div>
+            <p class="text-xs text-txt-tertiary mt-1">매수가 대비 -N% 이하 시 전량 매도 (기본 2% — 긴급 손절 3%보다 먼저 발동)</p>
+          </div>
+          <div>
+            <label class="block text-sm font-medium text-txt-primary mb-1">트레일링 스탑</label>
+            <div class="flex items-center gap-2">
+              <span class="text-sm text-txt-secondary">고점 -</span>
+              <input v-model.number="form.trailingStopRate" type="number" step="0.1" min="0.3" max="20"
+                class="w-24 border border-border rounded-lg px-3 py-2 text-sm text-center focus:outline-none focus:ring-2 focus:ring-accent" />
+              <span class="text-sm text-txt-secondary">%</span>
+            </div>
+            <p class="text-xs text-txt-tertiary mt-1">보유 중 관측된 최고가에서 -N% 하락 시 전량 매도 (기본 1.5%)</p>
+          </div>
+          <div>
+            <label class="block text-sm font-medium text-txt-primary mb-1">최대 보유 시간</label>
+            <div class="flex items-center gap-2">
+              <input v-model.number="form.maxHoldMinutes" type="number" min="5" max="1440"
+                class="w-24 border border-border rounded-lg px-3 py-2 text-sm text-center focus:outline-none focus:ring-2 focus:ring-accent" />
+              <span class="text-sm text-txt-secondary">분</span>
+            </div>
+            <p class="text-xs text-txt-tertiary mt-1">매수 후 N분 경과 시 손익 무관 전량 매도 (기본 60분 — 단타 목적)</p>
+          </div>
+        </div>
+      </div>
+
+      <!-- 섹션: 포지션 사이징 (v4.8.0) -->
+      <div class="bg-surface-1 rounded-xl border border-border shadow-sm overflow-hidden">
+        <div class="px-6 py-4 bg-surface-2 border-b border-border">
+          <h3 class="text-sm font-semibold text-txt-primary">포지션 사이징</h3>
+          <p class="text-xs text-txt-secondary mt-0.5">매수 시 예산·종목 수·현금 비율을 강제합니다. 잔고 전액 단일 종목 투입 방지.</p>
+        </div>
+        <div class="p-6 space-y-4">
+          <div>
+            <label class="block text-sm font-medium text-txt-primary mb-1">단일 종목 최대 투자 비율</label>
+            <div class="flex items-center gap-2">
+              <input v-model.number="form.positionMaxRatio" type="number" min="5" max="100"
+                class="w-24 border border-border rounded-lg px-3 py-2 text-sm text-center focus:outline-none focus:ring-2 focus:ring-accent" />
+              <span class="text-sm text-txt-secondary">%</span>
+            </div>
+            <p class="text-xs text-txt-tertiary mt-1">전체 예산의 N% 이하로 단일 종목 투자 제한 (기본 25%)</p>
+          </div>
+          <div>
+            <label class="block text-sm font-medium text-txt-primary mb-1">최소 현금 보유 비율</label>
+            <div class="flex items-center gap-2">
+              <input v-model.number="form.positionMinCashRatio" type="number" min="0" max="80"
+                class="w-24 border border-border rounded-lg px-3 py-2 text-sm text-center focus:outline-none focus:ring-2 focus:ring-accent" />
+              <span class="text-sm text-txt-secondary">%</span>
+            </div>
+            <p class="text-xs text-txt-tertiary mt-1">현금 비율이 이 값 미만이면 신규 매수 금지 (기본 20%)</p>
+          </div>
+          <div>
+            <label class="block text-sm font-medium text-txt-primary mb-1">최대 동시 보유 종목 수</label>
+            <input v-model.number="form.positionMaxPositions" type="number" min="1" max="20"
+              class="w-24 border border-border rounded-lg px-3 py-2 text-sm text-center focus:outline-none focus:ring-2 focus:ring-accent" />
+            <p class="text-xs text-txt-tertiary mt-1">보유 종목 수가 이 값 이상이면 신규 매수 금지 (기본 3종목 — 집중 투자 전략)</p>
+          </div>
+        </div>
+      </div>
+
+      <!-- 섹션: 동적 스크리닝 (v4.8.0) -->
+      <div class="bg-surface-1 rounded-xl border border-border shadow-sm overflow-hidden">
+        <div class="px-6 py-4 bg-surface-2 border-b border-border">
+          <div class="flex items-center justify-between">
+            <div>
+              <h3 class="text-sm font-semibold text-txt-primary">동적 종목 스크리닝</h3>
+              <p class="text-xs text-txt-secondary mt-0.5">시장 국면(RISING/FLAT/FALLING)에 따라 후보 종목을 자동 스크리닝합니다.</p>
+            </div>
+            <label class="flex items-center gap-2 cursor-pointer">
+              <div class="relative inline-block">
+                <input type="checkbox" v-model="form.dynamicScreeningEnabled" class="sr-only" />
+                <div class="w-9 h-5 rounded-full transition-colors" :class="form.dynamicScreeningEnabled ? 'bg-primary' : 'bg-surface-3'"></div>
+                <div class="absolute top-0.5 left-0.5 w-4 h-4 bg-white rounded-full shadow transition-transform" :class="form.dynamicScreeningEnabled ? 'translate-x-4' : 'translate-x-0'"></div>
+              </div>
+              <span class="text-sm text-txt-primary">활성화</span>
+            </label>
+          </div>
+        </div>
+        <div class="p-6 space-y-4" :class="{ 'opacity-50 pointer-events-none': !form.dynamicScreeningEnabled }">
+          <div>
+            <label class="block text-sm font-medium text-txt-primary mb-1">거래량 비율 최소값 (RISING 국면)</label>
+            <div class="flex items-center gap-2">
+              <input v-model.number="form.screeningVolumeRatioMin" type="number" step="0.1" min="1" max="10"
+                class="w-24 border border-border rounded-lg px-3 py-2 text-sm text-center focus:outline-none focus:ring-2 focus:ring-accent" />
+              <span class="text-sm text-txt-secondary">배</span>
+            </div>
+            <p class="text-xs text-txt-tertiary mt-1">상승장에서 5일 평균 거래량의 N배 이상만 후보로 선정 (기본 1.5배 = 150%)</p>
+          </div>
+          <div>
+            <label class="block text-sm font-medium text-txt-primary mb-1">최소 시가총액 (FLAT 국면)</label>
+            <div class="flex items-center gap-2">
+              <input v-model.number="form.screeningMinMarketCap" type="number" min="0" max="100000"
+                class="w-32 border border-border rounded-lg px-3 py-2 text-sm text-center focus:outline-none focus:ring-2 focus:ring-accent" />
+              <span class="text-sm text-txt-secondary">억원</span>
+            </div>
+            <p class="text-xs text-txt-tertiary mt-1">박스권에서 시가총액 N억 이상만 후보로 선정 (기본 500억 — 유동성 확보)</p>
+          </div>
+          <div class="bg-surface-2 rounded-lg p-3 text-xs text-txt-secondary">
+            <p class="font-semibold mb-1">국면 판별 기준 (KOSPI + KOSDAQ 평균 등락률):</p>
+            <ul class="space-y-0.5 ml-2">
+              <li>• <span class="text-profit">RISING</span>: ≥ +0.5% — 모멘텀 종목 (등락률 +1~5%, 거래량 급증)</li>
+              <li>• <span class="text-txt-tertiary">FLAT</span>: ±0.5% — 박스권 종목 (볼린저 하단, RSI ≤ 30, 대형주)</li>
+              <li>• <span class="text-loss">FALLING</span>: ≤ -0.5% — 신규 매수 건너뜀 (현금 보유)</li>
+            </ul>
+          </div>
+        </div>
+      </div>
+
       <!-- 섹션: 데이터 동기화 (NAS) -->
       <div class="bg-surface-1 rounded-xl border border-border shadow-sm overflow-hidden">
         <div class="px-6 py-4 bg-surface-2 border-b border-border">
@@ -968,6 +1110,23 @@ const form = ref({
   portfolioMinCashPercent: 10,
   portfolioRebalanceEnabled: false,
 
+  // v4.8.0: 매도 규칙
+  sellRulesEnabled: true,
+  targetProfitRate: 3.0,
+  hardStopLossRate: 2.0,
+  trailingStopRate: 1.5,
+  maxHoldMinutes: 60,
+
+  // v4.8.0: 포지션 사이징
+  positionMaxRatio: 25,
+  positionMinCashRatio: 20,
+  positionMaxPositions: 3,
+
+  // v4.8.0: 동적 스크리닝
+  dynamicScreeningEnabled: true,
+  screeningVolumeRatioMin: 1.5,
+  screeningMinMarketCap: 500,
+
   nasSyncEnabled: false,
   nasSyncPath: '',
   nasSyncTime: '0 20 * * *',
@@ -1218,6 +1377,23 @@ async function loadConfig() {
     form.value.portfolioMaxSectorPercent = saved.portfolioMaxSectorPercent ?? 40;
     form.value.portfolioMinCashPercent = saved.portfolioMinCashPercent ?? 10;
     form.value.portfolioRebalanceEnabled = saved.portfolioRebalanceEnabled ?? false;
+
+    // v4.8.0: 매도 규칙
+    form.value.sellRulesEnabled = saved.sellRulesEnabled ?? true;
+    form.value.targetProfitRate = saved.targetProfitRate ?? 3.0;
+    form.value.hardStopLossRate = saved.hardStopLossRate ?? 2.0;
+    form.value.trailingStopRate = saved.trailingStopRate ?? 1.5;
+    form.value.maxHoldMinutes = saved.maxHoldMinutes ?? 60;
+
+    // v4.8.0: 포지션 사이징
+    form.value.positionMaxRatio = saved.positionMaxRatio ?? 25;
+    form.value.positionMinCashRatio = saved.positionMinCashRatio ?? 20;
+    form.value.positionMaxPositions = saved.positionMaxPositions ?? 3;
+
+    // v4.8.0: 동적 스크리닝
+    form.value.dynamicScreeningEnabled = saved.dynamicScreeningEnabled ?? true;
+    form.value.screeningVolumeRatioMin = saved.screeningVolumeRatioMin ?? 1.5;
+    form.value.screeningMinMarketCap = saved.screeningMinMarketCap ?? 500;
 
     form.value.nasSyncEnabled = saved.nasSyncEnabled ?? false;
     form.value.nasSyncPath = saved.nasSyncPath || '';

@@ -240,6 +240,60 @@
 
     <!-- 백테스트 -->
     <div v-if="activeTab === 'backtest'">
+      <!-- 새 백테스트 실행 폼 -->
+      <div class="bg-surface-1 rounded-xl border border-border overflow-hidden mb-6">
+        <div class="px-5 py-3 border-b border-border bg-surface-2">
+          <h3 class="font-semibold text-txt-primary">새 백테스트 실행</h3>
+          <p class="text-xs text-txt-secondary mt-0.5">종목과 기간을 선택하면 KIS 캔들 데이터로 즉시 백테스트를 수행합니다.</p>
+        </div>
+        <div class="p-5 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3">
+          <div class="lg:col-span-2">
+            <label class="block text-xs font-medium text-txt-secondary mb-1">종목 (티커)</label>
+            <input v-model="btForm.ticker" type="text" placeholder="예: 005930"
+              class="w-full border border-border rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-accent" />
+          </div>
+          <div>
+            <label class="block text-xs font-medium text-txt-secondary mb-1">시장</label>
+            <select v-model="btForm.market"
+              class="w-full border border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-accent">
+              <option value="KRX">KRX</option>
+              <option value="NYSE">NYSE</option>
+              <option value="NASDAQ">NASDAQ</option>
+            </select>
+          </div>
+          <div>
+            <label class="block text-xs font-medium text-txt-secondary mb-1">초기 자본 (원)</label>
+            <input v-model.number="btForm.initialCapital" type="number" min="100000" step="100000"
+              class="w-full border border-border rounded-lg px-3 py-2 text-sm tabular-nums focus:outline-none focus:ring-2 focus:ring-accent" />
+          </div>
+          <div>
+            <label class="block text-xs font-medium text-txt-secondary mb-1">백테스트 이름</label>
+            <input v-model="btForm.name" type="text" :placeholder="`auto-${btForm.ticker || '...'}`"
+              class="w-full border border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-accent" />
+          </div>
+          <div>
+            <label class="block text-xs font-medium text-txt-secondary mb-1">기간 (일봉 개수)</label>
+            <select v-model.number="btForm.candleCount"
+              class="w-full border border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-accent">
+              <option :value="60">60일</option>
+              <option :value="120">120일</option>
+              <option :value="250">250일 (~1년)</option>
+              <option :value="500">500일 (~2년)</option>
+              <option :value="1000">1000일 (~4년)</option>
+            </select>
+          </div>
+          <div class="flex items-end md:col-span-2 lg:col-span-2">
+            <button @click="runBacktest" :disabled="btRunning || !btForm.ticker.trim()"
+              class="w-full bg-accent text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-accent/90 disabled:opacity-50 disabled:cursor-not-allowed focus:outline-none focus-visible:ring-2 focus-visible:ring-accent">
+              {{ btRunning ? '실행 중...' : '백테스트 실행' }}
+            </button>
+          </div>
+        </div>
+        <p v-if="btResult" class="px-5 pb-4 text-sm" :class="btResult.startsWith('❌') ? 'text-loss' : 'text-profit'">
+          {{ btResult }}
+        </p>
+      </div>
+
       <!-- 과거 백테스트 결과 목록 -->
       <div class="bg-surface-1 rounded-xl border border-border overflow-hidden">
         <div class="px-5 py-3 border-b border-border flex items-center justify-between">
@@ -434,7 +488,7 @@
 
 <script setup lang="ts">
 import { ref, onMounted, watch, inject, type Ref } from 'vue';
-import { feedbackApi } from '@/api';
+import { feedbackApi, chartApi } from '@/api';
 
 interface ToastShowOpts { type?: string; title?: string; message: string; duration?: number; }
 interface ToastInstance { show: (opts: ToastShowOpts) => void; }
@@ -529,6 +583,50 @@ async function loadBacktests() {
     const { data } = await feedbackApi.getBacktestList({ limit: 20 });
     backtests.value = data;
   } catch { /* */ }
+}
+
+// ─── 새 백테스트 실행 폼 ─────────────────────────────────
+const btForm = ref({
+  ticker: '',
+  market: 'KRX' as 'KRX' | 'NYSE' | 'NASDAQ',
+  initialCapital: 2_000_000,
+  name: '',
+  candleCount: 250,
+});
+const btRunning = ref(false);
+const btResult = ref('');
+
+async function runBacktest() {
+  const ticker = btForm.value.ticker.trim().toUpperCase();
+  if (!ticker) return;
+  btRunning.value = true;
+  btResult.value = '';
+  try {
+    // 1단계: 캔들 데이터 조회 (KIS API 사용 — 백엔드는 자동 fallback)
+    const { data: candleRes } = await chartApi.getCandle(ticker, { period: 'D' });
+    const candles = (candleRes.candles || []).slice(-btForm.value.candleCount);
+    if (candles.length < 60) {
+      btResult.value = `❌ 캔들 데이터 부족 (${candles.length}개) — 최소 60개 필요`;
+      btRunning.value = false;
+      return;
+    }
+    // 2단계: 백테스트 실행
+    const name = btForm.value.name.trim() || `manual-${ticker}-${new Date().toISOString().slice(0, 10)}`;
+    const { data } = await feedbackApi.runBacktest({
+      name,
+      candles,
+      initialCapital: btForm.value.initialCapital,
+      ticker,
+      market: btForm.value.market,
+    });
+    btResult.value = `✅ ${name} — 수익률 ${data.totalReturn?.toFixed(1) ?? '?'}%, 승률 ${((data.winRate ?? 0) * 100).toFixed(0)}%, 거래 ${data.totalTrades ?? 0}건`;
+    await loadBacktests();
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : '백테스트 실행 실패';
+    btResult.value = `❌ ${msg}`;
+    toastRef?.value?.show({ type: 'error', title: '백테스트 실패', message: msg });
+  }
+  btRunning.value = false;
 }
 
 async function runOptimize() {

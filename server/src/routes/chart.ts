@@ -86,6 +86,23 @@ router.get('/config/form', (_req: Request, res: Response) => {
     volumeSurgeRatio: settings.volumeSurgeRatio,
     lowVolumeRatio: settings.lowVolumeRatio,
     sidewaysAtrPercent: settings.sidewaysAtrPercent,
+
+    // v4.8.0: 매도 규칙
+    sellRulesEnabled: settings.sellRulesEnabled,
+    targetProfitRate: settings.targetProfitRate,
+    hardStopLossRate: settings.hardStopLossRate,
+    trailingStopRate: settings.trailingStopRate,
+    maxHoldMinutes: settings.maxHoldMinutes,
+
+    // v4.8.0: 포지션 사이징
+    positionMaxRatio: settings.positionMaxRatio,
+    positionMinCashRatio: settings.positionMinCashRatio,
+    positionMaxPositions: settings.positionMaxPositions,
+
+    // v4.8.0: 동적 스크리닝
+    dynamicScreeningEnabled: settings.dynamicScreeningEnabled,
+    screeningVolumeRatioMin: settings.screeningVolumeRatioMin,
+    screeningMinMarketCap: settings.screeningMinMarketCap,
   });
 });
 
@@ -155,6 +172,23 @@ router.post('/config', validate(saveConfigSchema), (req: Request, res: Response)
     volumeSurgeRatio: Number(req.body.volumeSurgeRatio) || 1.5,
     lowVolumeRatio: Number(req.body.lowVolumeRatio) || 0.7,
     sidewaysAtrPercent: Number(req.body.sidewaysAtrPercent) || 1.0,
+
+    // v4.8.0: 매도 규칙
+    sellRulesEnabled: req.body.sellRulesEnabled ?? true,
+    targetProfitRate: Number(req.body.targetProfitRate) || 3.0,
+    hardStopLossRate: Number(req.body.hardStopLossRate) || 2.0,
+    trailingStopRate: Number(req.body.trailingStopRate) || 1.5,
+    maxHoldMinutes: Number(req.body.maxHoldMinutes) || 60,
+
+    // v4.8.0: 포지션 사이징
+    positionMaxRatio: Number(req.body.positionMaxRatio) || 25,
+    positionMinCashRatio: Number(req.body.positionMinCashRatio) || 20,
+    positionMaxPositions: Number(req.body.positionMaxPositions) || 3,
+
+    // v4.8.0: 동적 스크리닝
+    dynamicScreeningEnabled: req.body.dynamicScreeningEnabled ?? true,
+    screeningVolumeRatioMin: Number(req.body.screeningVolumeRatioMin) || 1.5,
+    screeningMinMarketCap: Number(req.body.screeningMinMarketCap) || 500,
   });
 
   process.env.KIS_APP_KEY = appKey;

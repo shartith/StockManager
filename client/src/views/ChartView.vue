@@ -119,6 +119,29 @@
         </div>
       </div>
 
+      <!-- 지표/오버레이 토글 -->
+      <div class="px-5 py-2 border-b border-border-subtle bg-surface-2 flex flex-wrap gap-3 items-center">
+        <span class="text-xs font-medium text-txt-secondary">오버레이:</span>
+        <label class="flex items-center gap-1.5 cursor-pointer text-xs">
+          <input type="checkbox" v-model="showSma20" @change="rerender" class="accent-sky-500" />
+          <span class="text-sky-600">SMA20</span>
+        </label>
+        <label class="flex items-center gap-1.5 cursor-pointer text-xs">
+          <input type="checkbox" v-model="showSma60" @change="rerender" class="accent-orange-500" />
+          <span class="text-orange-600">SMA60</span>
+        </label>
+        <label class="flex items-center gap-1.5 cursor-pointer text-xs">
+          <input type="checkbox" v-model="showBollinger" @change="rerender" class="accent-purple-500" />
+          <span class="text-purple-600">Bollinger (20, 2σ)</span>
+        </label>
+        <span class="text-xs text-txt-tertiary mx-2">|</span>
+        <label class="flex items-center gap-1.5 cursor-pointer text-xs">
+          <input type="checkbox" v-model="showSignals" @change="rerender" class="accent-rose-500" />
+          <span class="text-rose-600">매매 신호 마커</span>
+        </label>
+        <span v-if="signalsCount > 0" class="text-xs text-txt-tertiary">({{ signalsCount }}건)</span>
+      </div>
+
       <!-- 캔들스틱 차트 -->
       <div ref="chartContainer" class="w-full" style="height: 440px;"></div>
 
@@ -141,8 +164,8 @@
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted, watch, nextTick } from 'vue';
 import { useRoute } from 'vue-router';
-import { createChart, IChartApi, ISeriesApi, CandlestickSeries, HistogramSeries, ColorType } from 'lightweight-charts';
-import { chartApi, stocksApi, watchlistApi } from '@/api';
+import { createChart, createSeriesMarkers, IChartApi, ISeriesApi, CandlestickSeries, HistogramSeries, LineSeries, ColorType } from 'lightweight-charts';
+import { chartApi, stocksApi, watchlistApi, analysisApi } from '@/api';
 
 const searchTicker = ref('');
 const period = ref('D');
@@ -153,11 +176,53 @@ const apiConfigured = ref(true);
 const holdingStocks = ref<any[]>([]);
 const watchlistStocks = ref<any[]>([]);
 
+// 지표/오버레이 토글
+const showSma20 = ref(true);
+const showSma60 = ref(false);
+const showBollinger = ref(false);
+const showSignals = ref(true);
+const signalsCount = ref(0);
+
 const chartContainer = ref<HTMLElement>();
 const volumeContainer = ref<HTMLElement>();
 let chart: IChartApi | null = null;
 let candleSeries: ISeriesApi<'Candlestick'> | null = null;
 let volumeSeries: ISeriesApi<'Histogram'> | null = null;
+
+interface Candle { time: string; open: number; high: number; low: number; close: number; volume: number; }
+
+/** 단순 이동평균 */
+function calcSMA(candles: Candle[], period: number): { time: string; value: number }[] {
+  const out: { time: string; value: number }[] = [];
+  for (let i = period - 1; i < candles.length; i++) {
+    let sum = 0;
+    for (let j = i - period + 1; j <= i; j++) sum += candles[j].close;
+    out.push({ time: candles[i].time, value: sum / period });
+  }
+  return out;
+}
+
+/** 볼린저밴드 (SMA20 ± 2σ) */
+function calcBollinger(candles: Candle[], period = 20, stdDev = 2): {
+  upper: { time: string; value: number }[];
+  middle: { time: string; value: number }[];
+  lower: { time: string; value: number }[];
+} {
+  const upper: any[] = []; const middle: any[] = []; const lower: any[] = [];
+  for (let i = period - 1; i < candles.length; i++) {
+    let sum = 0;
+    for (let j = i - period + 1; j <= i; j++) sum += candles[j].close;
+    const mean = sum / period;
+    let variance = 0;
+    for (let j = i - period + 1; j <= i; j++) variance += (candles[j].close - mean) ** 2;
+    const sd = Math.sqrt(variance / period);
+    const t = candles[i].time;
+    upper.push({ time: t, value: mean + sd * stdDev });
+    middle.push({ time: t, value: mean });
+    lower.push({ time: t, value: mean - sd * stdDev });
+  }
+  return { upper, middle, lower };
+}
 
 const periods = [
   { label: '일', value: 'D' },
@@ -187,10 +252,20 @@ async function loadChart() {
   loading.value = true;
   error.value = '';
   chartData.value = null;
+  signalsCount.value = 0;
 
   try {
     const { data } = await chartApi.getCandle(ticker, { period: period.value });
     chartData.value = data;
+
+    // 매매 신호 조회 (fail-safe)
+    try {
+      const sigRes = await analysisApi.getSignals(ticker);
+      chartData.value._signals = sigRes.data || [];
+      signalsCount.value = chartData.value._signals.length;
+    } catch {
+      chartData.value._signals = [];
+    }
 
     await nextTick();
     renderChart(data.candles);
@@ -203,6 +278,11 @@ async function loadChart() {
   } finally {
     loading.value = false;
   }
+}
+
+/** 지표/마커 토글 시 같은 데이터로 재렌더 */
+function rerender() {
+  if (chartData.value?.candles) renderChart(chartData.value.candles);
 }
 
 function renderChart(candles: any[]) {
@@ -252,6 +332,45 @@ function renderChart(candles: any[]) {
     wickDownColor: '#3b82f6',
   });
   candleSeries.setData(candles);
+
+  // 오버레이: SMA20 / SMA60 / Bollinger Bands
+  if (showSma20.value && candles.length >= 20) {
+    const s = chart.addSeries(LineSeries, { color: '#0ea5e9', lineWidth: 1, priceLineVisible: false, lastValueVisible: false });
+    s.setData(calcSMA(candles, 20));
+  }
+  if (showSma60.value && candles.length >= 60) {
+    const s = chart.addSeries(LineSeries, { color: '#f97316', lineWidth: 1, priceLineVisible: false, lastValueVisible: false });
+    s.setData(calcSMA(candles, 60));
+  }
+  if (showBollinger.value && candles.length >= 20) {
+    const bb = calcBollinger(candles, 20, 2);
+    const bandOpts = { color: 'rgba(168, 85, 247, 0.6)', lineWidth: 1 as const, priceLineVisible: false, lastValueVisible: false };
+    chart.addSeries(LineSeries, bandOpts).setData(bb.upper);
+    chart.addSeries(LineSeries, { ...bandOpts, color: 'rgba(168, 85, 247, 0.35)' }).setData(bb.middle);
+    chart.addSeries(LineSeries, bandOpts).setData(bb.lower);
+  }
+
+  // 매매 신호 마커 (trade_signals.created_at을 date로 매핑)
+  if (showSignals.value && chartData.value?._signals?.length) {
+    const candleDates = new Set(candles.map((c: Candle) => c.time));
+    const markers = (chartData.value._signals as any[])
+      .map(sig => {
+        const date = String(sig.created_at || '').slice(0, 10);
+        if (!candleDates.has(date)) return null;
+        const type = sig.signal_type;
+        return {
+          time: date,
+          position: type === 'SELL' ? 'aboveBar' : 'belowBar',
+          color: type === 'BUY' ? '#ef4444' : type === 'SELL' ? '#3b82f6' : '#94a3b8',
+          shape: type === 'BUY' ? 'arrowUp' : type === 'SELL' ? 'arrowDown' : 'circle',
+          text: `${type} ${Math.round(sig.confidence || 0)}%`,
+        };
+      })
+      .filter(Boolean);
+    if (markers.length > 0) {
+      createSeriesMarkers(candleSeries, markers as any);
+    }
+  }
 
   // 거래량 차트 (별도)
   const volChart = createChart(volumeContainer.value, {
