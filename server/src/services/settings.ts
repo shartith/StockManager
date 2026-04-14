@@ -96,6 +96,23 @@ export interface AppSettings {
   volumeSurgeRatio: number;
   lowVolumeRatio: number;
   sidewaysAtrPercent: number;
+
+  // 매도 규칙 (hard rules — LLM 불필요)
+  sellRulesEnabled: boolean;
+  targetProfitRate: number;      // +N% → 전량 매도
+  hardStopLossRate: number;      // -N% → 전량 매도
+  trailingStopRate: number;      // 고점 대비 -N% → 전량 매도
+  maxHoldMinutes: number;        // N분 초과 → 전량 매도
+
+  // 포지션 사이징
+  positionMaxRatio: number;      // 전체 예산의 N%
+  positionMinCashRatio: number;  // 현금 N% 미만이면 매수 금지
+  positionMaxPositions: number;  // 최대 동시 보유 종목 수
+
+  // 동적 스크리닝
+  dynamicScreeningEnabled: boolean;
+  screeningVolumeRatioMin: number;  // RISING: 5일 평균 거래량의 N배
+  screeningMinMarketCap: number;    // FLAT: 시가총액 N억 이상
 }
 
 const DEFAULT_SETTINGS: AppSettings = {
@@ -150,6 +167,20 @@ const DEFAULT_SETTINGS: AppSettings = {
   volumeSurgeRatio: 1.5,
   lowVolumeRatio: 0.7,
   sidewaysAtrPercent: 1.0,
+
+  sellRulesEnabled: true,
+  targetProfitRate: 3.0,
+  hardStopLossRate: 2.0,
+  trailingStopRate: 1.5,
+  maxHoldMinutes: 60,
+
+  positionMaxRatio: 25,
+  positionMinCashRatio: 20,
+  positionMaxPositions: 3,
+
+  dynamicScreeningEnabled: true,
+  screeningVolumeRatioMin: 1.5,
+  screeningMinMarketCap: 500,
 };
 
 let _cache: AppSettings | null = null;

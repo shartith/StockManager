@@ -11,6 +11,7 @@ import { manageUnfilledOrders, checkReservedOrders } from '../orderManager';
 import logger from '../../logger';
 import { Market, addLog, schedulerState } from './types';
 import { getHoldingInfo, fetchCandleData, fetchIntradayCandles, analyzeStock, sleep } from './helpers';
+import { evaluateSellRules, updatePeakPrice, resetPeakPrice } from '../sellRules';
 
 /** 위험 감지 즉시 매도 판단 */
 function checkEmergencySell(holding: any, currentPrice: number, stockId: number): { sell: boolean; reason: string } {
@@ -158,6 +159,40 @@ export async function runContinuousMonitor(market: Market) {
           }
         } catch (err) { logger.error({ err, ticker: stock.ticker }, 'Emergency sell failed'); }
         continue;
+      }
+
+      // === 매도 규칙 (hard rules — LLM 불필요) ===
+      if (settings.sellRulesEnabled) {
+        const sellResult = evaluateSellRules({
+          stockId: stock.id,
+          ticker: stock.ticker,
+          currentPrice,
+          avgPrice: holding.avgPrice,
+          quantity: holding.quantity,
+          unrealizedPnLPercent: holding.unrealizedPnLPercent,
+        });
+        if (sellResult.shouldSell) {
+          try {
+            const result = await executeOrder({
+              stockId: stock.id, ticker: stock.ticker, market: stock.market as any,
+              orderType: 'SELL', quantity: holding.quantity, price: 0, signalId: 0,
+            });
+            if (result.success) {
+              actions++;
+              resetPeakPrice(stock.id);
+              addLog(market, 'POST_OPEN', 'completed',
+                `매도 규칙: ${stock.ticker} ${holding.quantity}주 — ${sellResult.reason}`);
+              createNotification({
+                type: 'AUTO_TRADE', title: `매도 규칙 (${sellResult.rule})`,
+                message: `${stock.ticker} (${stock.name}) ${holding.quantity}주 매도 — ${sellResult.reason}`,
+                ticker: stock.ticker, market, actionUrl: '/transactions',
+              });
+            }
+          } catch (err) { logger.error({ err, ticker: stock.ticker }, 'Sell rule execution failed'); }
+          continue;
+        }
+        // 매도 안 했으면 고점 갱신
+        updatePeakPrice(stock.id, currentPrice);
       }
     }
 

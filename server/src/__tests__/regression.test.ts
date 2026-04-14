@@ -81,6 +81,10 @@ describe('Settings <-> Zod schema parity', () => {
     'tradingRulesEnabled', 'tradingRulesStrictMode',
     'gapThresholdPercent', 'volumeSurgeRatio', 'lowVolumeRatio',
     'sidewaysAtrPercent',
+    'sellRulesEnabled', 'targetProfitRate', 'hardStopLossRate',
+    'trailingStopRate', 'maxHoldMinutes',
+    'positionMaxRatio', 'positionMinCashRatio', 'positionMaxPositions',
+    'dynamicScreeningEnabled', 'screeningVolumeRatioMin', 'screeningMinMarketCap',
   ];
 
   // Fields that have a known mapping difference between AppSettings and

@@ -240,6 +240,84 @@ export function calculateOptimalQuantity(price: number, market: string): number 
   return Math.max(quantity, 0);
 }
 
+// ── Position Sizing Rules ──
+
+export interface PositionSizingResult {
+  allowed: boolean;
+  reason?: string;
+  maxBuyAmount: number;
+  maxBuyQuantity: number;
+}
+
+/**
+ * 포지션 사이징 규칙 — 매수 전 예산/종목 수/현금 비율 점검.
+ *
+ * 기존 checkPromotionEligibility, calculateOptimalQuantity과 **병행** 적용.
+ * 이 함수는 사용자 지정 규칙(positionMaxRatio/positionMinCashRatio/
+ * positionMaxPositions)을 반영한 추가 gate 역할.
+ */
+export function checkPositionSizingRules(price: number, _market: string): PositionSizingResult {
+  const settings = getSettings();
+  const portfolio = getTotalPortfolioValue();
+
+  const totalBudget = portfolio.totalValue;
+  const cash = portfolio.cashValue;
+  const holdingCount = portfolio.holdingCount;
+
+  // 1. 최대 보유 종목 수 초과
+  const maxPositions = settings.positionMaxPositions ?? 3;
+  if (holdingCount >= maxPositions) {
+    return {
+      allowed: false,
+      reason: `최대 보유 종목 수 초과 (${holdingCount}/${maxPositions})`,
+      maxBuyAmount: 0,
+      maxBuyQuantity: 0,
+    };
+  }
+
+  // 2. 현금 보유 비율 미달
+  const minCashRatio = settings.positionMinCashRatio ?? 20;
+  if (totalBudget > 0 && cash < totalBudget * (minCashRatio / 100)) {
+    return {
+      allowed: false,
+      reason: `현금 보유 비율 미달 (${((cash / totalBudget) * 100).toFixed(1)}% < ${minCashRatio}%)`,
+      maxBuyAmount: 0,
+      maxBuyQuantity: 0,
+    };
+  }
+
+  // 3. 단일 종목 최대 투자 한도
+  const maxRatio = settings.positionMaxRatio ?? 25;
+  const maxInvestPerStock = totalBudget * (maxRatio / 100);
+
+  // 4. 매수 금액 = min(종목 한도, 가용 현금 × 0.9)
+  const buyAmount = Math.min(maxInvestPerStock, cash * 0.9);
+  if (buyAmount <= 0 || price <= 0) {
+    return {
+      allowed: false,
+      reason: '매수 가능 금액 없음',
+      maxBuyAmount: 0,
+      maxBuyQuantity: 0,
+    };
+  }
+
+  const qty = Math.floor(buyAmount / price);
+  if (qty <= 0) {
+    return {
+      allowed: false,
+      reason: `주가(${price.toLocaleString()})가 매수 가능 금액(${Math.round(buyAmount).toLocaleString()})을 초과`,
+      maxBuyAmount: buyAmount,
+      maxBuyQuantity: 0,
+    };
+  }
+
+  return {
+    allowed: true,
+    maxBuyAmount: buyAmount,
+    maxBuyQuantity: qty,
+  };
+}
+
 // ── Rebalancing ──
 
 /** Calculate rebalance actions based on optimal weights */

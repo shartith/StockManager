@@ -9,7 +9,7 @@ import { getAccessToken, getKisConfig } from './kisAuth';
 import { getSettings } from './settings';
 import { queryOne, queryAll, execute } from '../db';
 import { kisApiCall } from './apiQueue';
-import { calculateOptimalQuantity } from './portfolioManager';
+import { calculateOptimalQuantity, checkPositionSizingRules } from './portfolioManager';
 import logger from '../logger';
 
 // ─── 타입 ─────────────────────────────────────────────
@@ -363,10 +363,16 @@ export async function executeOrder(req: OrderRequest): Promise<OrderResult> {
     }
   }
 
-  // 2. 매수 시: 실제 주문가능금액 확인 후 수량 계산
+  // 2. 매수 시: 포지션 사이징 + 주문가능금액 확인 + 수량 계산
   let quantity = req.quantity;
   if (req.orderType === 'BUY') {
-    // 실제 주문가능금액 조회 (dnca_tot_amt가 아닌 ord_psbl_cash)
+    // 2a. 포지션 사이징 규칙 (예산/종목 수/현금 비율 gate)
+    const sizing = checkPositionSizingRules(orderPrice, req.market);
+    if (!sizing.allowed) {
+      return { success: false, message: `포지션 규칙: ${sizing.reason}`, quantity: 0, price: orderPrice, fee: 0 };
+    }
+
+    // 2b. 실제 주문가능금액 조회 (dnca_tot_amt가 아닌 ord_psbl_cash)
     let orderableAmount = settings.autoTradeMaxPerStock;
     try {
       if (req.market === 'KRX') {
@@ -386,7 +392,12 @@ export async function executeOrder(req: OrderRequest): Promise<OrderResult> {
       }
     }
 
-    // 주문가능금액 대비 재검증
+    // 2c. 포지션 사이징 수량 상한 적용
+    if (sizing.maxBuyQuantity > 0 && quantity > sizing.maxBuyQuantity) {
+      quantity = sizing.maxBuyQuantity;
+    }
+
+    // 2d. 주문가능금액 대비 재검증
     const orderAmount = orderPrice * quantity;
     if (orderableAmount > 0 && orderAmount > orderableAmount) {
       quantity = Math.floor(orderableAmount / orderPrice);

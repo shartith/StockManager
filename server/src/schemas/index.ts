@@ -177,6 +177,23 @@ export const saveConfigSchema = z.object({
   volumeSurgeRatio: z.number().min(1).max(5).default(1.5),
   lowVolumeRatio: z.number().min(0.1).max(1).default(0.7),
   sidewaysAtrPercent: z.number().min(0.1).max(5).default(1.0),
+
+  // 매도 규칙
+  sellRulesEnabled: z.boolean().default(true),
+  targetProfitRate: z.number().min(0.5).max(50).default(3.0),
+  hardStopLossRate: z.number().min(0.5).max(50).default(2.0),
+  trailingStopRate: z.number().min(0.3).max(20).default(1.5),
+  maxHoldMinutes: z.number().int().min(5).max(1440).default(60),
+
+  // 포지션 사이징
+  positionMaxRatio: z.number().min(5).max(100).default(25),
+  positionMinCashRatio: z.number().min(0).max(80).default(20),
+  positionMaxPositions: z.number().int().min(1).max(20).default(3),
+
+  // 동적 스크리닝
+  dynamicScreeningEnabled: z.boolean().default(true),
+  screeningVolumeRatioMin: z.number().min(1).max(10).default(1.5),
+  screeningMinMarketCap: z.number().min(0).max(100000).default(500),
 });
 
 // ── System Events ──

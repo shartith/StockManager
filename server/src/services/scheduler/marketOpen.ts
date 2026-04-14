@@ -12,11 +12,30 @@ import { getMarketContext, formatMarketContext } from '../stockPrice';
 import logger from '../../logger';
 import { Market, addLog } from './types';
 import { fetchCandleData, analyzeStock, sleep } from './helpers';
+import { runDynamicScreening } from '../stockScreener';
 
 /** 장 시작 전: 뉴스 수집 + 초기 분석 + 즉시 매수 */
 export async function runMarketOpen(market: Market) {
   addLog(market, 'PRE_OPEN', 'started', '장 시작 10분 관망 후 분석 시작');
   const settings = getSettings();
+
+  // 동적 스크리닝: FALLING 국면이면 신규 매수 건너뜀
+  if (settings.dynamicScreeningEnabled && settings.autoTradeEnabled) {
+    try {
+      const screening = await runDynamicScreening(market, undefined, (t, _m) => fetchCandleData(t, market));
+      if (screening.phase === 'FALLING') {
+        addLog(market, 'PRE_OPEN', 'completed',
+          `${screening.skippedReason} — 보유 종목 모니터링만 계속 (continuousMonitor에서 매도 규칙 적용)`);
+        return;
+      }
+      if (screening.candidates.length > 0) {
+        addLog(market, 'PRE_OPEN', 'completed',
+          `${screening.phase} 국면 — 스크리닝 후보: ${screening.candidates.map(c => `${c.ticker}(${c.score}점)`).join(', ')}`);
+      }
+    } catch (err) {
+      logger.error({ err, market }, '동적 스크리닝 실패 — 기본 분석으로 진행');
+    }
+  }
 
   // 글로벌 시장 컨텍스트 조회
   let marketContextStr: string | undefined;
