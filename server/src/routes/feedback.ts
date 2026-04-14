@@ -9,6 +9,8 @@ import { analyzeSignalAccuracy } from '../services/signalAnalyzer';
 import { loadWeights, optimizeWeights, resetWeights } from '../services/weightOptimizer';
 import { runBacktest, saveBacktestResult, BacktestConfig } from '../services/backtester';
 import { exportStrategy, importStrategy, generateLoraDataset, getLoraDataCount, exportFullConfig, importFullConfig } from '../services/exportImport';
+import { evaluatePendingPerformance, backfillUntrackedSignals } from '../services/performanceTracker';
+import { runWeekendLearning } from '../services/scheduler/weekendLearning';
 import { queryAll } from '../db';
 import { validate } from '../middleware/validate';
 import { asyncHandler } from '../middleware/errorHandler';
@@ -86,6 +88,42 @@ router.get('/backtest/:id', (req, res) => {
   } catch { /* */ }
   res.json(result);
 });
+
+/**
+ * 주말 학습 수동 실행 (성과 평가 + 가중치 최적화 + 리포트 생성)
+ *
+ * 스케줄러가 토요일 06:00에 자동 실행하지만, 수동으로도 트리거 가능.
+ * Ollama 호출이 포함되어 있어 최대 2분 이상 소요될 수 있다.
+ */
+router.post('/run-weekend-learning', asyncHandler(async (_req, res) => {
+  await runWeekendLearning();
+  res.json({ success: true, message: '주말 학습 완료 — 리포트가 생성되었습니다' });
+}));
+
+/**
+ * 미평가 신호 성과 평가 실행 (7/14/30일 가격 체크)
+ *
+ * 스케줄러가 주기적으로 실행하지만, 수동으로도 트리거 가능.
+ */
+router.post('/evaluate-performance', asyncHandler(async (_req, res) => {
+  await evaluatePendingPerformance();
+  res.json({ success: true, message: '성과 평가 완료' });
+}));
+
+/**
+ * 과거 미등록 신호 복구 (v4.8.1 이전 버그로 누락된 signal_performance 채우기)
+ *
+ * auto_trades 또는 transactions의 실제 체결가를 signalPrice로 사용하여
+ * retroactive 등록. 가격 정보를 찾지 못한 신호는 skip.
+ */
+router.post('/backfill-untracked', asyncHandler(async (_req, res) => {
+  const result = backfillUntrackedSignals();
+  res.json({
+    success: true,
+    message: `${result.registered}건 복구 (${result.skipped}건 스킵 — 가격 정보 없음)`,
+    ...result,
+  });
+}));
 
 /** 주간 학습 리포트 조회 */
 router.get('/weekly-reports', (req, res) => {

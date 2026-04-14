@@ -376,6 +376,36 @@
       </div>
     </div>
 
+    <!-- 수동 학습 / 복구 실행 -->
+    <div class="bg-surface-1 rounded-xl border border-border shadow-sm p-5 mt-6">
+      <h3 class="font-semibold text-txt-primary mb-3">수동 실행</h3>
+      <p class="text-xs text-txt-secondary mb-4">
+        스케줄러가 주기적으로 자동 실행하지만, 아래 버튼으로 즉시 트리거할 수 있다.
+      </p>
+      <div class="flex flex-wrap gap-2">
+        <button @click="doRunWeekendLearning" :disabled="runningJob !== null"
+          class="px-3 py-2 bg-accent text-white rounded-lg text-sm font-medium hover:bg-accent/90 disabled:opacity-50 disabled:cursor-not-allowed focus:outline-none focus-visible:ring-2 focus-visible:ring-accent">
+          {{ runningJob === 'weekend' ? '실행 중...' : '주말 학습 실행' }}
+        </button>
+        <button @click="doEvaluatePerformance" :disabled="runningJob !== null"
+          class="px-3 py-2 bg-surface-3 text-txt-primary rounded-lg text-sm font-medium hover:bg-surface-2 disabled:opacity-50 disabled:cursor-not-allowed focus:outline-none focus-visible:ring-2 focus-visible:ring-accent">
+          {{ runningJob === 'evaluate' ? '평가 중...' : '성과 평가 실행' }}
+        </button>
+        <button @click="doBackfillUntracked" :disabled="runningJob !== null"
+          class="px-3 py-2 bg-surface-3 text-txt-primary rounded-lg text-sm font-medium hover:bg-surface-2 disabled:opacity-50 disabled:cursor-not-allowed focus:outline-none focus-visible:ring-2 focus-visible:ring-accent">
+          {{ runningJob === 'backfill' ? '복구 중...' : '과거 신호 복구' }}
+        </button>
+      </div>
+      <p v-if="jobResult" class="mt-3 text-sm text-txt-primary">
+        {{ jobResult }}
+      </p>
+      <p class="mt-3 text-xs text-txt-tertiary">
+        <strong>주말 학습</strong>: 성과 평가 + 가중치 최적화 + 리포트 생성 (Ollama 호출 2분 이상 소요)<br />
+        <strong>성과 평가</strong>: 7/14/30일 경과 신호의 실제 가격 변동 업데이트<br />
+        <strong>과거 신호 복구</strong>: v4.8.1 이전 누락된 신호를 실제 체결가 기반으로 복구
+      </p>
+    </div>
+
     <!-- 주간 학습 리포트 -->
     <div class="bg-surface-1 rounded-xl border border-border shadow-sm p-5 mt-6">
       <div class="flex items-center justify-between mb-4">
@@ -403,8 +433,12 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, watch } from 'vue';
+import { ref, onMounted, watch, inject, type Ref } from 'vue';
 import { feedbackApi } from '@/api';
+
+interface ToastShowOpts { type?: string; title?: string; message: string; duration?: number; }
+interface ToastInstance { show: (opts: ToastShowOpts) => void; }
+const toastRef = inject<Ref<ToastInstance | null> | null>('toast', null);
 
 const tabs = [
   { value: 'performance', label: '성과 요약' },
@@ -523,6 +557,58 @@ async function loadAll() {
   else if (activeTab.value === 'accuracy') await loadAccuracy();
   else if (activeTab.value === 'weights') await loadWeights();
   else if (activeTab.value === 'backtest') await loadBacktests();
+}
+
+// ─── 수동 실행 핸들러 ─────────────────────────────────
+const runningJob = ref<'weekend' | 'evaluate' | 'backfill' | null>(null);
+const jobResult = ref<string>('');
+
+async function doRunWeekendLearning() {
+  if (!confirm('주말 학습을 실행하시겠습니까? Ollama 호출이 포함되어 있어 2분 이상 소요될 수 있습니다.')) return;
+  runningJob.value = 'weekend';
+  jobResult.value = '';
+  try {
+    const { data } = await feedbackApi.runWeekendLearning();
+    jobResult.value = `✅ ${data.message}`;
+    await loadWeeklyReports();
+    await loadAll();
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : '실행 실패';
+    jobResult.value = `❌ ${msg}`;
+    toastRef?.value?.show({ type: 'error', title: '주말 학습 실패', message: msg });
+  }
+  runningJob.value = null;
+}
+
+async function doEvaluatePerformance() {
+  runningJob.value = 'evaluate';
+  jobResult.value = '';
+  try {
+    const { data } = await feedbackApi.evaluatePerformance();
+    jobResult.value = `✅ ${data.message}`;
+    await loadAll();
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : '평가 실패';
+    jobResult.value = `❌ ${msg}`;
+    toastRef?.value?.show({ type: 'error', title: '성과 평가 실패', message: msg });
+  }
+  runningJob.value = null;
+}
+
+async function doBackfillUntracked() {
+  if (!confirm('과거 신호 복구: auto_trades/transactions의 체결가를 signalPrice로 사용하여 signal_performance를 채웁니다. 계속하시겠습니까?')) return;
+  runningJob.value = 'backfill';
+  jobResult.value = '';
+  try {
+    const { data } = await feedbackApi.backfillUntracked();
+    jobResult.value = `✅ ${data.message}`;
+    await loadAll();
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : '복구 실패';
+    jobResult.value = `❌ ${msg}`;
+    toastRef?.value?.show({ type: 'error', title: '복구 실패', message: msg });
+  }
+  runningJob.value = null;
 }
 
 watch(activeTab, loadAll);
