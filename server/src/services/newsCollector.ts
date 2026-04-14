@@ -1,7 +1,7 @@
 /**
- * 뉴스 수집 + Ollama 로컬 AI 요약 서비스
+ * 뉴스 수집 + MLX 로컬 LLM 요약 서비스
  * 뉴스 수집: 네이버 금융 (국내), Yahoo Finance (해외)
- * 요약: Ollama (로컬 LLM)
+ * 요약: MLX (로컬 LLM)
  */
 
 import { getSettings } from './settings';

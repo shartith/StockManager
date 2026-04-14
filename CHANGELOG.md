@@ -2,6 +2,19 @@
 
 Stock Manager 주요 릴리즈 변경사항. 자세한 노트는 [GitHub Releases](https://github.com/shartith/StockManager/releases)에서 확인.
 
+## v4.12.2 — 2026-04-14
+
+**Ollama 잔존 참조 일괄 정리 (cosmetic + e2e bug 수정)**
+
+- **버그**: `e2e/new-features.spec.ts`가 health check에서 `checks.ollama` 속성 검증 → `checks.llm`으로 수정 (v4.12.0에서 실제로는 `checks.llm`을 emit하지만 테스트가 남아있었음)
+- **DB source 태그**: 신규 `trade_signals` insert의 source 값 `'ollama-recommend'` → `'llm-recommend'`, `'ollama-auto'` → `'llm-auto'` (기존 DB row는 보존)
+- **에러 메시지**: `'Ollama가 비활성화되어 있습니다'` → `'MLX LLM이 비활성화되어 있습니다'`
+- **시스템 이벤트 카테고리**: 신규 `LLM_DOWN` 추가, 신규 emit은 `LLM_DOWN`로 전환. 기존 DB의 `OLLAMA_DOWN` row 조회/표시 호환을 위해 union에 legacy 항목 유지
+- **주석/로그**: `llm.ts`, `newsCollector.ts`, `analysis.ts`, `feedback.ts`, `scheduler/*` 및 테스트 헤더 주석에서 Ollama 참조 → LLM/MLX로 정리
+- **테스트 mock URL**: `http://localhost:11434` → `http://localhost:8000` (MLX 기본 포트와 일치)
+- **Debian package**: `scripts/build-deb.sh` 패키지 설명문 갱신
+- 테스트 547/547 통과
+
 ## v4.12.1 — 2026-04-14
 
 **기본 MLX 모델 교체: gemma-3-4b-it-4bit → gemma-3n-E4B-it-4bit**

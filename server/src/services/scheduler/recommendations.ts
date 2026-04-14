@@ -392,7 +392,7 @@ export async function runRecommendationRefresh() {
             const expiresAt = new Date(Date.now() + 7 * 86400000).toISOString().split('T')[0];
             execute(
               'INSERT INTO recommendations (ticker, name, market, source, reason, signal_type, confidence, expires_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
-              [candidate.ticker, candidate.name, market, 'ollama-auto', reason, 'BUY', decision.confidence, expiresAt]
+              [candidate.ticker, candidate.name, market, 'llm-auto', reason, 'BUY', decision.confidence, expiresAt]
             );
             activeTickers.add(candidate.ticker);
             slotsAvailable--;

@@ -119,8 +119,8 @@ describe('종합 기술 분석', () => {
     expect(result.signalReasons).toBeInstanceOf(Array);
   });
 
-  it('confidence < 60 규칙은 ollama에서 적용', () => {
-    // technicalAnalysis는 순수 지표 계산만, confidence는 ollama에서 처리
+  it('confidence < 60 규칙은 LLM에서 적용', () => {
+    // technicalAnalysis는 순수 지표 계산만, confidence는 LLM에서 처리
     const candles = generateCandles(60);
     const result = analyzeTechnical(candles);
     expect(result.signal).toBeDefined();

@@ -11,7 +11,8 @@ export type EventSeverity = 'INFO' | 'WARN' | 'ERROR' | 'CRITICAL';
 export type EventCategory =
   | 'ORDER_UNFILLED'     // 미체결 주문
   | 'ORDER_FAILED'       // 주문 실패
-  | 'OLLAMA_DOWN'        // LLM 연결 실패
+  | 'LLM_DOWN'           // LLM 연결 실패 (v4.12.2+ 신규 카테고리)
+  | 'OLLAMA_DOWN'        // Legacy: v4.11 이하에서 남은 히스토리 이벤트 (DB 쿼리용, 신규 emit은 LLM_DOWN)
   | 'KIS_API_ERROR'      // KIS API 오류
   | 'TOKEN_EXPIRED'      // 토큰 만료
   | 'STOP_LOSS'          // 손절 실행

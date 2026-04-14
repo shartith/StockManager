@@ -93,7 +93,7 @@ router.get('/backtest/:id', (req, res) => {
  * 주말 학습 수동 실행 (성과 평가 + 가중치 최적화 + 리포트 생성)
  *
  * 스케줄러가 토요일 06:00에 자동 실행하지만, 수동으로도 트리거 가능.
- * Ollama 호출이 포함되어 있어 최대 2분 이상 소요될 수 있다.
+ * LLM 호출이 포함되어 있어 최대 2분 이상 소요될 수 있다.
  */
 router.post('/run-weekend-learning', asyncHandler(async (_req, res) => {
   await runWeekendLearning();

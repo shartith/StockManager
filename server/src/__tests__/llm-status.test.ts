@@ -1,5 +1,5 @@
 /**
- * ollama.ts — checkLlmStatus coverage (was not tested by the existing
+ * llm.ts — checkLlmStatus coverage (was not tested by the existing
  * callLlm resilience suite)
  *
  * Covers:
@@ -19,7 +19,7 @@ vi.mock('../db', () => ({
 
 vi.mock('../services/settings', () => ({
   getSettings: vi.fn(() => ({
-    mlxUrl: 'http://localhost:11434',
+    mlxUrl: 'http://localhost:8000',
     mlxModel: 'qwen3:4b',
     mlxEnabled: true,
     debateMode: false,
@@ -44,7 +44,7 @@ describe('checkLlmStatus', () => {
     }));
     vi.doMock('../services/settings', () => ({
       getSettings: vi.fn(() => ({
-        mlxUrl: 'http://localhost:11434',
+        mlxUrl: 'http://localhost:8000',
         mlxModel: 'qwen3:4b',
         mlxEnabled: true,
       })),

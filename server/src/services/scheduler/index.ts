@@ -102,7 +102,7 @@ export function startScheduler() {
   }, { timezone: 'Asia/Seoul' }));
   logger.info('[Scheduler] 일일 성과 평가 스케줄 등록 (18:00 KST)');
 
-  // ── 관심종목 + 추천 자동 정리 (매 1시간, Ollama 무관) ──
+  // ── 관심종목 + 추천 자동 정리 (매 1시간, LLM 무관) ──
   // 평가가 낮아지면 즉시 제거하기 위해 매시간 실행 (이전 22:00 1회 → 시간당)
   schedulerState.activeTasks.push(cron.schedule('0 * * * *', () => {
     try { cleanupWatchlist(); } catch (err) { logger.error({ err }, 'cleanupWatchlist failed'); }

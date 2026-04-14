@@ -7,7 +7,7 @@
 
 import { describe, it, expect, beforeAll, beforeEach, vi } from 'vitest';
 
-// Disable Ollama-based AI advice during tests so logSystemEvent doesn't
+// Disable MLX-based AI advice during tests so logSystemEvent doesn't
 // try to call out to a non-existent LLM (severity > INFO triggers it).
 vi.mock('../services/settings', () => ({
   getSettings: vi.fn(() => ({
@@ -99,7 +99,7 @@ describe('systemEvent CRUD', () => {
   describe('deleteAllEvents (v4.7.1)', () => {
     beforeEach(async () => {
       await logSystemEvent('INFO', 'GENERAL', 'event 1');
-      await logSystemEvent('WARN', 'OLLAMA_DOWN', 'event 2');
+      await logSystemEvent('WARN', 'LLM_DOWN', 'event 2');
       await logSystemEvent('ERROR', 'KIS_API_ERROR', 'event 3');
       // Resolve one of them
       const rows = getRecentEvents(10);
@@ -165,8 +165,8 @@ describe('systemEvent CRUD', () => {
   describe('getEventCounts', () => {
     it('counts severity buckets correctly', async () => {
       await logSystemEvent('INFO', 'GENERAL', 'info 1');
-      await logSystemEvent('WARN', 'OLLAMA_DOWN', 'warn 1');
-      await logSystemEvent('WARN', 'OLLAMA_DOWN', 'warn 2');
+      await logSystemEvent('WARN', 'LLM_DOWN', 'warn 1');
+      await logSystemEvent('WARN', 'LLM_DOWN', 'warn 2');
       await logSystemEvent('ERROR', 'KIS_API_ERROR', 'err 1');
       await logSystemEvent('CRITICAL', 'STOP_LOSS', 'crit 1');
 

@@ -373,7 +373,7 @@ describe('settings', () => {
   // ── v4.5.3: Legacy field migration ──────────────────────────
   //
   // externalAi* fields were added in v4.5.0 for an external AI provider
-  // option, but the project pivoted to local-only Ollama. They became
+  // option, but the project pivoted to local-only LLM (Ollama v4.5→v4.11, MLX v4.12+). They became
   // dead config and a leak risk in NAS sync exports. v4.5.3 strips them
   // automatically on load and on next save.
 

@@ -1,7 +1,7 @@
 /**
- * ollama.ts — getTradeDecision, parseDecisionResponse, buildAnalysisInput
+ * llm.ts — getTradeDecision, parseDecisionResponse, buildAnalysisInput
  *
- * The existing ollama*.test.ts covers callLlm resilience + checkLlmStatus.
+ * The existing llm*.test.ts covers callLlm resilience + checkLlmStatus.
  * This file drives the full getTradeDecision path so parseDecisionResponse,
  * buildStructuredPrompt, buildSystemPrompt, formatInputData, and
  * getTradeDecisionSingle/WithDebate all get exercised.
@@ -20,7 +20,7 @@ vi.mock('../db', () => ({
 
 vi.mock('../services/settings', () => ({
   getSettings: vi.fn(() => ({
-    mlxUrl: 'http://localhost:11434',
+    mlxUrl: 'http://localhost:8000',
     mlxModel: 'qwen3:4b',
     mlxEnabled: true,
     debateMode: false,
@@ -86,7 +86,7 @@ describe('getTradeDecision — single mode + parseDecisionResponse', () => {
     }));
     vi.doMock('../services/settings', () => ({
       getSettings: vi.fn(() => ({
-        mlxUrl: 'http://localhost:11434',
+        mlxUrl: 'http://localhost:8000',
         mlxModel: 'qwen3:4b',
         mlxEnabled: true,
         debateMode: false,
@@ -230,11 +230,11 @@ describe('getTradeDecision — single mode + parseDecisionResponse', () => {
     expect(d.risks).toEqual([]);
   });
 
-  it('throws when Ollama is disabled', async () => {
+  it('throws when LLM is disabled', async () => {
     vi.resetModules();
     vi.doMock('../services/settings', () => ({
       getSettings: vi.fn(() => ({
-        mlxUrl: 'http://localhost:11434',
+        mlxUrl: 'http://localhost:8000',
         mlxModel: 'qwen3:4b',
         mlxEnabled: false,
         debateMode: false,
@@ -259,7 +259,7 @@ describe('getTradeDecision — debate mode (3-call orchestration)', () => {
     }));
     vi.doMock('../services/settings', () => ({
       getSettings: vi.fn(() => ({
-        mlxUrl: 'http://localhost:11434',
+        mlxUrl: 'http://localhost:8000',
         mlxModel: 'qwen3:4b',
         mlxEnabled: true,
         debateMode: true,

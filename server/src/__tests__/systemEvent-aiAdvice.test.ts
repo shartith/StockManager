@@ -1,8 +1,8 @@
 /**
  * systemEvent.ts — getAiAdvice coverage (uncovered lines 30, 47-51)
  *
- * The existing systemEvent.test.ts runs with Ollama disabled so it never
- * exercises the AI advice branch. Here we enable Ollama and stub `fetch` to
+ * The existing systemEvent.test.ts runs with MLX disabled so it never
+ * exercises the AI advice branch. Here we enable MLX and stub `fetch` to
  * hit the HTTP paths inside logSystemEvent.
  */
 
@@ -13,7 +13,7 @@ process.env.STOCK_MANAGER_DB_PATH = ':memory:';
 vi.mock('../services/settings', () => ({
   getSettings: vi.fn(() => ({
     mlxEnabled: true,
-    mlxUrl: 'http://localhost:11434',
+    mlxUrl: 'http://localhost:8000',
     mlxModel: 'qwen3:4b',
   })),
 }));
@@ -34,7 +34,7 @@ describe('logSystemEvent — AI advice path', () => {
     vi.unstubAllGlobals();
   });
 
-  it('appends AI advice to detail when severity is WARN and Ollama responds', async () => {
+  it('appends AI advice to detail when severity is WARN and MLX responds', async () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
       ok: true,
       json: async () => ({ choices: [{ message: { content: '   즉시 KIS 토큰을 재발급하고 재시도 간격을 늘리세요.   ' } }] }),
@@ -58,18 +58,18 @@ describe('logSystemEvent — AI advice path', () => {
     expect(rows[0].detail).toBe('nothing wrong'); // no [AI 조언] block
   });
 
-  it('gracefully handles non-OK Ollama response', async () => {
+  it('gracefully handles non-OK MLX response', async () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
       ok: false,
       status: 500,
     }));
 
-    await logSystemEvent('ERROR', 'OLLAMA_DOWN', 'LLM down', 'fetch failed');
+    await logSystemEvent('ERROR', 'LLM_DOWN', 'LLM down', 'fetch failed');
     const rows = getRecentEvents(1);
     expect(rows[0].detail).toBe('fetch failed'); // no advice appended
   });
 
-  it('gracefully handles Ollama network exception', async () => {
+  it('gracefully handles MLX network exception', async () => {
     vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new Error('ECONNREFUSED')));
 
     await logSystemEvent('CRITICAL', 'KIS_API_ERROR', 'api down', 'boom');
@@ -77,7 +77,7 @@ describe('logSystemEvent — AI advice path', () => {
     expect(rows[0].detail).toBe('boom'); // swallowed via try/catch
   });
 
-  it('handles empty Ollama response without crashing', async () => {
+  it('handles empty MLX response without crashing', async () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
       ok: true,
       json: async () => ({}),

@@ -332,7 +332,7 @@ export async function analyzeStock(stock: any, market: Market, phase: AnalysisPh
   try {
     decision = await getTradeDecision(input, phase);
   } catch (llmErr: any) {
-    await logSystemEvent('WARN', 'OLLAMA_DOWN',
+    await logSystemEvent('WARN', 'LLM_DOWN',
       `LLM 연결 실패 — 기술적 분석 fallback: ${stock.ticker}`,
       llmErr.message, stock.ticker);
 

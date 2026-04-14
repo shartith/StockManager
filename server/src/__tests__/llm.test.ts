@@ -1,13 +1,13 @@
 /**
- * v4.5.2: Ollama call resilience
+ * v4.5.2: LLM call resilience (historical: OLLAMA_DOWN burst — v4.12+ renamed to LLM_DOWN)
  *
- * Verifies the four fixes for the OLLAMA_DOWN burst pattern:
+ * Verifies the fixes for the LLM_DOWN burst pattern:
  *   1. AbortController-based timeout — slow responses fail cleanly
  *   2. Module-level mutex — concurrent calls serialize, no overlapping fetches
  *   3. Retry with exponential backoff — transient "fetch failed" recovers
- *   4. keep_alive in request body — model stays warm
+ *   4. (v4.12+ MLX) OpenAI-compatible request body, no Ollama-specific fields
  *
- * NOTE: vi.resetModules() is required to clear the module-level ollamaQueue
+ * NOTE: vi.resetModules() is required to clear the module-level llmQueue
  * promise chain between tests; otherwise a queued failure from one test
  * leaks into the next.
  */
@@ -22,7 +22,7 @@ vi.mock('../db', () => ({
 
 vi.mock('../services/settings', () => ({
   getSettings: vi.fn(() => ({
-    mlxUrl: 'http://localhost:11434',
+    mlxUrl: 'http://localhost:8000',
     mlxModel: 'exaone3.5:2.4b',
     mlxEnabled: true,
     debateMode: false,
@@ -47,7 +47,7 @@ describe('callLlm (v4.5.2 resilience)', () => {
     }));
     vi.doMock('../services/settings', () => ({
       getSettings: vi.fn(() => ({
-        mlxUrl: 'http://localhost:11434',
+        mlxUrl: 'http://localhost:8000',
         mlxModel: 'exaone3.5:2.4b',
         mlxEnabled: true,
         debateMode: false,
@@ -77,7 +77,7 @@ describe('callLlm (v4.5.2 resilience)', () => {
       json: async () => ({ choices: [{ message: { content: '{"signal":"BUY"}' } }] }),
     });
 
-    const result = await callLlm('exaone3.5:2.4b', 'http://localhost:11434', 'p', 's', 256);
+    const result = await callLlm('exaone3.5:2.4b', 'http://localhost:8000', 'p', 's', 256);
     expect(result).toBe('{"signal":"BUY"}');
     expect(fetchSpy).toHaveBeenCalledTimes(1);
   });
@@ -110,7 +110,7 @@ describe('callLlm (v4.5.2 resilience)', () => {
       json: async () => ({ choices: [{ message: { content: 'ok' } }] }),
     });
 
-    await callLlm('m', 'http://localhost:11434', 'p', 's', 256);
+    await callLlm('m', 'http://localhost:8000', 'p', 's', 256);
 
     const callArg = fetchSpy.mock.calls[0][1];
     expect(callArg.signal).toBeInstanceOf(AbortSignal);
@@ -127,7 +127,7 @@ describe('callLlm (v4.5.2 resilience)', () => {
         json: async () => ({ choices: [{ message: { content: 'recovered' } }] }),
       });
 
-    const result = await callLlm('m', 'http://localhost:11434', 'p', 's', 256);
+    const result = await callLlm('m', 'http://localhost:8000', 'p', 's', 256);
     expect(result).toBe('recovered');
     expect(fetchSpy).toHaveBeenCalledTimes(3);
   });
@@ -140,7 +140,7 @@ describe('callLlm (v4.5.2 resilience)', () => {
         json: async () => ({ choices: [{ message: { content: 'ok' } }] }),
       });
 
-    const result = await callLlm('m', 'http://localhost:11434', 'p', 's', 256);
+    const result = await callLlm('m', 'http://localhost:8000', 'p', 's', 256);
     expect(result).toBe('ok');
     expect(fetchSpy).toHaveBeenCalledTimes(2);
   });
@@ -149,7 +149,7 @@ describe('callLlm (v4.5.2 resilience)', () => {
     fetchSpy.mockRejectedValue(new Error('fetch failed'));
 
     await expect(
-      callLlm('m', 'http://localhost:11434', 'p', 's', 256),
+      callLlm('m', 'http://localhost:8000', 'p', 's', 256),
     ).rejects.toThrow('fetch failed');
 
     // 3 attempts total (1 initial + 2 retries)
@@ -164,7 +164,7 @@ describe('callLlm (v4.5.2 resilience)', () => {
     });
 
     await expect(
-      callLlm('m', 'http://localhost:11434', 'p', 's', 256),
+      callLlm('m', 'http://localhost:8000', 'p', 's', 256),
     ).rejects.toThrow(/HTTP 400/);
 
     // No retry — HTTP errors aren't retriable in our policy
@@ -191,11 +191,11 @@ describe('callLlm (v4.5.2 resilience)', () => {
 
     // Fire 5 concurrent calls
     await Promise.all([
-      callLlm('m', 'http://localhost:11434', 'p1', 's', 256),
-      callLlm('m', 'http://localhost:11434', 'p2', 's', 256),
-      callLlm('m', 'http://localhost:11434', 'p3', 's', 256),
-      callLlm('m', 'http://localhost:11434', 'p4', 's', 256),
-      callLlm('m', 'http://localhost:11434', 'p5', 's', 256),
+      callLlm('m', 'http://localhost:8000', 'p1', 's', 256),
+      callLlm('m', 'http://localhost:8000', 'p2', 's', 256),
+      callLlm('m', 'http://localhost:8000', 'p3', 's', 256),
+      callLlm('m', 'http://localhost:8000', 'p4', 's', 256),
+      callLlm('m', 'http://localhost:8000', 'p5', 's', 256),
     ]);
 
     expect(fetchSpy).toHaveBeenCalledTimes(5);
@@ -216,8 +216,8 @@ describe('callLlm (v4.5.2 resilience)', () => {
       });
 
     const [first, second] = await Promise.allSettled([
-      callLlm('m', 'http://localhost:11434', 'p1', 's', 256),
-      callLlm('m', 'http://localhost:11434', 'p2', 's', 256),
+      callLlm('m', 'http://localhost:8000', 'p1', 's', 256),
+      callLlm('m', 'http://localhost:8000', 'p2', 's', 256),
     ]);
 
     expect(first.status).toBe('rejected');

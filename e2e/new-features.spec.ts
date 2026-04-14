@@ -170,7 +170,7 @@ test.describe('Version & Health (v4.4.0)', () => {
 
     expect(health.checks).toHaveProperty('database');
     expect(health.checks).toHaveProperty('scheduler');
-    expect(health.checks).toHaveProperty('ollama');
+    expect(health.checks).toHaveProperty('llm');
     expect(health.checks.database).toBe('ok');
   });
 });

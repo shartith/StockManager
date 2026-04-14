@@ -70,7 +70,7 @@ export async function runPhase(market: Market, phase: SchedulePhase) {
   }
 }
 
-/** 장 시작 전: 뉴스 수집 + AI 요약 + 기술지표 → Ollama 매수 판단 */
+/** 장 시작 전: 뉴스 수집 + AI 요약 + 기술지표 → LLM 매수 판단 */
 export async function handlePreOpen(market: Market, stocks: any[]) {
   const settings = getSettings();
 
@@ -174,7 +174,7 @@ export async function handlePostOpen(market: Market, stocks: any[]) {
   }
 }
 
-/** 장 마감 1시간 전: 보유종목 재평가 + Ollama 매도 판단 */
+/** 장 마감 1시간 전: 보유종목 재평가 + LLM 매도 판단 */
 export async function handlePreClose1h(market: Market, stocks: any[]) {
   const settings = getSettings();
 

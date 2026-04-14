@@ -1,7 +1,7 @@
 /**
  * 관심종목 + 추천종목 자동 정리
  *
- * v4.10.2: 조건 완화 + recommendation expiry를 Ollama 무관하게 분리
+ * v4.10.2: 조건 완화 + recommendation expiry를 LLM 무관하게 분리
  */
 
 import { queryAll, queryOne, execute } from '../../db';
@@ -20,7 +20,7 @@ function isHoldingReal(stockId: number): boolean {
   return (row?.qty ?? 0) > 0;
 }
 
-// ─── 추천종목 만료 (Ollama 무관) ───────────────────────────
+// ─── 추천종목 만료 (LLM 무관) ───────────────────────────
 
 export interface RecommendationCleanupResult {
   expired: number;
@@ -29,7 +29,7 @@ export interface RecommendationCleanupResult {
 
 /**
  * 추천종목 ACTIVE → EXPIRED 자동 전환 (공격적 정책).
- * Ollama 사용 여부와 무관. 평가가 낮아지면 즉시 제거.
+ * LLM 사용 여부와 무관. 평가가 낮아지면 즉시 제거.
  *
  * 규칙:
  *   1. expires_at 경과 → EXPIRED
@@ -112,7 +112,7 @@ export function cleanupWatchlist(): WatchlistCleanupResult {
   let removed = 0;
   let disabled = 0;
 
-  // 추천 만료도 함께 처리 (Ollama 무관)
+  // 추천 만료도 함께 처리 (LLM 무관)
   try {
     const recResult = expireStaleRecommendations();
     if (recResult.expired > 0 || recResult.purged > 0) {

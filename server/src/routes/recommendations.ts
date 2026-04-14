@@ -79,7 +79,7 @@ router.post('/generate', asyncHandler(async (req: Request, res: Response) => {
   const MAX_RECOMMENDATIONS = 10;
   const settings = getSettings();
   if (!settings.mlxEnabled) {
-    return res.status(400).json({ error: 'Ollama가 비활성화되어 있습니다. 설정에서 활성화하세요.' });
+    return res.status(400).json({ error: 'MLX LLM이 비활성화되어 있습니다. 설정에서 활성화하세요.' });
   }
 
   const { appKey, appSecret, baseUrl } = getKisConfig();
@@ -196,7 +196,7 @@ router.post('/generate', asyncHandler(async (req: Request, res: Response) => {
       if (stock) {
         execute(
           'INSERT INTO trade_signals (stock_id, signal_type, source, confidence, indicators_json, llm_reasoning) VALUES (?, ?, ?, ?, ?, ?)',
-          [stock.id, decision.signal, 'ollama-recommend', decision.confidence, JSON.stringify({
+          [stock.id, decision.signal, 'llm-recommend', decision.confidence, JSON.stringify({
             indicators: input.indicators, targetPrice: decision.targetPrice, stopLossPrice: decision.stopLossPrice,
           }), decision.reasoning]
         );
@@ -207,7 +207,7 @@ router.post('/generate', asyncHandler(async (req: Request, res: Response) => {
         const expiresAt = new Date(Date.now() + 7 * 86400000).toISOString().split('T')[0];
         execute(
           'INSERT INTO recommendations (ticker, name, market, source, reason, signal_type, confidence, expires_at, category) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
-          [candidate.ticker, candidate.name, market, 'ollama-auto', reason, 'BUY', decision.confidence, expiresAt, classifyCategory(candidate.name)]
+          [candidate.ticker, candidate.name, market, 'llm-auto', reason, 'BUY', decision.confidence, expiresAt, classifyCategory(candidate.name)]
         );
         activeTickers.add(candidate.ticker);
         slotsAvailable--;
@@ -467,7 +467,7 @@ async function fetchCandlesForRecommendation(ticker: string, appKey: string, app
   }
 }
 
-/** 낮은 평가/만료 추천종목 일괄 정리 (수동 트리거, Ollama 무관) */
+/** 낮은 평가/만료 추천종목 일괄 정리 (수동 트리거, LLM 무관) */
 router.post('/cleanup', (_req: Request, res: Response) => {
   const result = expireStaleRecommendations();
   res.json({

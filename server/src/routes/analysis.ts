@@ -100,7 +100,7 @@ router.get('/:ticker', asyncHandler(async (req: Request, res: Response) => {
   }
 }));
 
-/** Ollama 매매 판단 요청 */
+/** LLM 매매 판단 요청 */
 router.post('/:ticker/decision', validate(decisionSchema), asyncHandler(async (req: Request, res: Response) => {
   const ticker = req.params.ticker as string;
   const { phase } = req.body as { phase: AnalysisPhase };
@@ -176,7 +176,7 @@ router.post('/:ticker/decision', validate(decisionSchema), asyncHandler(async (r
       }
     }
 
-    // 구조화된 입력 생성 + Ollama 판단
+    // 구조화된 입력 생성 + LLM 판단
     const input = buildAnalysisInput(ticker, stock.name, market as any, candles, indicators, holding, newsSummary);
     const decision = await getTradeDecision(input, phase);
 
