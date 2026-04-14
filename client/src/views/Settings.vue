@@ -125,88 +125,88 @@
         </div>
       </div>
 
-      <!-- 섹션 4: Ollama (로컬 LLM) -->
+      <!-- 섹션 4: MLX (Apple Silicon 로컬 LLM) -->
       <div class="bg-surface-1 rounded-xl border border-border shadow-sm overflow-hidden">
         <div class="px-6 py-4 bg-surface-2 border-b border-border">
-          <h3 class="text-sm font-semibold text-txt-primary">Ollama (로컬 LLM)</h3>
-          <p class="text-xs text-txt-secondary mt-0.5">매수/매도 판단에 사용할 로컬 LLM을 설정합니다.</p>
+          <h3 class="text-sm font-semibold text-txt-primary">MLX (Apple Silicon 로컬 LLM)</h3>
+          <p class="text-xs text-txt-secondary mt-0.5">매수/매도 판단에 사용할 로컬 LLM을 설정합니다. Apple Silicon 전용.</p>
         </div>
         <div class="p-6 space-y-4">
 
-          <!-- Ollama 연결 상태 -->
+          <!-- MLX 연결 상태 -->
           <div class="flex items-center justify-between">
             <label class="flex items-center gap-3 cursor-pointer">
               <div class="relative">
-                <input type="checkbox" v-model="form.ollamaEnabled" class="sr-only" />
-                <div class="w-11 h-6 rounded-full transition-colors" :class="form.ollamaEnabled ? 'bg-primary' : 'bg-surface-3'"></div>
-                <div class="absolute top-1 left-1 w-4 h-4 bg-white rounded-full shadow transition-transform" :class="form.ollamaEnabled ? 'translate-x-5' : 'translate-x-0'"></div>
+                <input type="checkbox" v-model="form.mlxEnabled" class="sr-only" />
+                <div class="w-11 h-6 rounded-full transition-colors" :class="form.mlxEnabled ? 'bg-primary' : 'bg-surface-3'"></div>
+                <div class="absolute top-1 left-1 w-4 h-4 bg-white rounded-full shadow transition-transform" :class="form.mlxEnabled ? 'translate-x-5' : 'translate-x-0'"></div>
               </div>
-              <span class="text-sm font-medium text-txt-primary">Ollama 활성화</span>
+              <span class="text-sm font-medium text-txt-primary">MLX 활성화</span>
             </label>
             <span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium"
-              :class="ollamaConnected ? 'bg-green-100 text-green-700' : 'bg-surface-3 text-txt-secondary'">
-              <span class="w-1.5 h-1.5 rounded-full" :class="ollamaConnected ? 'bg-green-500' : 'bg-txt-tertiary'"></span>
-              {{ ollamaConnected ? '연결됨' : '미연결' }}
+              :class="llmConnected ? 'bg-green-100 text-green-700' : 'bg-surface-3 text-txt-secondary'">
+              <span class="w-1.5 h-1.5 rounded-full" :class="llmConnected ? 'bg-green-500' : 'bg-txt-tertiary'"></span>
+              {{ llmConnected ? '연결됨' : '미연결' }}
             </span>
           </div>
 
           <!-- 설치 안내 (미연결 시) -->
-          <div v-if="!ollamaConnected" class="p-4 bg-amber-50 rounded-lg border border-amber-200">
-            <p class="text-sm font-medium text-amber-800 mb-2">Ollama가 설치되지 않았거나 실행 중이 아닙니다</p>
+          <div v-if="!llmConnected" class="p-4 bg-amber-50 rounded-lg border border-amber-200">
+            <p class="text-sm font-medium text-amber-800 mb-2">MLX 서버가 실행 중이 아닙니다</p>
             <div class="space-y-2">
               <div>
-                <p class="text-xs text-amber-700 mb-1">1. Homebrew로 설치 (Mac):</p>
+                <p class="text-xs text-amber-700 mb-1">Homebrew 설치 시 자동으로 구성됩니다. 개발 모드에서 수동 실행:</p>
                 <div class="flex items-center gap-2">
-                  <code class="flex-1 bg-white px-3 py-1.5 rounded border border-amber-200 text-xs font-mono text-txt-primary">brew install ollama</code>
-                  <button type="button" @click="copyToClipboard('brew install ollama')"
+                  <code class="flex-1 bg-white px-3 py-1.5 rounded border border-amber-200 text-xs font-mono text-txt-primary">python3 -m venv ~/.stock-manager/venv && ~/.stock-manager/venv/bin/pip install mlx-lm</code>
+                  <button type="button" @click="copyToClipboard('python3 -m venv ~/.stock-manager/venv && ~/.stock-manager/venv/bin/pip install mlx-lm')"
                     class="px-2 py-1.5 bg-amber-100 text-amber-700 rounded text-xs hover:bg-amber-200 transition whitespace-nowrap">
-                    {{ copiedCmd === 'brew install ollama' ? '복사됨' : '복사' }}
+                    {{ copiedCmd === 'python3 -m venv ~/.stock-manager/venv && ~/.stock-manager/venv/bin/pip install mlx-lm' ? '복사됨' : '복사' }}
                   </button>
                 </div>
               </div>
               <div>
-                <p class="text-xs text-amber-700 mb-1">2. Ollama 서버 실행:</p>
+                <p class="text-xs text-amber-700 mb-1">MLX 서버 기동:</p>
                 <div class="flex items-center gap-2">
-                  <code class="flex-1 bg-white px-3 py-1.5 rounded border border-amber-200 text-xs font-mono text-txt-primary">ollama serve</code>
-                  <button type="button" @click="copyToClipboard('ollama serve')"
+                  <code class="flex-1 bg-white px-3 py-1.5 rounded border border-amber-200 text-xs font-mono text-txt-primary">~/.stock-manager/venv/bin/mlx_lm.server --port 8000 --model mlx-community/gemma-3-4b-it-4bit</code>
+                  <button type="button" @click="copyToClipboard('~/.stock-manager/venv/bin/mlx_lm.server --port 8000 --model mlx-community/gemma-3-4b-it-4bit')"
                     class="px-2 py-1.5 bg-amber-100 text-amber-700 rounded text-xs hover:bg-amber-200 transition whitespace-nowrap">
-                    {{ copiedCmd === 'ollama serve' ? '복사됨' : '복사' }}
+                    복사
                   </button>
                 </div>
               </div>
               <div>
-                <p class="text-xs text-amber-700 mb-1">3. 또는 공식 앱 다운로드:</p>
-                <a href="https://ollama.com/download" target="_blank"
+                <p class="text-xs text-amber-700 mb-1">MLX 공식 문서:</p>
+                <a href="https://github.com/ml-explore/mlx-lm" target="_blank"
                   class="inline-flex items-center gap-1 text-xs text-accent hover:underline">
-                  ollama.com/download
+                  github.com/ml-explore/mlx-lm
                 </a>
               </div>
-              <button type="button" @click="checkOllama"
+              <button type="button" @click="checkLlm"
                 class="mt-1 px-3 py-1.5 bg-amber-600 text-white rounded text-xs hover:bg-amber-700 transition">
                 연결 재확인
               </button>
             </div>
           </div>
 
-          <!-- Ollama URL / 모델 설정 -->
-          <div v-if="form.ollamaEnabled" class="space-y-4">
+          <!-- MLX URL / 모델 설정 -->
+          <div v-if="form.mlxEnabled" class="space-y-4">
             <div>
-              <label class="block text-sm font-medium text-txt-primary mb-1">Ollama URL</label>
-              <input v-model="form.ollamaUrl" type="text" placeholder="http://localhost:11434"
+              <label class="block text-sm font-medium text-txt-primary mb-1">MLX 서버 URL</label>
+              <input v-model="form.mlxUrl" type="text" placeholder="http://localhost:8000"
                 class="w-full border border-border rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-accent" />
             </div>
             <div>
               <label class="block text-sm font-medium text-txt-primary mb-1">사용 모델</label>
               <div class="flex gap-2">
-                <select v-if="ollamaModels.length > 0" v-model="form.ollamaModel"
+                <select v-if="llmModels.length > 0" v-model="form.mlxModel"
                   class="flex-1 border border-border rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-accent">
-                  <option v-for="m in ollamaModels" :key="m.name" :value="m.name">
-                    {{ m.name }} ({{ formatModelSize(m.size) }})
+                  <option v-for="m in llmModels" :key="m.name" :value="m.name">
+                    {{ m.name }}<span v-if="m.size"> ({{ formatModelSize(m.size) }})</span>
                   </option>
                 </select>
-                <input v-else v-model="form.ollamaModel" type="text" placeholder="llama3.1"
+                <input v-else v-model="form.mlxModel" type="text" placeholder="mlx-community/gemma-3-4b-it-4bit"
                   class="flex-1 border border-border rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-accent" />
-                <button type="button" @click="loadOllamaModels"
+                <button type="button" @click="loadLlmModels"
                   class="px-3 py-2 border border-border rounded-lg text-xs text-txt-secondary hover:bg-surface-2 transition whitespace-nowrap">
                   새로고침
                 </button>
@@ -215,25 +215,25 @@
           </div>
 
           <!-- 모델 관리 (연결 시) -->
-          <div v-if="ollamaConnected" class="border-t border-border-subtle pt-4 space-y-3">
+          <div v-if="llmConnected" class="border-t border-border-subtle pt-4 space-y-3">
             <div class="flex items-center justify-between">
               <h4 class="text-sm font-medium text-txt-primary">설치된 모델</h4>
-              <button type="button" @click="loadOllamaModels" class="text-xs text-accent hover:underline">새로고침</button>
+              <button type="button" @click="loadLlmModels" class="text-xs text-accent hover:underline">새로고침</button>
             </div>
 
             <!-- 모델 목록 -->
-            <div v-if="ollamaModels.length === 0" class="text-sm text-txt-tertiary py-2">설치된 모델이 없습니다. 아래에서 다운로드하세요.</div>
+            <div v-if="llmModels.length === 0" class="text-sm text-txt-tertiary py-2">설치된 모델이 없습니다. 아래에서 다운로드하세요.</div>
             <div v-else class="space-y-1">
-              <div v-for="m in ollamaModels" :key="m.name"
+              <div v-for="m in llmModels" :key="m.name"
                 class="flex items-center justify-between px-3 py-2 rounded-lg"
-                :class="form.ollamaModel === m.name ? 'bg-blue-50 border border-blue-200' : 'bg-surface-2'">
+                :class="form.mlxModel === m.name ? 'bg-blue-50 border border-blue-200' : 'bg-surface-2'">
                 <div class="flex items-center gap-2">
-                  <span v-if="form.ollamaModel === m.name" class="text-xs text-accent font-medium">사용 중</span>
+                  <span v-if="form.mlxModel === m.name" class="text-xs text-accent font-medium">사용 중</span>
                   <span class="text-sm font-mono text-txt-primary">{{ m.name }}</span>
-                  <span class="text-xs text-txt-tertiary">{{ formatModelSize(m.size) }}</span>
+                  <span v-if="m.size" class="text-xs text-txt-tertiary">{{ formatModelSize(m.size) }}</span>
                 </div>
                 <div class="flex gap-2">
-                  <button v-if="form.ollamaModel !== m.name" type="button" @click="form.ollamaModel = m.name"
+                  <button v-if="form.mlxModel !== m.name" type="button" @click="form.mlxModel = m.name"
                     class="text-xs text-accent hover:underline">선택</button>
                   <button type="button" @click="deleteModel(m.name)"
                     class="text-xs text-red-500 hover:underline">삭제</button>
@@ -253,7 +253,7 @@
                 </button>
               </div>
               <div class="flex gap-2">
-                <input v-model="pullModelName" type="text" placeholder="모델명 (예: llama3.1, qwen3:4b)"
+                <input v-model="pullModelName" type="text" placeholder="모델명 (예: mlx-community/gemma-3-4b-it-4bit)"
                   class="flex-1 border border-border rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-accent" />
                 <button type="button" @click="pullModel" :disabled="pulling || !pullModelName"
                   class="px-4 py-2 bg-primary text-white rounded-lg text-sm font-medium hover:bg-primary-hover disabled:opacity-50 transition whitespace-nowrap">
@@ -1119,9 +1119,9 @@ const form = ref({
   accountProductCode: '01',
   isVirtual: true,
 
-  ollamaUrl: 'http://localhost:11434',
-  ollamaModel: 'llama3.1',
-  ollamaEnabled: false,
+  mlxUrl: 'http://localhost:8000',
+  mlxModel: 'mlx-community/gemma-3-4b-it-4bit',
+  mlxEnabled: true,
 
   dartApiKey: '',
   dartEnabled: false,
@@ -1191,9 +1191,9 @@ function formatCurrency(value: number): string {
 
 const secretSaved = ref(false);
 
-// Ollama 관리
-const ollamaConnected = ref(false);
-const ollamaModels = ref<any[]>([]);
+// MLX (로컬 LLM) 관리
+const llmConnected = ref(false);
+const llmModels = ref<any[]>([]);
 const pullModelName = ref('');
 const pulling = ref(false);
 const pullStatus = ref('');
@@ -1203,10 +1203,10 @@ const pullSuccess = ref('');
 const copiedCmd = ref('');
 
 const recommendedModels = [
-  { name: 'qwen3:4b', size: '2.6GB' },
-  { name: 'llama3.1:8b', size: '4.7GB' },
-  { name: 'gemma3:4b', size: '3.3GB' },
-  { name: 'deepseek-r1:7b', size: '4.7GB' },
+  { name: 'mlx-community/gemma-3-4b-it-4bit', size: '2.5GB' },
+  { name: 'mlx-community/Qwen2.5-7B-Instruct-4bit', size: '4.0GB' },
+  { name: 'mlx-community/Llama-3.2-3B-Instruct-4bit', size: '1.8GB' },
+  { name: 'mlx-community/gemma-2-2b-it-4bit', size: '1.3GB' },
 ];
 
 function formatModelSize(bytes: number): string {
@@ -1222,22 +1222,24 @@ function copyToClipboard(text: string) {
   setTimeout(() => { copiedCmd.value = ''; }, 2000);
 }
 
-async function checkOllama() {
+async function checkLlm() {
   try {
-    const { data } = await analysisApi.getOllamaStatus();
-    ollamaConnected.value = data.connected;
-    if (data.connected) await loadOllamaModels();
+    const { data } = await analysisApi.getLlmStatus();
+    llmConnected.value = data.connected;
+    if (data.connected) await loadLlmModels();
   } catch {
-    ollamaConnected.value = false;
+    llmConnected.value = false;
   }
 }
 
-async function loadOllamaModels() {
+async function loadLlmModels() {
   try {
-    const { data } = await analysisApi.getOllamaModels();
-    ollamaModels.value = data.models || [];
+    const { data } = await analysisApi.getLlmModels();
+    llmModels.value = (data.models || []).map((m: any) =>
+      typeof m === 'string' ? { name: m, size: 0 } : m,
+    );
   } catch {
-    ollamaModels.value = [];
+    llmModels.value = [];
   }
 }
 
@@ -1251,7 +1253,7 @@ async function pullModel() {
   pullSuccess.value = '';
 
   try {
-    const response = await fetch('/api/analysis/ollama/pull', {
+    const response = await fetch('/api/analysis/llm/pull', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ model: pullModelName.value }),
@@ -1291,7 +1293,7 @@ async function pullModel() {
       }
     }
 
-    await loadOllamaModels();
+    await loadLlmModels();
     if (!pullError.value && !pullSuccess.value) {
       pullSuccess.value = `${pullModelName.value} 다운로드 완료`;
     }
@@ -1305,10 +1307,10 @@ async function pullModel() {
 async function deleteModel(name: string) {
   if (!confirm(`${name} 모델을 삭제하시겠습니까?`)) return;
   try {
-    await analysisApi.deleteOllamaModel(name);
-    await loadOllamaModels();
-    if (form.value.ollamaModel === name) {
-      form.value.ollamaModel = ollamaModels.value[0]?.name || '';
+    await analysisApi.deleteLlmModel(name);
+    await loadLlmModels();
+    if (form.value.mlxModel === name) {
+      form.value.mlxModel = llmModels.value[0]?.name || '';
     }
   } catch (err: any) {
     alert(err.response?.data?.error || '삭제 실패');
@@ -1391,9 +1393,9 @@ async function loadConfig() {
     form.value.isVirtual = saved.isVirtual ?? true;
     secretSaved.value = saved.hasSecret;
 
-    form.value.ollamaUrl = saved.ollamaUrl || 'http://localhost:11434';
-    form.value.ollamaModel = saved.ollamaModel || 'llama3.1';
-    form.value.ollamaEnabled = saved.ollamaEnabled ?? false;
+    form.value.mlxUrl = saved.mlxUrl || 'http://localhost:8000';
+    form.value.mlxModel = saved.mlxModel || 'mlx-community/gemma-3-4b-it-4bit';
+    form.value.mlxEnabled = saved.mlxEnabled ?? true;
 
     form.value.dartEnabled = saved.dartEnabled ?? false;
     dartKeySaved.value = saved.hasDartKey ?? false;
@@ -1473,7 +1475,7 @@ async function saveConfig() {
 
 onMounted(async () => {
   await loadConfig();
-  checkOllama();
+  checkLlm();
   loadLoraStatus();
   loadSyncStatus();
 });

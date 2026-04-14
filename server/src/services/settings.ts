@@ -43,10 +43,10 @@ export interface AppSettings {
   kisVirtual: boolean;
   mcpEnabled: boolean;
 
-  // Ollama (로컬 LLM)
-  ollamaUrl: string;
-  ollamaModel: string;
-  ollamaEnabled: boolean;
+  // MLX (로컬 LLM, Apple Silicon 전용, OpenAI-compat API)
+  mlxUrl: string;           // 기본 http://localhost:8000
+  mlxModel: string;         // 기본 mlx-community/gemma-3-4b-it-4bit
+  mlxEnabled: boolean;
 
   // DART (금융감독원 공시)
   dartApiKey: string;
@@ -127,9 +127,9 @@ const DEFAULT_SETTINGS: AppSettings = {
   kisVirtual: true,
   mcpEnabled: false,
 
-  ollamaUrl: 'http://localhost:11434',
-  ollamaModel: 'qwen3:4b',
-  ollamaEnabled: false,
+  mlxUrl: 'http://localhost:8000',
+  mlxModel: 'mlx-community/gemma-3-4b-it-4bit',
+  mlxEnabled: true,
 
   dartApiKey: '',
   dartEnabled: false,
@@ -200,11 +200,17 @@ let _cache: AppSettings | null = null;
  * v4.5.0 introduced externalAi* fields for an external AI provider option,
  * but the project pivoted to local-only Ollama. Those fields became dead
  * config and a needless source of leaked secrets in NAS sync exports.
+ *
+ * v4.12.0 removed Ollama entirely and switched to MLX. The ollama* fields
+ * are now legacy and self-clean over time.
  */
 const LEGACY_FIELDS = [
   'externalAiApiKey',
   'externalAiProvider',
   'externalAiModel',
+  'ollamaUrl',
+  'ollamaModel',
+  'ollamaEnabled',
 ] as const;
 
 function stripLegacyFields(obj: Record<string, unknown>): Record<string, unknown> {
@@ -222,7 +228,19 @@ export function getSettings(): AppSettings {
   if (fs.existsSync(SETTINGS_PATH)) {
     try {
       const raw = fs.readFileSync(SETTINGS_PATH, 'utf-8');
-      const parsed = stripLegacyFields(JSON.parse(raw));
+      const rawParsed = JSON.parse(raw) as Record<string, unknown>;
+
+      // v4.12.0 migration: 기존 ollama* 설정이 있으면 mlx* 로 이관 (한 번만)
+      const needsMlxMigration =
+        rawParsed.ollamaEnabled !== undefined && rawParsed.mlxEnabled === undefined;
+      if (needsMlxMigration) {
+        // ollamaEnabled → mlxEnabled (truthy 이관)
+        if (rawParsed.ollamaEnabled) rawParsed.mlxEnabled = true;
+        // URL은 강제로 새 MLX 주소로 설정 (Ollama URL 재사용 불가)
+        // Model은 기본값 사용 (MLX 모델명 포맷이 완전 다름)
+      }
+
+      const parsed = stripLegacyFields(rawParsed);
       _cache = { ...DEFAULT_SETTINGS, ...parsed } as AppSettings;
     } catch {
       _cache = { ...DEFAULT_SETTINGS };

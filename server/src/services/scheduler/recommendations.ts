@@ -5,7 +5,7 @@
 import { queryAll, execute } from '../../db';
 import { getSettings } from '../settings';
 import { analyzeTechnical } from '../technicalAnalysis';
-import { getTradeDecision, buildAnalysisInput } from '../ollama';
+import { getTradeDecision, buildAnalysisInput } from '../llm';
 import { collectAndCacheNews, summarizeNewsWithAI } from '../newsCollector';
 import { getAccessToken, getKisConfig } from '../kisAuth';
 import { evaluateAndScore } from '../scoring';
@@ -231,7 +231,7 @@ async function fetchOverseasGainerRank(market: Market): Promise<{ticker: string;
 export async function runRecommendationRefresh() {
   const MAX_PER_MARKET = 10;
   const settings = getSettings();
-  if (!settings.ollamaEnabled) return;
+  if (!settings.mlxEnabled) return;
 
   const { appKey, appSecret, baseUrl } = getKisConfig();
   if (!appKey || !appSecret) {

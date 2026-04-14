@@ -22,9 +22,9 @@ vi.mock('../db', () => ({
 
 vi.mock('../services/settings', () => ({
   getSettings: vi.fn(() => ({
-    ollamaUrl: 'http://localhost:11434',
-    ollamaModel: 'exaone3.5:2.4b',
-    ollamaEnabled: true,
+    mlxUrl: 'http://localhost:11434',
+    mlxModel: 'exaone3.5:2.4b',
+    mlxEnabled: true,
     debateMode: false,
     investmentStyle: 'balanced',
   })),
@@ -34,8 +34,8 @@ vi.mock('../logger', () => ({
   default: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },
 }));
 
-describe('callOllama (v4.5.2 resilience)', () => {
-  let callOllama: typeof import('../services/ollama').callOllama;
+describe('callLlm (v4.5.2 resilience)', () => {
+  let callLlm: typeof import('../services/llm').callLlm;
   let fetchSpy: ReturnType<typeof vi.fn>;
 
   beforeEach(async () => {
@@ -47,9 +47,9 @@ describe('callOllama (v4.5.2 resilience)', () => {
     }));
     vi.doMock('../services/settings', () => ({
       getSettings: vi.fn(() => ({
-        ollamaUrl: 'http://localhost:11434',
-        ollamaModel: 'exaone3.5:2.4b',
-        ollamaEnabled: true,
+        mlxUrl: 'http://localhost:11434',
+        mlxModel: 'exaone3.5:2.4b',
+        mlxEnabled: true,
         debateMode: false,
         investmentStyle: 'balanced',
       })),
@@ -61,8 +61,8 @@ describe('callOllama (v4.5.2 resilience)', () => {
     fetchSpy = vi.fn();
     globalThis.fetch = fetchSpy as unknown as typeof fetch;
 
-    const mod = await import('../services/ollama');
-    callOllama = mod.callOllama;
+    const mod = await import('../services/llm');
+    callLlm = mod.callLlm;
   });
 
   afterEach(() => {
@@ -74,37 +74,43 @@ describe('callOllama (v4.5.2 resilience)', () => {
   it('returns response text on success', async () => {
     fetchSpy.mockResolvedValueOnce({
       ok: true,
-      json: async () => ({ response: '{"signal":"BUY"}' }),
+      json: async () => ({ choices: [{ message: { content: '{"signal":"BUY"}' } }] }),
     });
 
-    const result = await callOllama('exaone3.5:2.4b', 'http://localhost:11434', 'p', 's', 256);
+    const result = await callLlm('exaone3.5:2.4b', 'http://localhost:11434', 'p', 's', 256);
     expect(result).toBe('{"signal":"BUY"}');
     expect(fetchSpy).toHaveBeenCalledTimes(1);
   });
 
-  it('sends keep_alive in request body to keep model warm (Fix #4)', async () => {
+  it('sends OpenAI-compatible request body (v4.12.0 MLX)', async () => {
     fetchSpy.mockResolvedValueOnce({
       ok: true,
-      json: async () => ({ response: 'ok' }),
+      json: async () => ({ choices: [{ message: { content: 'ok' } }] }),
     });
 
-    await callOllama('exaone3.5:2.4b', 'http://localhost:11434', 'p', 's', 256);
+    await callLlm('mlx-community/gemma-3-4b-it-4bit', 'http://localhost:8000', 'my-prompt', 'sys-prompt', 256);
 
     const callArg = fetchSpy.mock.calls[0][1];
+    const url = String(fetchSpy.mock.calls[0][0]);
     const body = JSON.parse(callArg.body as string);
-    expect(body.keep_alive).toBe('15m');
-    expect(body.model).toBe('exaone3.5:2.4b');
+
+    expect(url).toContain('/v1/chat/completions');
+    expect(body.model).toBe('mlx-community/gemma-3-4b-it-4bit');
     expect(body.stream).toBe(false);
-    expect(body.format).toBe('json');
+    expect(body.max_tokens).toBe(256);
+    expect(body.messages).toEqual([
+      { role: 'system', content: 'sys-prompt' },
+      { role: 'user', content: 'my-prompt' },
+    ]);
   });
 
   it('passes AbortSignal to fetch (Fix #1: timeout)', async () => {
     fetchSpy.mockResolvedValueOnce({
       ok: true,
-      json: async () => ({ response: 'ok' }),
+      json: async () => ({ choices: [{ message: { content: 'ok' } }] }),
     });
 
-    await callOllama('m', 'http://localhost:11434', 'p', 's', 256);
+    await callLlm('m', 'http://localhost:11434', 'p', 's', 256);
 
     const callArg = fetchSpy.mock.calls[0][1];
     expect(callArg.signal).toBeInstanceOf(AbortSignal);
@@ -118,10 +124,10 @@ describe('callOllama (v4.5.2 resilience)', () => {
       .mockRejectedValueOnce(new Error('fetch failed'))
       .mockResolvedValueOnce({
         ok: true,
-        json: async () => ({ response: 'recovered' }),
+        json: async () => ({ choices: [{ message: { content: 'recovered' } }] }),
       });
 
-    const result = await callOllama('m', 'http://localhost:11434', 'p', 's', 256);
+    const result = await callLlm('m', 'http://localhost:11434', 'p', 's', 256);
     expect(result).toBe('recovered');
     expect(fetchSpy).toHaveBeenCalledTimes(3);
   });
@@ -131,10 +137,10 @@ describe('callOllama (v4.5.2 resilience)', () => {
       .mockRejectedValueOnce(new Error('ECONNRESET'))
       .mockResolvedValueOnce({
         ok: true,
-        json: async () => ({ response: 'ok' }),
+        json: async () => ({ choices: [{ message: { content: 'ok' } }] }),
       });
 
-    const result = await callOllama('m', 'http://localhost:11434', 'p', 's', 256);
+    const result = await callLlm('m', 'http://localhost:11434', 'p', 's', 256);
     expect(result).toBe('ok');
     expect(fetchSpy).toHaveBeenCalledTimes(2);
   });
@@ -143,7 +149,7 @@ describe('callOllama (v4.5.2 resilience)', () => {
     fetchSpy.mockRejectedValue(new Error('fetch failed'));
 
     await expect(
-      callOllama('m', 'http://localhost:11434', 'p', 's', 256),
+      callLlm('m', 'http://localhost:11434', 'p', 's', 256),
     ).rejects.toThrow('fetch failed');
 
     // 3 attempts total (1 initial + 2 retries)
@@ -158,7 +164,7 @@ describe('callOllama (v4.5.2 resilience)', () => {
     });
 
     await expect(
-      callOllama('m', 'http://localhost:11434', 'p', 's', 256),
+      callLlm('m', 'http://localhost:11434', 'p', 's', 256),
     ).rejects.toThrow(/HTTP 400/);
 
     // No retry — HTTP errors aren't retriable in our policy
@@ -179,17 +185,17 @@ describe('callOllama (v4.5.2 resilience)', () => {
       inFlight--;
       return {
         ok: true,
-        json: async () => ({ response: 'ok' }),
+        json: async () => ({ choices: [{ message: { content: 'ok' } }] }),
       };
     });
 
     // Fire 5 concurrent calls
     await Promise.all([
-      callOllama('m', 'http://localhost:11434', 'p1', 's', 256),
-      callOllama('m', 'http://localhost:11434', 'p2', 's', 256),
-      callOllama('m', 'http://localhost:11434', 'p3', 's', 256),
-      callOllama('m', 'http://localhost:11434', 'p4', 's', 256),
-      callOllama('m', 'http://localhost:11434', 'p5', 's', 256),
+      callLlm('m', 'http://localhost:11434', 'p1', 's', 256),
+      callLlm('m', 'http://localhost:11434', 'p2', 's', 256),
+      callLlm('m', 'http://localhost:11434', 'p3', 's', 256),
+      callLlm('m', 'http://localhost:11434', 'p4', 's', 256),
+      callLlm('m', 'http://localhost:11434', 'p5', 's', 256),
     ]);
 
     expect(fetchSpy).toHaveBeenCalledTimes(5);
@@ -206,12 +212,12 @@ describe('callOllama (v4.5.2 resilience)', () => {
       // Second call: success
       .mockResolvedValueOnce({
         ok: true,
-        json: async () => ({ response: 'second-ok' }),
+        json: async () => ({ choices: [{ message: { content: 'second-ok' } }] }),
       });
 
     const [first, second] = await Promise.allSettled([
-      callOllama('m', 'http://localhost:11434', 'p1', 's', 256),
-      callOllama('m', 'http://localhost:11434', 'p2', 's', 256),
+      callLlm('m', 'http://localhost:11434', 'p1', 's', 256),
+      callLlm('m', 'http://localhost:11434', 'p2', 's', 256),
     ]);
 
     expect(first.status).toBe('rejected');

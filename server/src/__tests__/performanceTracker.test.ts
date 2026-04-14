@@ -22,7 +22,7 @@ import { describe, it, expect, beforeAll, beforeEach, vi } from 'vitest';
 process.env.STOCK_MANAGER_DB_PATH = ':memory:';
 
 vi.mock('../services/settings', () => ({
-  getSettings: vi.fn(() => ({ ollamaEnabled: false, ollamaUrl: '' })),
+  getSettings: vi.fn(() => ({ mlxEnabled: false, mlxUrl: '' })),
 }));
 
 import { initializeDB, queryAll, queryOne, execute } from '../db';

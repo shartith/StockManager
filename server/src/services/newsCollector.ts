@@ -179,7 +179,7 @@ export interface NewsSentiment {
   sentimentLabel: 'POSITIVE' | 'NEGATIVE' | 'NEUTRAL';
 }
 
-/** Ollama 로컬 LLM으로 뉴스 요약 + 감성 분석 */
+/** MLX 로컬 LLM으로 뉴스 요약 + 감성 분석 */
 export async function summarizeNewsWithAI(newsItems: NewsItem[], ticker: string): Promise<NewsSentiment> {
   const fallback: NewsSentiment = {
     summary: newsItems?.length ? newsItems.map(n => `- ${n.title}`).join('\n') : '',
@@ -190,9 +190,10 @@ export async function summarizeNewsWithAI(newsItems: NewsItem[], ticker: string)
   if (!newsItems || newsItems.length === 0) return fallback;
 
   const settings = getSettings();
-  if (!settings.ollamaEnabled || !settings.ollamaUrl) return fallback;
+  if (!settings.mlxEnabled || !settings.mlxUrl) return fallback;
 
   const newsText = newsItems.map((n, i) => `${i + 1}. ${n.title}${n.summary ? '\n   ' + n.summary : ''}`).join('\n');
+  const system = '당신은 한국 주식 시장의 뉴스를 분석하는 전문 애널리스트입니다. 반드시 valid JSON으로만 응답하세요.';
   const prompt = `다음은 주식 종목 ${ticker}에 관한 최근 뉴스입니다.
 
 ${newsText}
@@ -205,22 +206,8 @@ ${newsText}
 }`;
 
   try {
-    const res = await fetch(`${settings.ollamaUrl}/api/generate`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        model: settings.ollamaModel || 'qwen3:4b',
-        prompt,
-        stream: false,
-        format: 'json',
-        options: { temperature: 0.3, num_predict: 500 },
-      }),
-    });
-
-    if (!res.ok) return fallback;
-
-    const data: any = await res.json();
-    const text = data.response?.trim() || '';
+    const { callLlm } = await import('./llm');
+    const text = await callLlm(settings.mlxModel, settings.mlxUrl, prompt, system, 500);
 
     try {
       const jsonMatch = text.match(/\{[\s\S]*\}/);

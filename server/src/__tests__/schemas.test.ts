@@ -182,7 +182,7 @@ describe('updateRecommendationStatusSchema + generateRecommendationSchema + deci
 
   it('pullModelSchema requires non-empty model', () => {
     expect(() => pullModelSchema.parse({ model: '' })).toThrow();
-    expect(pullModelSchema.parse({ model: 'qwen3:4b' }).model).toBe('qwen3:4b');
+    expect(pullModelSchema.parse({ model: 'mlx-community/gemma-3-4b-it-4bit' }).model).toBe('mlx-community/gemma-3-4b-it-4bit');
   });
 });
 
@@ -191,8 +191,8 @@ describe('saveConfigSchema — SSRF guards and URL validation', () => {
 
   it('applies sensible defaults', () => {
     const c = saveConfigSchema.parse(valid());
-    expect(c.ollamaUrl).toBe('http://localhost:11434');
-    expect(c.ollamaModel).toBe('qwen3:4b');
+    expect(c.mlxUrl).toBe('http://localhost:8000');
+    expect(c.mlxModel).toBe('mlx-community/gemma-3-4b-it-4bit');
     expect(c.isVirtual).toBe(true);
     expect(c.autoTradeEnabled).toBe(false);
     expect(c.portfolioMaxHoldings).toBe(10);
@@ -202,40 +202,40 @@ describe('saveConfigSchema — SSRF guards and URL validation', () => {
     expect(() => saveConfigSchema.parse({ appKey: '' })).toThrow();
   });
 
-  it('blocks AWS metadata endpoint in ollamaUrl', () => {
+  it('blocks AWS metadata endpoint in mlxUrl', () => {
     expect(() => saveConfigSchema.parse({
-      ...valid(), ollamaUrl: 'http://169.254.169.254/latest',
+      ...valid(), mlxUrl: 'http://169.254.169.254/latest',
     })).toThrow(/유효한 http/);
   });
 
-  it('blocks Alibaba Cloud metadata endpoint in ollamaUrl', () => {
+  it('blocks Alibaba Cloud metadata endpoint in mlxUrl', () => {
     expect(() => saveConfigSchema.parse({
-      ...valid(), ollamaUrl: 'http://100.100.100.200/',
+      ...valid(), mlxUrl: 'http://100.100.100.200/',
     })).toThrow();
   });
 
-  it('blocks GCP metadata hostname in ollamaUrl', () => {
+  it('blocks GCP metadata hostname in mlxUrl', () => {
     expect(() => saveConfigSchema.parse({
-      ...valid(), ollamaUrl: 'http://metadata.google.internal/',
+      ...valid(), mlxUrl: 'http://metadata.google.internal/',
     })).toThrow();
   });
 
-  it('rejects non-http protocol in ollamaUrl', () => {
+  it('rejects non-http protocol in mlxUrl', () => {
     expect(() => saveConfigSchema.parse({
-      ...valid(), ollamaUrl: 'file:///etc/passwd',
+      ...valid(), mlxUrl: 'file:///etc/passwd',
     })).toThrow();
   });
 
-  it('rejects malformed URL in ollamaUrl', () => {
+  it('rejects malformed URL in mlxUrl', () => {
     expect(() => saveConfigSchema.parse({
-      ...valid(), ollamaUrl: 'not a url at all',
+      ...valid(), mlxUrl: 'not a url at all',
     })).toThrow();
   });
 
-  it('accepts empty ollamaUrl (will use default)', () => {
-    const c = saveConfigSchema.parse({ ...valid(), ollamaUrl: '' });
+  it('accepts empty mlxUrl (will use default)', () => {
+    const c = saveConfigSchema.parse({ ...valid(), mlxUrl: '' });
     // empty passes refine, then default kicks in
-    expect(typeof c.ollamaUrl).toBe('string');
+    expect(typeof c.mlxUrl).toBe('string');
   });
 
   it('rejects out-of-range autoTradeScoreThreshold', () => {

@@ -67,9 +67,9 @@ describe('settings', () => {
       const settings = getSettings();
       expect(settings.kisAppKey).toBe('');
       expect(settings.kisAppSecret).toBe('');
-      expect(settings.ollamaUrl).toBe('http://localhost:11434');
-      expect(settings.ollamaModel).toBe('qwen3:4b');
-      expect(settings.ollamaEnabled).toBe(false);
+      expect(settings.mlxUrl).toBe('http://localhost:8000');
+      expect(settings.mlxModel).toBe('mlx-community/gemma-3-4b-it-4bit');
+      expect(settings.mlxEnabled).toBe(true); // v4.12.0: MLX 기본 활성화
       expect(settings.autoTradeEnabled).toBe(false);
       expect(settings.investmentStyle).toBe('balanced');
       expect(settings.stopLossPercent).toBe(3);
@@ -117,17 +117,17 @@ describe('settings', () => {
       vi.mocked(fsModule.default.readFileSync).mockReturnValue(
         JSON.stringify({
           kisAppKey: 'my-key',
-          ollamaModel: 'llama3',
+          mlxModel: 'llama3',
           autoTradeEnabled: true,
         })
       );
 
       const settings = getSettings();
       expect(settings.kisAppKey).toBe('my-key');
-      expect(settings.ollamaModel).toBe('llama3');
+      expect(settings.mlxModel).toBe('llama3');
       expect(settings.autoTradeEnabled).toBe(true);
       // Defaults should still be present
-      expect(settings.ollamaUrl).toBe('http://localhost:11434');
+      expect(settings.mlxUrl).toBe('http://localhost:8000');
       expect(settings.stopLossPercent).toBe(3);
     });
 
@@ -138,7 +138,7 @@ describe('settings', () => {
 
       const settings = getSettings();
       expect(settings.kisAppKey).toBe('');
-      expect(settings.ollamaUrl).toBe('http://localhost:11434');
+      expect(settings.mlxUrl).toBe('http://localhost:8000');
     });
 
     it('caches settings on second call', async () => {
@@ -233,17 +233,17 @@ describe('settings', () => {
       getSettings();
 
       // Save partial update
-      saveSettings({ ollamaModel: 'custom-model', autoTradeEnabled: true });
+      saveSettings({ mlxModel: 'custom-model', autoTradeEnabled: true });
 
       // Verify writeFileSync was called
       expect(fsModule.default.writeFileSync).toHaveBeenCalledTimes(1);
       const writtenData = JSON.parse(
         vi.mocked(fsModule.default.writeFileSync).mock.calls[0][1] as string
       );
-      expect(writtenData.ollamaModel).toBe('custom-model');
+      expect(writtenData.mlxModel).toBe('custom-model');
       expect(writtenData.autoTradeEnabled).toBe(true);
       // Default values should persist
-      expect(writtenData.ollamaUrl).toBe('http://localhost:11434');
+      expect(writtenData.mlxUrl).toBe('http://localhost:8000');
     });
 
     it('creates data directory if it does not exist', async () => {
@@ -252,7 +252,7 @@ describe('settings', () => {
       vi.mocked(fsModule.default.existsSync).mockReturnValue(false);
 
       getSettings();
-      saveSettings({ ollamaModel: 'test' });
+      saveSettings({ mlxModel: 'test' });
 
       expect(fsModule.default.mkdirSync).toHaveBeenCalledWith(
         expect.any(String),
@@ -285,7 +285,7 @@ describe('settings', () => {
       const fsModule = await import('fs');
 
       mod.getSettings();
-      mod.saveSettings({ ollamaModel: 'test' });
+      mod.saveSettings({ mlxModel: 'test' });
 
       const writtenData = JSON.parse(
         vi.mocked(fsModule.default.writeFileSync).mock.calls[0][1] as string,
@@ -316,14 +316,14 @@ describe('settings', () => {
       expect(firstSave.kisAppSecret).toBe('user-entered-secret');
 
       // User changes another setting and saves again — keys MUST still be in file
-      saveSettings({ ollamaModel: 'updated-model' });
+      saveSettings({ mlxModel: 'updated-model' });
 
       const secondSave = JSON.parse(
         vi.mocked(fsModule.default.writeFileSync).mock.calls[1][1] as string,
       );
       expect(secondSave.kisAppKey).toBe('user-entered-key');
       expect(secondSave.kisAppSecret).toBe('user-entered-secret');
-      expect(secondSave.ollamaModel).toBe('updated-model');
+      expect(secondSave.mlxModel).toBe('updated-model');
     });
 
     it('preserves file-loaded secrets across saves when no external env vars set', async () => {
@@ -335,7 +335,7 @@ describe('settings', () => {
 
       getSettings();
       // Internal env sync happens (so other modules can read), but ENV_SECRETS snapshot is empty
-      saveSettings({ ollamaModel: 'test' });
+      saveSettings({ mlxModel: 'test' });
 
       const writtenData = JSON.parse(
         vi.mocked(fsModule.default.writeFileSync).mock.calls[0][1] as string,
@@ -363,10 +363,10 @@ describe('settings', () => {
       vi.mocked(fsModule.default.existsSync).mockReturnValue(false);
 
       getSettings();
-      saveSettings({ ollamaModel: 'updated-model' });
+      saveSettings({ mlxModel: 'updated-model' });
 
       const settings = getSettings();
-      expect(settings.ollamaModel).toBe('updated-model');
+      expect(settings.mlxModel).toBe('updated-model');
     });
   });
 
@@ -384,7 +384,7 @@ describe('settings', () => {
       vi.mocked(fsModule.default.readFileSync).mockReturnValue(
         JSON.stringify({
           kisAppKey: 'real-key',
-          ollamaModel: 'exaone3.5:2.4b',
+          mlxModel: 'exaone3.5:2.4b',
           externalAiApiKey: 'sk-ant-api03-leaked-secret',
           externalAiProvider: 'claude',
           externalAiModel: 'claude-sonnet-4.6',
@@ -393,7 +393,7 @@ describe('settings', () => {
 
       const settings = getSettings() as unknown as Record<string, unknown>;
       expect(settings.kisAppKey).toBe('real-key');
-      expect(settings.ollamaModel).toBe('exaone3.5:2.4b');
+      expect(settings.mlxModel).toBe('exaone3.5:2.4b');
       // Legacy fields must be stripped from cache
       expect(settings.externalAiApiKey).toBeUndefined();
       expect(settings.externalAiProvider).toBeUndefined();
@@ -413,13 +413,13 @@ describe('settings', () => {
       );
 
       getSettings();
-      saveSettings({ ollamaModel: 'updated' });
+      saveSettings({ mlxModel: 'updated' });
 
       const written = JSON.parse(
         vi.mocked(fsModule.default.writeFileSync).mock.calls[0][1] as string,
       );
       expect(written.kisAppKey).toBe('real-key');
-      expect(written.ollamaModel).toBe('updated');
+      expect(written.mlxModel).toBe('updated');
       // Legacy fields must NOT be persisted on next save (self-cleaning migration)
       expect(written.externalAiApiKey).toBeUndefined();
       expect(written.externalAiProvider).toBeUndefined();
@@ -434,13 +434,13 @@ describe('settings', () => {
           externalAiApiKey: null,
           externalAiProvider: 12345,
           externalAiModel: { nested: 'object' },
-          ollamaUrl: 'http://localhost:11434',
+          mlxUrl: 'http://localhost:8000',
         }),
       );
 
       // Should not throw despite weird types
       const settings = getSettings();
-      expect(settings.ollamaUrl).toBe('http://localhost:11434');
+      expect(settings.mlxUrl).toBe('http://localhost:8000');
       expect((settings as unknown as Record<string, unknown>).externalAiApiKey).toBeUndefined();
     });
 
@@ -450,16 +450,16 @@ describe('settings', () => {
       vi.mocked(fsModule.default.readFileSync).mockReturnValue(
         JSON.stringify({
           kisAppKey: 'real-key',
-          ollamaModel: 'real-model',
-          ollamaUrl: 'real-url',
+          mlxModel: 'real-model',
+          mlxUrl: 'real-url',
           dartApiKey: 'real-dart',
         }),
       );
 
       const settings = getSettings();
       expect(settings.kisAppKey).toBe('real-key');
-      expect(settings.ollamaModel).toBe('real-model');
-      expect(settings.ollamaUrl).toBe('real-url');
+      expect(settings.mlxModel).toBe('real-model');
+      expect(settings.mlxUrl).toBe('real-url');
       expect(settings.dartApiKey).toBe('real-dart');
     });
   });

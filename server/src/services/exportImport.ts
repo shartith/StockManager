@@ -42,7 +42,7 @@ export function exportStrategy(): { filePath: string; summary: string } {
       investmentStyle: settings.investmentStyle,
       debateMode: settings.debateMode,
       stopLossPercent: settings.stopLossPercent,
-      ollamaModel: settings.ollamaModel,
+      mlxModel: settings.mlxModel,
       autoTradeEnabled: settings.autoTradeEnabled,
       autoTradeMaxInvestment: settings.autoTradeMaxInvestment,
       autoTradeMaxPerStock: settings.autoTradeMaxPerStock,

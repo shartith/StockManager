@@ -60,7 +60,7 @@ export async function runProfitTaking(market: Market) {
             });
           }
         }
-      } else if (profitRate >= 5 && settings.ollamaEnabled) {
+      } else if (profitRate >= 5 && settings.mlxEnabled) {
         // 5~10% 수익: LLM 판단
         const candles = await fetchCandleData(stock.ticker, market);
         if (!candles || candles.length < 30) continue;

@@ -1,6 +1,6 @@
 /**
- * ollama.ts — checkOllamaStatus coverage (was not tested by the existing
- * callOllama resilience suite)
+ * ollama.ts — checkLlmStatus coverage (was not tested by the existing
+ * callLlm resilience suite)
  *
  * Covers:
  *   - connected:true + model list parsed
@@ -19,9 +19,9 @@ vi.mock('../db', () => ({
 
 vi.mock('../services/settings', () => ({
   getSettings: vi.fn(() => ({
-    ollamaUrl: 'http://localhost:11434',
-    ollamaModel: 'qwen3:4b',
-    ollamaEnabled: true,
+    mlxUrl: 'http://localhost:11434',
+    mlxModel: 'qwen3:4b',
+    mlxEnabled: true,
     debateMode: false,
     investmentStyle: 'balanced',
   })),
@@ -31,8 +31,8 @@ vi.mock('../logger', () => ({
   default: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },
 }));
 
-describe('checkOllamaStatus', () => {
-  let checkOllamaStatus: typeof import('../services/ollama').checkOllamaStatus;
+describe('checkLlmStatus', () => {
+  let checkLlmStatus: typeof import('../services/llm').checkLlmStatus;
   let fetchSpy: ReturnType<typeof vi.fn>;
 
   beforeEach(async () => {
@@ -44,9 +44,9 @@ describe('checkOllamaStatus', () => {
     }));
     vi.doMock('../services/settings', () => ({
       getSettings: vi.fn(() => ({
-        ollamaUrl: 'http://localhost:11434',
-        ollamaModel: 'qwen3:4b',
-        ollamaEnabled: true,
+        mlxUrl: 'http://localhost:11434',
+        mlxModel: 'qwen3:4b',
+        mlxEnabled: true,
       })),
     }));
     vi.doMock('../logger', () => ({
@@ -56,8 +56,8 @@ describe('checkOllamaStatus', () => {
     fetchSpy = vi.fn();
     globalThis.fetch = fetchSpy as unknown as typeof fetch;
 
-    const mod = await import('../services/ollama');
-    checkOllamaStatus = mod.checkOllamaStatus;
+    const mod = await import('../services/llm');
+    checkLlmStatus = mod.checkLlmStatus;
   });
 
   afterEach(() => {
@@ -65,20 +65,23 @@ describe('checkOllamaStatus', () => {
   });
 
   it('returns connected:true with parsed model list', async () => {
+    // MLX /v1/models 응답 (OpenAI 호환)
     fetchSpy.mockResolvedValueOnce({
       ok: true,
       json: async () => ({
-        models: [
-          { name: 'qwen3:4b' },
-          { name: 'exaone3.5:7.8b' },
-          { name: 'llama3:8b' },
+        data: [
+          { id: 'mlx-community/gemma-3-4b-it-4bit', object: 'model' },
+          { id: 'mlx-community/Qwen2.5-7B-Instruct-4bit', object: 'model' },
         ],
       }),
     });
 
-    const status = await checkOllamaStatus();
+    const status = await checkLlmStatus();
     expect(status.connected).toBe(true);
-    expect(status.models).toEqual(['qwen3:4b', 'exaone3.5:7.8b', 'llama3:8b']);
+    expect(status.models).toEqual([
+      'mlx-community/gemma-3-4b-it-4bit',
+      'mlx-community/Qwen2.5-7B-Instruct-4bit',
+    ]);
   });
 
   it('returns connected:false and empty list on non-OK HTTP response', async () => {
@@ -87,7 +90,7 @@ describe('checkOllamaStatus', () => {
       status: 503,
     });
 
-    const status = await checkOllamaStatus();
+    const status = await checkLlmStatus();
     expect(status.connected).toBe(false);
     expect(status.models).toEqual([]);
   });
@@ -95,7 +98,7 @@ describe('checkOllamaStatus', () => {
   it('returns connected:false on network exception (ECONNREFUSED)', async () => {
     fetchSpy.mockRejectedValueOnce(new Error('ECONNREFUSED'));
 
-    const status = await checkOllamaStatus();
+    const status = await checkLlmStatus();
     expect(status.connected).toBe(false);
     expect(status.models).toEqual([]);
   });
@@ -106,19 +109,19 @@ describe('checkOllamaStatus', () => {
       json: async () => ({}),
     });
 
-    const status = await checkOllamaStatus();
+    const status = await checkLlmStatus();
     expect(status.connected).toBe(true);
     expect(status.models).toEqual([]);
   });
 
-  it('hits the /api/tags endpoint', async () => {
+  it('hits the /v1/models endpoint (OpenAI compat)', async () => {
     fetchSpy.mockResolvedValueOnce({
       ok: true,
-      json: async () => ({ models: [] }),
+      json: async () => ({ data: [] }),
     });
 
-    await checkOllamaStatus();
+    await checkLlmStatus();
     const [url] = fetchSpy.mock.calls[0];
-    expect(String(url)).toContain('/api/tags');
+    expect(String(url)).toContain('/v1/models');
   });
 });

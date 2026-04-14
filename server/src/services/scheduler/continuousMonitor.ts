@@ -205,7 +205,7 @@ export async function runContinuousMonitor(market: Market) {
     const priceThreshold = settings.priceChangeThreshold ?? 2;
     if (changeRate < priceThreshold) continue;
 
-    if (!settings.ollamaEnabled) continue;
+    if (!settings.mlxEnabled) continue;
 
     // v4.11.0: Rule 20 pre-check — 같은 종목 30분 내 BUY 신호 있으면 LLM 호출 skip
     const cooldownHit = queryOne(

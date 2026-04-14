@@ -1,13 +1,13 @@
 /**
  * ollama.ts — getTradeDecision, parseDecisionResponse, buildAnalysisInput
  *
- * The existing ollama*.test.ts covers callOllama resilience + checkOllamaStatus.
+ * The existing ollama*.test.ts covers callLlm resilience + checkLlmStatus.
  * This file drives the full getTradeDecision path so parseDecisionResponse,
  * buildStructuredPrompt, buildSystemPrompt, formatInputData, and
  * getTradeDecisionSingle/WithDebate all get exercised.
  *
  * Strategy: mock only `fetch` (vi.stubGlobal). Every getTradeDecision call
- * goes through the real callOllama mutex → fetch → parseDecisionResponse path.
+ * goes through the real callLlm mutex → fetch → parseDecisionResponse path.
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
@@ -20,9 +20,9 @@ vi.mock('../db', () => ({
 
 vi.mock('../services/settings', () => ({
   getSettings: vi.fn(() => ({
-    ollamaUrl: 'http://localhost:11434',
-    ollamaModel: 'qwen3:4b',
-    ollamaEnabled: true,
+    mlxUrl: 'http://localhost:11434',
+    mlxModel: 'qwen3:4b',
+    mlxEnabled: true,
     debateMode: false,
     investmentStyle: 'balanced',
   })),
@@ -32,7 +32,7 @@ vi.mock('../logger', () => ({
   default: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },
 }));
 
-import type { StockAnalysisInput } from '../services/ollama';
+import type { StockAnalysisInput } from '../services/llm';
 
 // Baseline input — caller overrides individual fields.
 function baseInput(overrides: Partial<StockAnalysisInput> = {}): StockAnalysisInput {
@@ -70,11 +70,11 @@ function baseInput(overrides: Partial<StockAnalysisInput> = {}): StockAnalysisIn
 
 const okJson = (bodyObj: unknown) => ({
   ok: true,
-  json: async () => ({ response: JSON.stringify(bodyObj) }),
+  json: async () => ({ choices: [{ message: { content: JSON.stringify(bodyObj) } }] }),
 });
 
 describe('getTradeDecision — single mode + parseDecisionResponse', () => {
-  let getTradeDecision: typeof import('../services/ollama').getTradeDecision;
+  let getTradeDecision: typeof import('../services/llm').getTradeDecision;
   let fetchSpy: ReturnType<typeof vi.fn>;
 
   beforeEach(async () => {
@@ -86,9 +86,9 @@ describe('getTradeDecision — single mode + parseDecisionResponse', () => {
     }));
     vi.doMock('../services/settings', () => ({
       getSettings: vi.fn(() => ({
-        ollamaUrl: 'http://localhost:11434',
-        ollamaModel: 'qwen3:4b',
-        ollamaEnabled: true,
+        mlxUrl: 'http://localhost:11434',
+        mlxModel: 'qwen3:4b',
+        mlxEnabled: true,
         debateMode: false,
         investmentStyle: 'balanced',
       })),
@@ -100,7 +100,7 @@ describe('getTradeDecision — single mode + parseDecisionResponse', () => {
     fetchSpy = vi.fn();
     globalThis.fetch = fetchSpy as unknown as typeof fetch;
 
-    const mod = await import('../services/ollama');
+    const mod = await import('../services/llm');
     getTradeDecision = mod.getTradeDecision;
   });
 
@@ -176,9 +176,7 @@ describe('getTradeDecision — single mode + parseDecisionResponse', () => {
   it('extracts JSON from surrounding thinking-model text', async () => {
     fetchSpy.mockResolvedValueOnce({
       ok: true,
-      json: async () => ({
-        response: 'Let me think... the correct answer is {"signal":"BUY","confidence":75,"reasoning":"ok"} as shown.',
-      }),
+      json: async () => ({ choices: [{ message: { content: 'Let me think... the correct answer is {"signal":"BUY","confidence":75,"reasoning":"ok"} as shown.' } }] }),
     });
 
     const decision = await getTradeDecision(baseInput());
@@ -189,7 +187,7 @@ describe('getTradeDecision — single mode + parseDecisionResponse', () => {
   it('returns the safe fallback HOLD when response is not JSON at all', async () => {
     fetchSpy.mockResolvedValueOnce({
       ok: true,
-      json: async () => ({ response: 'completely non-json garbage output' }),
+      json: async () => ({ choices: [{ message: { content: 'completely non-json garbage output' } }] }),
     });
 
     const decision = await getTradeDecision(baseInput());
@@ -236,22 +234,22 @@ describe('getTradeDecision — single mode + parseDecisionResponse', () => {
     vi.resetModules();
     vi.doMock('../services/settings', () => ({
       getSettings: vi.fn(() => ({
-        ollamaUrl: 'http://localhost:11434',
-        ollamaModel: 'qwen3:4b',
-        ollamaEnabled: false,
+        mlxUrl: 'http://localhost:11434',
+        mlxModel: 'qwen3:4b',
+        mlxEnabled: false,
         debateMode: false,
       })),
     }));
     vi.doMock('../db', () => ({ queryAll: vi.fn(() => []), queryOne: vi.fn(() => null), execute: vi.fn() }));
     vi.doMock('../logger', () => ({ default: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() } }));
 
-    const { getTradeDecision: gd } = await import('../services/ollama');
+    const { getTradeDecision: gd } = await import('../services/llm');
     await expect(gd(baseInput())).rejects.toThrow(/비활성화/);
   });
 });
 
 describe('getTradeDecision — debate mode (3-call orchestration)', () => {
-  let getTradeDecision: typeof import('../services/ollama').getTradeDecision;
+  let getTradeDecision: typeof import('../services/llm').getTradeDecision;
   let fetchSpy: ReturnType<typeof vi.fn>;
 
   beforeEach(async () => {
@@ -261,9 +259,9 @@ describe('getTradeDecision — debate mode (3-call orchestration)', () => {
     }));
     vi.doMock('../services/settings', () => ({
       getSettings: vi.fn(() => ({
-        ollamaUrl: 'http://localhost:11434',
-        ollamaModel: 'qwen3:4b',
-        ollamaEnabled: true,
+        mlxUrl: 'http://localhost:11434',
+        mlxModel: 'qwen3:4b',
+        mlxEnabled: true,
         debateMode: true,
         investmentStyle: 'balanced',
       })),
@@ -275,7 +273,7 @@ describe('getTradeDecision — debate mode (3-call orchestration)', () => {
     fetchSpy = vi.fn();
     globalThis.fetch = fetchSpy as unknown as typeof fetch;
 
-    const mod = await import('../services/ollama');
+    const mod = await import('../services/llm');
     getTradeDecision = mod.getTradeDecision;
   });
 
@@ -287,12 +285,12 @@ describe('getTradeDecision — debate mode (3-call orchestration)', () => {
     // 1) Bull analyst — plain text
     fetchSpy.mockResolvedValueOnce({
       ok: true,
-      json: async () => ({ response: '강세: 이동평균 정배열, 거래량 증가' }),
+      json: async () => ({ choices: [{ message: { content: '강세: 이동평균 정배열, 거래량 증가' } }] }),
     });
     // 2) Bear analyst — plain text
     fetchSpy.mockResolvedValueOnce({
       ok: true,
-      json: async () => ({ response: '약세: 과매수 구간, 시장 피로' }),
+      json: async () => ({ choices: [{ message: { content: '약세: 과매수 구간, 시장 피로' } }] }),
     });
     // 3) Judge — structured JSON
     fetchSpy.mockResolvedValueOnce(okJson({
@@ -312,19 +310,19 @@ describe('getTradeDecision — debate mode (3-call orchestration)', () => {
 });
 
 describe('buildAnalysisInput (pure helper)', () => {
-  let buildAnalysisInput: typeof import('../services/ollama').buildAnalysisInput;
+  let buildAnalysisInput: typeof import('../services/llm').buildAnalysisInput;
 
   beforeEach(async () => {
     vi.resetModules();
     vi.doMock('../db', () => ({ queryAll: vi.fn(() => []), queryOne: vi.fn(() => null), execute: vi.fn() }));
     vi.doMock('../services/settings', () => ({
       getSettings: vi.fn(() => ({
-        ollamaUrl: '', ollamaModel: '', ollamaEnabled: false, debateMode: false,
+        mlxUrl: '', mlxModel: '', mlxEnabled: false, debateMode: false,
       })),
     }));
     vi.doMock('../logger', () => ({ default: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() } }));
 
-    const mod = await import('../services/ollama');
+    const mod = await import('../services/llm');
     buildAnalysisInput = mod.buildAnalysisInput;
   });
 

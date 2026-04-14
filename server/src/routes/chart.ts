@@ -44,9 +44,9 @@ router.get('/config/form', (_req: Request, res: Response) => {
     mcpEnabled: settings.mcpEnabled,
     hasSecret: !!settings.kisAppSecret,
 
-    ollamaUrl: settings.ollamaUrl,
-    ollamaModel: settings.ollamaModel,
-    ollamaEnabled: settings.ollamaEnabled,
+    mlxUrl: settings.mlxUrl,
+    mlxModel: settings.mlxModel,
+    mlxEnabled: settings.mlxEnabled,
 
     dartEnabled: settings.dartEnabled,
     hasDartKey: !!settings.dartApiKey,
@@ -114,7 +114,7 @@ router.get('/config/form', (_req: Request, res: Response) => {
 // 설정 저장
 router.post('/config', validate(saveConfigSchema), (req: Request, res: Response) => {
   const { appKey, appSecret, accountNo, accountProductCode, isVirtual, mcpEnabled,
-    ollamaUrl, ollamaModel, ollamaEnabled,
+    mlxUrl, mlxModel, mlxEnabled,
     dartApiKey, dartEnabled,
     investmentStyle, debateMode,
     autoTradeEnabled, autoTradeMaxInvestment, autoTradeMaxPerStock, autoTradeMaxDailyTrades,
@@ -134,9 +134,9 @@ router.post('/config', validate(saveConfigSchema), (req: Request, res: Response)
     kisVirtual: !!isVirtual,
     mcpEnabled: !!mcpEnabled,
 
-    ollamaUrl: ollamaUrl || 'http://localhost:11434',
-    ollamaModel: ollamaModel || 'llama3.1',
-    ollamaEnabled: !!ollamaEnabled,
+    mlxUrl: mlxUrl || 'http://localhost:8000',
+    mlxModel: mlxModel || 'mlx-community/gemma-3-4b-it-4bit',
+    mlxEnabled: mlxEnabled !== false,
 
     ...(dartApiKey ? { dartApiKey } : {}),
     dartEnabled: !!dartEnabled,

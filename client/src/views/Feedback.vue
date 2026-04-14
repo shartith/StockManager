@@ -454,7 +454,7 @@
         {{ jobResult }}
       </p>
       <p class="mt-3 text-xs text-txt-tertiary">
-        <strong>주말 학습</strong>: 성과 평가 + 가중치 최적화 + 리포트 생성 (Ollama 호출 2분 이상 소요)<br />
+        <strong>주말 학습</strong>: 성과 평가 + 가중치 최적화 + 리포트 생성 (MLX LLM 호출 2분 이상 소요)<br />
         <strong>성과 평가</strong>: 7/14/30일 경과 신호의 실제 가격 변동 업데이트<br />
         <strong>과거 신호 복구</strong>: v4.8.1 이전 누락된 신호를 실제 체결가 기반으로 복구
       </p>
@@ -662,7 +662,7 @@ const runningJob = ref<'weekend' | 'evaluate' | 'backfill' | null>(null);
 const jobResult = ref<string>('');
 
 async function doRunWeekendLearning() {
-  if (!confirm('주말 학습을 실행하시겠습니까? Ollama 호출이 포함되어 있어 2분 이상 소요될 수 있습니다.')) return;
+  if (!confirm('주말 학습을 실행하시겠습니까? MLX LLM 호출이 포함되어 있어 2분 이상 소요될 수 있습니다.')) return;
   runningJob.value = 'weekend';
   jobResult.value = '';
   try {

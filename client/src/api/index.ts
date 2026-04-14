@@ -111,10 +111,10 @@ export const chartApi = {
 export const analysisApi = {
   getAnalysis: (ticker: string) => api.get(`/analysis/${ticker}`),
   getDecision: (ticker: string) => api.post(`/analysis/${ticker}/decision`),
-  getOllamaStatus: () => api.get('/analysis/ollama/status'),
-  getOllamaModels: () => api.get('/analysis/ollama/models'),
-  pullOllamaModel: (model: string) => api.post('/analysis/ollama/pull', { model }, { responseType: 'text' }),
-  deleteOllamaModel: (name: string) => api.delete(`/analysis/ollama/models/${encodeURIComponent(name)}`),
+  getLlmStatus: () => api.get('/analysis/llm/status'),
+  getLlmModels: () => api.get('/analysis/llm/models'),
+  pullLlmModel: (model: string) => api.post('/analysis/llm/pull', { model }, { responseType: 'text' }),
+  deleteLlmModel: (name: string) => api.delete(`/analysis/llm/models/${encodeURIComponent(name)}`),
   getNews: (ticker: string, refresh?: boolean) => api.get(`/analysis/${ticker}/news`, { params: { refresh } }),
   getSignals: (ticker: string) => api.get(`/analysis/${ticker}/signals`),
 };

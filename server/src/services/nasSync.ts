@@ -162,8 +162,8 @@ const SECRET_FIELDS = [
  * to OOM crashes when the bigger model loaded on the smaller machine.
  */
 const DEVICE_SPECIFIC_FIELDS = [
-  'ollamaModel',          // model size depends on local RAM/GPU
-  'ollamaUrl',            // may differ if user uses remote Ollama on one device
+  'mlxModel',             // model size depends on local RAM/GPU
+  'mlxUrl',               // may differ per device
   'kisAccountNo',         // each device may have a different account
   'kisAccountProductCode',
   'kisAppKey',            // already secret, but also device-scoped

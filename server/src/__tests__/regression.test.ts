@@ -66,7 +66,7 @@ describe('Settings <-> Zod schema parity', () => {
   const DEFAULT_SETTINGS_KEYS: string[] = [
     'kisAppKey', 'kisAppSecret', 'kisAccountNo', 'kisAccountProductCode',
     'kisVirtual', 'mcpEnabled',
-    'ollamaUrl', 'ollamaModel', 'ollamaEnabled',
+    'mlxUrl', 'mlxModel', 'mlxEnabled',
     'dartApiKey', 'dartEnabled',
     'investmentStyle', 'debateMode', 'stopLossPercent',
     'autoTradeEnabled', 'autoTradeMaxInvestment', 'autoTradeMaxPerStock',
@@ -186,7 +186,7 @@ describe('Config form <-> config save parity', () => {
   // Fields returned by GET /config/form (from chart.ts lines 31-81)
   const CONFIG_FORM_FIELDS = [
     'appKey', 'accountNo', 'accountProductCode', 'isVirtual', 'mcpEnabled', 'hasSecret',
-    'ollamaUrl', 'ollamaModel', 'ollamaEnabled',
+    'mlxUrl', 'mlxModel', 'mlxEnabled',
     'dartEnabled', 'hasDartKey',
     'investmentStyle', 'debateMode', 'stopLossPercent',
     'autoTradeEnabled', 'autoTradeMaxInvestment', 'autoTradeMaxPerStock',
@@ -206,7 +206,7 @@ describe('Config form <-> config save parity', () => {
   // Note: some come from req.body directly rather than destructuring
   const CONFIG_SAVE_FIELDS = [
     'appKey', 'appSecret', 'accountNo', 'accountProductCode', 'isVirtual', 'mcpEnabled',
-    'ollamaUrl', 'ollamaModel', 'ollamaEnabled',
+    'mlxUrl', 'mlxModel', 'mlxEnabled',
     'dartApiKey', 'dartEnabled',
     'investmentStyle', 'debateMode', 'stopLossPercent',
     'autoTradeEnabled', 'autoTradeMaxInvestment', 'autoTradeMaxPerStock',

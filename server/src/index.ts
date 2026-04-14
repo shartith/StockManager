@@ -126,16 +126,16 @@ app.get('/api/health', async (_req, res) => {
     checks.database = 'error';
   }
 
-  // Ollama check
-  const ollamaUrl = process.env.OLLAMA_URL || 'http://localhost:11434';
+  // MLX LLM check
+  const mlxUrl = process.env.MLX_URL || getSettings().mlxUrl || 'http://localhost:8000';
   try {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 3000);
-    const ollamaRes = await fetch(`${ollamaUrl}/api/tags`, { signal: controller.signal });
+    const mlxRes = await fetch(`${mlxUrl}/v1/models`, { signal: controller.signal });
     clearTimeout(timeout);
-    checks.ollama = ollamaRes.ok ? 'ok' : 'error';
+    checks.llm = mlxRes.ok ? 'ok' : 'error';
   } catch {
-    checks.ollama = 'unreachable';
+    checks.llm = 'unreachable';
   }
 
   // Scheduler check

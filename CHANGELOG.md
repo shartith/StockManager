@@ -2,6 +2,28 @@
 
 Stock Manager 주요 릴리즈 변경사항. 자세한 노트는 [GitHub Releases](https://github.com/shartith/StockManager/releases)에서 확인.
 
+## v4.12.0 — 2026-04-14
+
+**Ollama → MLX 완전 전환 (Apple Silicon 전용 LLM 백엔드)**
+
+- 로컬 LLM 엔진 Ollama 제거, Apple MLX 기반 `mlx-lm` 서버로 교체
+- 신규 `server/src/services/llm.ts` (ollama.ts 대체) — OpenAI-호환 `/v1/chat/completions` 어댑터, mutex/retry/timeout 유지
+- 신규 엔드포인트: `/api/analysis/llm/{status,models,pull}`, `DELETE /api/analysis/llm/models/:name`
+- 설정: `ollamaUrl/Model/Enabled` → `mlxUrl/Model/Enabled` (legacy 필드 자동 strip, `ollamaEnabled=true`이면 `mlxEnabled=true`로 자동 승계)
+- 기본 설정: `http://localhost:8000`, `mlx-community/gemma-3-4b-it-4bit`, `mlxEnabled=true`
+- Homebrew 통합: `bin/stock-manager`의 `ensureMlx()`가 `~/.stock-manager/venv` 생성 + `mlx-lm` 설치 + `mlx_lm.server` 기동을 자동 수행
+- 신규 명령: `stock-manager --uninstall-ollama` — 바이너리 + `~/.ollama/` 모델 + brew 서비스 일괄 정리 (확인 프롬프트)
+- Ollama 잔존 감지 → 시작 시 안내 메시지 출력 (`detectOllamaLeftovers`)
+- UI: 설정 > "Ollama (로컬 LLM)" → "MLX (Apple Silicon 로컬 LLM)", 추천 모델 목록 교체 (gemma-3-4b-it / Qwen2.5-7B / Llama-3.2-3B / gemma-2-2b, 전부 4bit 양자화), `mlx_lm.server` 수동 실행 가이드 추가
+- Dashboard `systemStatus.ollamaConnected` → `llmConnected`
+- 헬스체크: `server/src/index.ts` → `/v1/models` 호출
+- 테스트: 547/547 통과 (mock 포맷 OpenAI-호환으로 일괄 변환, 파일명 `llm*.test.ts`로 rename)
+- 신규 문서: [`docs/MLX_MIGRATION.md`](docs/MLX_MIGRATION.md) — 기존 사용자용 마이그레이션 + 제거 가이드
+- Intel Mac 제한: MLX가 Apple Silicon 전용이므로 Intel Mac에서는 LLM 기능 비활성화 (WARN 안내 후 계속 기동)
+
+**Breaking changes**:
+- 외부 연동 스크립트가 Ollama endpoint/response 포맷을 호출하던 경우 갱신 필요 (`/api/generate` → `/v1/chat/completions`, `data.response` → `data.choices[0].message.content`)
+
 ## v4.7.4 — 2026-04-08
 
 **테스트 커버리지 확장 (소스 변경 없음)**

@@ -2,7 +2,7 @@ import { Router, Request, Response } from 'express';
 import { getAccessToken, getKisConfig } from '../services/kisAuth';
 import { getSettings } from '../services/settings';
 import { analyzeTechnical, CandleData } from '../services/technicalAnalysis';
-import { checkOllamaStatus, getTradeDecision, buildAnalysisInput, AnalysisPhase } from '../services/ollama';
+import { checkLlmStatus, getTradeDecision, buildAnalysisInput, AnalysisPhase } from '../services/llm';
 import { collectAndCacheNews, getCachedNews, summarizeNewsWithAI } from '../services/newsCollector';
 import { queryOne, queryAll, execute } from '../db';
 import { validate } from '../middleware/validate';
@@ -183,7 +183,7 @@ router.post('/:ticker/decision', validate(decisionSchema), asyncHandler(async (r
     // trade_signals에 저장
     execute(
       'INSERT INTO trade_signals (stock_id, signal_type, source, confidence, indicators_json, llm_reasoning) VALUES (?, ?, ?, ?, ?, ?)',
-      [stock.id, decision.signal, `ollama-${phase}`, decision.confidence, JSON.stringify({
+      [stock.id, decision.signal, `mlx-${phase}`, decision.confidence, JSON.stringify({
         indicators: input.indicators,
         volumeAnalysis: input.volumeAnalysis,
         targetPrice: decision.targetPrice,
@@ -212,24 +212,24 @@ router.post('/:ticker/decision', validate(decisionSchema), asyncHandler(async (r
   }
 }));
 
-/** Ollama ��태 확��� */
-router.get('/ollama/status', asyncHandler(async (_req: Request, res: Response) => {
-  const status = await checkOllamaStatus();
+/** MLX 서버 상태 확인 — `/v1/models` 기반 */
+router.get('/llm/status', asyncHandler(async (_req: Request, res: Response) => {
+  const status = await checkLlmStatus();
   res.json(status);
 }));
 
-/** Ollama 모델 목록 조회 */
-router.get('/ollama/models', asyncHandler(async (_req: Request, res: Response) => {
+/** MLX에 로드된 모델 조회 — 현재 서버에 로드된 모델(기본 1개) 반환 */
+router.get('/llm/models', asyncHandler(async (_req: Request, res: Response) => {
   const settings = getSettings();
   try {
-    const r = await fetch(`${settings.ollamaUrl}/api/tags`);
+    const r = await fetch(`${settings.mlxUrl}/v1/models`);
     if (!r.ok) return res.json({ models: [] });
     const data: any = await r.json();
-    const models = (data.models || []).map((m: any) => ({
-      name: m.name,
-      size: m.size,
-      modified: m.modified_at,
-      digest: m.digest?.slice(0, 12),
+    // OpenAI 형식: { data: [{ id, created, owned_by }] }
+    const models = (data.data || []).map((m: any) => ({
+      name: m.id,
+      size: 0, // MLX는 크기 정보 제공 안 함 (파일시스템 스캔 필요)
+      modified: m.created ? new Date(m.created * 1000).toISOString() : undefined,
     }));
     res.json({ models });
   } catch {
@@ -237,83 +237,76 @@ router.get('/ollama/models', asyncHandler(async (_req: Request, res: Response) =
   }
 }));
 
-/** Ollama 모델 다운로드 (스트리밍) */
-router.post('/ollama/pull', validate(pullModelSchema), asyncHandler(async (req: Request, res: Response) => {
+/**
+ * MLX 모델 다운로드 (huggingface-cli download 이용, 스트리밍 출력).
+ * mlx_lm.server가 현재 로드 중인 모델은 재시작 없이는 교체 불가.
+ * 이 엔드포인트는 캐시만 다운로드하고, 실제 모델 전환은 Settings 저장 후
+ * mlx_lm.server 재시작 (stock-manager 재시작) 필요.
+ */
+router.post('/llm/pull', validate(pullModelSchema), asyncHandler(async (req: Request, res: Response) => {
   const { model } = req.body;
-  const settings = getSettings();
+  const venv = process.env.STOCK_MANAGER_VENV
+    || `${process.env.HOME}/.stock-manager/venv`;
+  const cliPath = `${venv}/bin/huggingface-cli`;
 
   res.setHeader('Content-Type', 'text/event-stream');
   res.setHeader('Cache-Control', 'no-cache');
   res.setHeader('Connection', 'keep-alive');
 
   try {
-    const r = await fetch(`${settings.ollamaUrl}/api/pull`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name: model, stream: true }),
+    const { spawn } = await import('child_process');
+    const child = spawn(cliPath, ['download', model], {
+      env: { ...process.env, HF_HUB_DISABLE_PROGRESS_BARS: '0' },
     });
 
-    if (!r.ok) {
-      res.write(`data: ${JSON.stringify({ error: `Ollama 요청 실패: ${r.status}` })}\n\n`);
-      res.end();
-      return;
-    }
-
-    const reader = r.body?.getReader();
-    if (!reader) { res.end(); return; }
-
-    const decoder = new TextDecoder();
-    let buffer = '';
-
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-
-      buffer += decoder.decode(value, { stream: true });
-      const lines = buffer.split('\n');
-      buffer = lines.pop() || '';
-
-      for (const line of lines) {
-        if (!line.trim()) continue;
-        try {
-          const parsed = JSON.parse(line);
-          res.write(`data: ${JSON.stringify(parsed)}\n\n`);
-        } catch { /* skip malformed lines */ }
+    child.stdout.on('data', (chunk: Buffer) => {
+      const text = chunk.toString();
+      res.write(`data: ${JSON.stringify({ status: 'downloading', message: text.slice(0, 500) })}\n\n`);
+    });
+    child.stderr.on('data', (chunk: Buffer) => {
+      const text = chunk.toString();
+      res.write(`data: ${JSON.stringify({ status: 'progress', message: text.slice(0, 500) })}\n\n`);
+    });
+    child.on('close', (code) => {
+      if (code === 0) {
+        res.write(`data: ${JSON.stringify({ status: 'success', message: `${model} 다운로드 완료. Settings 저장 후 stock-manager 재시작 필요.` })}\n\n`);
+      } else {
+        res.write(`data: ${JSON.stringify({ error: `다운로드 실패 (exit ${code})` })}\n\n`);
       }
-    }
-
-    if (buffer.trim()) {
-      try {
-        const parsed = JSON.parse(buffer);
-        res.write(`data: ${JSON.stringify(parsed)}\n\n`);
-      } catch { /* */ }
-    }
-
-    res.write(`data: ${JSON.stringify({ status: 'success' })}\n\n`);
-    res.end();
+      res.end();
+    });
+    child.on('error', (err) => {
+      res.write(`data: ${JSON.stringify({ error: `huggingface-cli 실행 실패: ${err.message}. venv 설치를 확인하세요.` })}\n\n`);
+      res.end();
+    });
   } catch (err: any) {
     res.write(`data: ${JSON.stringify({ error: '모델 다운로드 실패' })}\n\n`);
     res.end();
   }
 }));
 
-/** Ollama 모델 삭제 */
-router.delete('/ollama/models/:name', asyncHandler(async (req: Request, res: Response) => {
-  const { name } = req.params;
-  const settings = getSettings();
+/**
+ * MLX 모델 삭제 (HuggingFace 캐시 디렉토리 제거).
+ * mlx-community/gemma-3-4b-it-4bit → ~/.cache/huggingface/hub/models--mlx-community--gemma-3-4b-it-4bit
+ */
+router.delete('/llm/models/:name(*)', asyncHandler(async (req: Request, res: Response) => {
+  const name = req.params.name;
+  if (!name) {
+    return res.status(400).json({ error: 'model name required' });
+  }
   try {
-    const r = await fetch(`${settings.ollamaUrl}/api/delete`, {
-      method: 'DELETE',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name }),
-    });
-    if (r.ok) {
-      res.json({ success: true });
-    } else {
-      res.status(r.status).json({ error: `삭제 실패: ${r.status}` });
+    const fs = await import('fs');
+    const path = await import('path');
+    const nameStr = Array.isArray(name) ? name.join('/') : String(name);
+    const dirName = `models--${nameStr.replace(/\//g, '--')}`;
+    const cacheDir = path.join(process.env.HOME || '', '.cache', 'huggingface', 'hub', dirName);
+    if (!fs.existsSync(cacheDir)) {
+      return res.status(404).json({ error: '캐시 디렉토리를 찾을 수 없습니다' });
     }
+    fs.rmSync(cacheDir, { recursive: true, force: true });
+    res.json({ success: true });
   } catch (err: any) {
-    res.status(500).json({ error: '모델 삭제 실패' });
+    res.status(500).json({ error: `모델 삭제 실패: ${err.message}` });
   }
 }));
 

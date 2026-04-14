@@ -73,12 +73,13 @@ export async function runWeekendLearning() {
     backtestSummary,
   };
 
-  // 4. Ollama로 학습 리포트 생성
+  // 4. MLX로 학습 리포트 생성 (callLlm 헬퍼 사용 — 통일된 mutex/retry/timeout 공유)
   const settings = getSettings();
   let report = `주간 요약: 신호 ${weekStats.totalSignals}건 (BUY ${weekStats.buySignals}/SELL ${weekStats.sellSignals}), 체결 ${weekStats.tradesExecuted}건, 평균신뢰도 ${Math.round(weekStats.avgConfidence)}%`;
 
-  if (settings.ollamaEnabled) {
+  if (settings.mlxEnabled) {
     try {
+      const system = '당신은 한국 주식 자동매매 시스템의 성과를 분석하는 전문 애널리스트입니다.';
       const prompt = `이번 주 자동매매 트레이딩 결과를 분석하고 다음 주 전략을 제안하세요:
 - 총 매매 신호: ${weekStats.totalSignals}건 (BUY ${weekStats.buySignals}건, SELL ${weekStats.sellSignals}건)
 - 실제 체결: ${weekStats.tradesExecuted}건
@@ -87,19 +88,10 @@ export async function runWeekendLearning() {
 
 3~5문장으로 이번 주 성과를 평가하고, 다음 주 개선할 점 3가지를 제안하세요.`;
 
-      const res = await fetch(`${settings.ollamaUrl}/api/generate`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          model: settings.ollamaModel, prompt, stream: false,
-          options: { temperature: 0.5, num_predict: 800 },
-        }),
-      });
-      if (res.ok) {
-        const data: any = await res.json();
-        if (data.response?.trim()) report = data.response.trim();
-      }
-    } catch (err) { logger.error({ err }, 'Weekend Ollama learning report generation failed'); }
+      const { callLlm } = await import('../llm');
+      const text = await callLlm(settings.mlxModel, settings.mlxUrl, prompt, system, 800);
+      if (text.trim()) report = text.trim();
+    } catch (err) { logger.error({ err }, 'Weekend learning report generation failed'); }
   }
 
   // 5. DB 저장 + 알림

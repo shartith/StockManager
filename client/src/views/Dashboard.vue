@@ -209,9 +209,9 @@
         </span>
       </div>
       <div class="glass-card px-4 py-2.5 flex items-center gap-2">
-        <span class="status-dot" :class="systemStatus.ollamaConnected ? 'connected' : 'disconnected'" />
+        <span class="status-dot" :class="systemStatus.llmConnected ? 'connected' : 'disconnected'" />
         <span class="text-xs text-txt-secondary">
-          Ollama {{ systemStatus.ollamaConnected ? '연결됨' : '미연결' }}
+          MLX {{ systemStatus.llmConnected ? '연결됨' : '미연결' }}
         </span>
       </div>
       <div class="glass-card px-4 py-2.5 flex items-center gap-3">
@@ -498,7 +498,7 @@ const showEvents = ref(false);
 const systemStatus = ref({
   schedulerActive: false,
   taskCount: 0,
-  ollamaConnected: false,
+  llmConnected: false,
   todayBuy: 0,
   todaySell: 0,
   todayHold: 0,
@@ -630,8 +630,8 @@ async function loadSystemStatus() {
   } catch {}
 
   try {
-    const { data } = await analysisApi.getOllamaStatus();
-    systemStatus.value.ollamaConnected = data.connected;
+    const { data } = await analysisApi.getLlmStatus();
+    systemStatus.value.llmConnected = data.connected;
   } catch {}
 }
 

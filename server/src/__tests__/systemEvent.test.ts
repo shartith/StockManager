@@ -11,9 +11,9 @@ import { describe, it, expect, beforeAll, beforeEach, vi } from 'vitest';
 // try to call out to a non-existent LLM (severity > INFO triggers it).
 vi.mock('../services/settings', () => ({
   getSettings: vi.fn(() => ({
-    ollamaEnabled: false,
-    ollamaUrl: '',
-    ollamaModel: '',
+    mlxEnabled: false,
+    mlxUrl: '',
+    mlxModel: '',
   })),
 }));
 

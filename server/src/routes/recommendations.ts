@@ -1,7 +1,7 @@
 import { Router, Request, Response } from 'express';
 import { queryAll, queryOne, execute, logAudit } from '../db';
 import { analyzeTechnical, CandleData } from '../services/technicalAnalysis';
-import { getTradeDecision, buildAnalysisInput, AnalysisPhase } from '../services/ollama';
+import { getTradeDecision, buildAnalysisInput, AnalysisPhase } from '../services/llm';
 import { collectAndCacheNews, getCachedNews, summarizeNewsWithAI } from '../services/newsCollector';
 import { getAccessToken, getKisConfig } from '../services/kisAuth';
 import { getSettings } from '../services/settings';
@@ -78,7 +78,7 @@ router.post('/', validate(createRecommendationSchema), (req: Request, res: Respo
 router.post('/generate', asyncHandler(async (req: Request, res: Response) => {
   const MAX_RECOMMENDATIONS = 10;
   const settings = getSettings();
-  if (!settings.ollamaEnabled) {
+  if (!settings.mlxEnabled) {
     return res.status(400).json({ error: 'Ollama가 비활성화되어 있습니다. 설정에서 활성화하세요.' });
   }
 

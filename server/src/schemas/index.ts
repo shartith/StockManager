@@ -110,21 +110,22 @@ export const saveConfigSchema = z.object({
   isVirtual: z.boolean().default(true),
   mcpEnabled: z.boolean().default(false),
 
-  ollamaUrl: z.string()
+  // v4.12.0: MLX (Apple Silicon 전용, OpenAI-compat API)
+  mlxUrl: z.string()
     .refine(val => {
       if (!val) return true; // allow empty (will use default)
       try {
         const u = new URL(val);
         if (u.protocol !== 'http:' && u.protocol !== 'https:') return false;
-        // Block cloud metadata endpoints
+        // Block cloud metadata endpoints (SSRF 가드)
         const blocked = ['169.254.169.254', '100.100.100.200', 'metadata.google.internal'];
         if (blocked.includes(u.hostname)) return false;
         return true;
       } catch { return false; }
-    }, { message: 'ollamaUrl은 유효한 http/https URL이어야 합니다' })
-    .default('http://localhost:11434'),
-  ollamaModel: z.string().default('qwen3:4b'),
-  ollamaEnabled: z.boolean().default(false),
+    }, { message: 'mlxUrl은 유효한 http/https URL이어야 합니다' })
+    .default('http://localhost:8000'),
+  mlxModel: z.string().default('mlx-community/gemma-3-4b-it-4bit'),
+  mlxEnabled: z.boolean().default(true),
 
   dartApiKey: z.string().optional(),
   dartEnabled: z.boolean().default(false),

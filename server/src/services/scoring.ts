@@ -17,7 +17,7 @@
 
 import { queryAll, queryOne, execute } from '../db';
 import { TechnicalIndicators } from './technicalAnalysis';
-import { TradeDecision } from './ollama';
+import { TradeDecision } from './llm';
 import { createNotification } from './notification';
 import { getSettings } from './settings';
 import { loadWeights } from './weightOptimizer';

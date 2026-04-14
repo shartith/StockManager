@@ -300,7 +300,7 @@ export interface MarketContext {
 export interface SystemStatus {
   schedulerActive: boolean;
   taskCount: number;
-  ollamaConnected: boolean;
+  llmConnected: boolean;
   todayBuy: number;
   todaySell: number;
   todayHold: number;

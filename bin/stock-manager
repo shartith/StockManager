@@ -18,49 +18,214 @@ const port = process.env.PORT || 3000;
 
 const command = process.argv[2];
 
-// ── Ollama 자동 설치 및 구동 ──
+// ── MLX 자동 설치 및 구동 ──
 
-function ensureOllama() {
-  // 1. ollama 설치 확인
+const MLX_PORT = process.env.MLX_PORT || 8000;
+const MLX_MODEL = process.env.MLX_MODEL || 'mlx-community/gemma-3-4b-it-4bit';
+const venvDir = process.env.STOCK_MANAGER_VENV || path.join(dataDir, 'venv');
+
+function isAppleSilicon() {
+  return os.platform() === 'darwin' && os.arch() === 'arm64';
+}
+
+function findPython3() {
+  // Prefer Homebrew python@3.12, fall back to system python3
+  const candidates = [
+    '/opt/homebrew/opt/python@3.12/bin/python3',
+    '/opt/homebrew/bin/python3',
+    '/usr/local/bin/python3',
+    '/usr/bin/python3',
+  ];
+  for (const p of candidates) {
+    if (fs.existsSync(p)) return p;
+  }
   try {
-    execSync('which ollama', { stdio: 'ignore' });
+    return execSync('which python3', { encoding: 'utf-8' }).trim();
   } catch {
-    console.log('  Ollama가 설치되어 있지 않습니다. 설치 중...');
+    return null;
+  }
+}
+
+function mlxServerIsUp() {
+  try {
+    execSync(`curl -sf http://localhost:${MLX_PORT}/v1/models > /dev/null 2>&1`);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function ensureMlx() {
+  if (!isAppleSilicon()) {
+    console.log('  WARN: Apple Silicon이 아닙니다. MLX는 실행되지 않습니다.');
+    console.log('  LLM 기능이 제한됩니다. (설정에서 외부 MLX 서버 URL 지정 가능)');
+    return;
+  }
+
+  // 0. 이미 기동 중이면 skip
+  if (mlxServerIsUp()) {
+    return;
+  }
+
+  // 1. Python venv 생성
+  const venvPython = path.join(venvDir, 'bin', 'python3');
+  if (!fs.existsSync(venvPython)) {
+    const python3 = findPython3();
+    if (!python3) {
+      console.log('  ERROR: python3를 찾을 수 없습니다. brew install python@3.12');
+      return;
+    }
+    console.log(`  Python venv 생성 중 (${venvDir})...`);
     try {
-      execSync('brew install ollama', { stdio: 'inherit' });
-      console.log('  Ollama 설치 완료');
-    } catch (err) {
-      console.log('  Ollama 설치 실패. 수동으로 설치하세요: brew install ollama');
+      execSync(`"${python3}" -m venv "${venvDir}"`, { stdio: 'inherit' });
+    } catch {
+      console.log('  ERROR: Python venv 생성 실패');
       return;
     }
   }
 
-  // 2. ollama serve 구동 확인
+  // 2. mlx-lm 설치 (idempotent)
+  const venvPip = path.join(venvDir, 'bin', 'pip');
   try {
-    execSync('curl -sf http://localhost:11434/api/tags > /dev/null 2>&1');
+    execSync(`"${venvPip}" show mlx-lm > /dev/null 2>&1`);
   } catch {
-    console.log('  Ollama 서버를 백그라운드로 시작합니다...');
+    console.log('  mlx-lm 설치 중 (한 번만 실행, 네트워크 필요)...');
     try {
-      const ollamaLog = path.join(dataDir, 'ollama.log');
-      const out = fs.openSync(ollamaLog, 'a');
-      const err = fs.openSync(ollamaLog, 'a');
-      const child = spawn('ollama', ['serve'], {
-        detached: true,
-        stdio: ['ignore', out, err],
-      });
-      child.unref();
-      // 잠시 대기 후 확인
-      execSync('sleep 2');
-      try {
-        execSync('curl -sf http://localhost:11434/api/tags > /dev/null 2>&1');
-        console.log('  Ollama 서버 시작 완료');
-      } catch {
-        console.log('  Ollama 서버 시작 대기 중... (몇 초 후 자동 연결됩니다)');
-      }
+      execSync(`"${venvPip}" install --quiet --upgrade pip`, { stdio: 'inherit' });
+      execSync(`"${venvPip}" install --quiet mlx-lm`, { stdio: 'inherit' });
+      console.log('  mlx-lm 설치 완료');
     } catch {
-      console.log('  Ollama 서버 시작 실패. 수동으로 실행하세요: ollama serve');
+      console.log('  ERROR: mlx-lm 설치 실패. 수동으로 설치하세요:');
+      console.log(`    "${venvPip}" install mlx-lm`);
+      return;
     }
   }
+
+  // 3. MLX 서버 spawn
+  const mlxServer = path.join(venvDir, 'bin', 'mlx_lm.server');
+  if (!fs.existsSync(mlxServer)) {
+    console.log(`  ERROR: ${mlxServer} 없음. mlx-lm 설치 필요`);
+    return;
+  }
+  console.log(`  MLX 서버 시작 (모델: ${MLX_MODEL}, 포트: ${MLX_PORT})`);
+  console.log('  최초 실행 시 모델 다운로드로 2~5분 소요될 수 있습니다...');
+  try {
+    const mlxLog = path.join(dataDir, 'mlx.log');
+    const out = fs.openSync(mlxLog, 'a');
+    const err = fs.openSync(mlxLog, 'a');
+    const child = spawn(mlxServer, [
+      '--port', String(MLX_PORT),
+      '--model', MLX_MODEL,
+    ], {
+      detached: true,
+      stdio: ['ignore', out, err],
+    });
+    child.unref();
+
+    // 4. 헬스체크 (최대 30초 — 모델 다운로드는 첫 호출 시 진행)
+    for (let i = 0; i < 15; i++) {
+      execSync('sleep 2');
+      if (mlxServerIsUp()) {
+        console.log('  MLX 서버 준비 완료');
+        return;
+      }
+    }
+    console.log(`  WARN: MLX 서버 헬스체크 타임아웃 — 로그 확인: ${mlxLog}`);
+  } catch {
+    console.log('  ERROR: MLX 서버 시작 실패');
+  }
+}
+
+// ── Ollama 잔존 감지 및 제거 ──
+
+function hasOllamaBinary() {
+  try {
+    execSync('which ollama', { stdio: 'ignore' });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function getOllamaDir() {
+  return path.join(os.homedir(), '.ollama');
+}
+
+function hasOllamaData() {
+  return fs.existsSync(getOllamaDir());
+}
+
+function detectOllamaLeftovers() {
+  const hasBin = hasOllamaBinary();
+  const hasData = hasOllamaData();
+  if (!hasBin && !hasData) return;
+
+  let sizeHint = '';
+  if (hasData) {
+    try {
+      const du = execSync(`du -sh "${getOllamaDir()}" 2>/dev/null | awk '{print $1}'`, { encoding: 'utf-8' }).trim();
+      if (du) sizeHint = ` (~${du})`;
+    } catch {}
+  }
+
+  console.log('');
+  console.log('  ┌─────────────────────────────────────────────────────────────┐');
+  console.log('  │  Ollama 잔존 감지                                           │');
+  console.log('  ├─────────────────────────────────────────────────────────────┤');
+  console.log('  │  v4.12.0부터 MLX로 전환됨. Ollama는 더 이상 사용하지 않음. │');
+  console.log(`  │  디스크 공간 회수를 위해 제거 권장${sizeHint}`);
+  console.log('  │                                                             │');
+  console.log('  │  자동 제거:  stock-manager --uninstall-ollama               │');
+  console.log('  └─────────────────────────────────────────────────────────────┘');
+  console.log('');
+}
+
+function uninstallOllama() {
+  console.log('');
+  console.log('  Ollama 완전 제거 (바이너리 + 모델 + 설정)');
+  console.log('  --------------------');
+  if (hasOllamaBinary()) console.log('  - ollama 바이너리 제거');
+  if (hasOllamaData()) console.log(`  - ${getOllamaDir()} 제거 (모델 포함)`);
+  console.log('');
+
+  if (!hasOllamaBinary() && !hasOllamaData()) {
+    console.log('  제거할 Ollama가 없습니다.');
+    return;
+  }
+
+  // Confirmation prompt
+  const readline = require('readline');
+  const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
+  rl.question('  계속하시겠습니까? [y/N] ', (answer) => {
+    rl.close();
+    if (answer.trim().toLowerCase() !== 'y') {
+      console.log('  취소됨');
+      return;
+    }
+
+    // 1. 프로세스 종료
+    try { execSync('pkill -x ollama 2>/dev/null || true'); } catch {}
+
+    // 2. brew 서비스 중지 + uninstall
+    try { execSync('brew services stop ollama 2>/dev/null || true'); } catch {}
+    try {
+      execSync('brew list ollama > /dev/null 2>&1');
+      console.log('  brew uninstall ollama...');
+      execSync('brew uninstall ollama', { stdio: 'inherit' });
+    } catch {}
+
+    // 3. ~/.ollama 제거
+    if (hasOllamaData()) {
+      console.log(`  ${getOllamaDir()} 삭제 중...`);
+      try {
+        fs.rmSync(getOllamaDir(), { recursive: true, force: true });
+      } catch (e) {
+        console.log(`  WARN: 삭제 실패 — ${e.message}`);
+      }
+    }
+
+    console.log('  Ollama 제거 완료');
+  });
 }
 
 function isRunning(pid) {
@@ -90,7 +255,8 @@ function startDaemon() {
     return;
   }
 
-  ensureOllama();
+  ensureMlx();
+  detectOllamaLeftovers();
 
   const out = fs.openSync(logFile, 'a');
   const err = fs.openSync(logFile, 'a');
@@ -146,7 +312,7 @@ function showStatus() {
 }
 
 function runServer() {
-  ensureOllama();
+  ensureMlx();
 
   process.env.STOCK_MANAGER_DATA = dataDir;
   process.env.STOCK_MANAGER_CLIENT = path.join(appRoot, 'client', 'dist');
@@ -164,6 +330,10 @@ function runServer() {
 
 // Command routing
 switch (command) {
+  case '--uninstall-ollama':
+  case 'uninstall-ollama':
+    uninstallOllama();
+    break;
   case 'start':
     startDaemon();
     break;
@@ -275,6 +445,9 @@ switch (command) {
     stock-manager restart      Restart the daemon
     stock-manager status       Show running status
     stock-manager logs [n]     Show last n log lines (default: 50)
+
+  Maintenance:
+    stock-manager --uninstall-ollama   Remove legacy Ollama binary + models (~/.ollama)
 
   Strategy:
     stock-manager export-strategy          Export strategy (no credentials)

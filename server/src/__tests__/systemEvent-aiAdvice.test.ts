@@ -12,9 +12,9 @@ process.env.STOCK_MANAGER_DB_PATH = ':memory:';
 
 vi.mock('../services/settings', () => ({
   getSettings: vi.fn(() => ({
-    ollamaEnabled: true,
-    ollamaUrl: 'http://localhost:11434',
-    ollamaModel: 'qwen3:4b',
+    mlxEnabled: true,
+    mlxUrl: 'http://localhost:11434',
+    mlxModel: 'qwen3:4b',
   })),
 }));
 
@@ -37,7 +37,7 @@ describe('logSystemEvent — AI advice path', () => {
   it('appends AI advice to detail when severity is WARN and Ollama responds', async () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
       ok: true,
-      json: async () => ({ response: '   즉시 KIS 토큰을 재발급하고 재시도 간격을 늘리세요.   ' }),
+      json: async () => ({ choices: [{ message: { content: '   즉시 KIS 토큰을 재발급하고 재시도 간격을 늘리세요.   ' } }] }),
     }));
 
     await logSystemEvent('WARN', 'KIS_API_ERROR', 'token expired', 'original detail', 'SAMSUNG');

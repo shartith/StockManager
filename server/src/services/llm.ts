@@ -1,6 +1,9 @@
 /**
- * Ollama 로컬 LLM 연동 서비스
- * 모델: sorc/qwen3.5-claude-4.6-opus
+ * 로컬 LLM 연동 서비스 (v4.12.0 MLX 기반)
+ *
+ * Apple Silicon 전용 MLX 서버를 OpenAI 호환 API (`/v1/chat/completions`)로 호출.
+ * 기본 모델: mlx-community/gemma-3-4b-it-4bit (2.5GB).
+ * MLX 서버는 bin/stock-manager의 ensureMlx()가 자동 기동.
  *
  * 4개 시점별 정형화된 입력/출력:
  *   PRE_OPEN   — 장 시작 전: 매수 후보 탐색
@@ -191,16 +194,17 @@ export interface TradeDecision {
   holdingPeriod: 'DAY_TRADE' | 'SWING' | 'SHORT_TERM' | 'MID_TERM';
 }
 
-// ─── Ollama 서비스 ──────────────────────────────────────────
+// ─── LLM 서비스 (MLX) ──────────────────────────────────────
 
-/** Ollama 서버 연결 상태 확인 */
-export async function checkOllamaStatus(): Promise<{ connected: boolean; models: string[] }> {
+/** MLX 서버 연결 상태 확인 — OpenAI 호환 `/v1/models` 엔드포인트 */
+export async function checkLlmStatus(): Promise<{ connected: boolean; models: string[] }> {
   const settings = getSettings();
   try {
-    const res = await fetch(`${settings.ollamaUrl}/api/tags`);
+    const res = await fetch(`${settings.mlxUrl}/v1/models`);
     if (!res.ok) return { connected: false, models: [] };
     const data: any = await res.json();
-    const models = (data.models || []).map((m: any) => m.name);
+    // OpenAI 형식: { data: [{ id: 'model-name', ... }] }
+    const models = (data.data || []).map((m: any) => m.id).filter(Boolean);
     return { connected: true, models };
   } catch {
     return { connected: false, models: [] };
@@ -214,8 +218,8 @@ export async function getTradeDecision(
 ): Promise<TradeDecision> {
   const settings = getSettings();
 
-  if (!settings.ollamaEnabled) {
-    throw new Error('Ollama가 비활성화되어 있습니다');
+  if (!settings.mlxEnabled) {
+    throw new Error('MLX LLM이 비활성화되어 있습니다');
   }
 
   // 토론 모드: 강세/약세 분석 후 종합 판단 (3회 호출)
@@ -227,33 +231,24 @@ export async function getTradeDecision(
   return getTradeDecisionSingle(input, phase, settings);
 }
 
-// ─── Ollama call resilience ─────────────────────────────────
+// ─── LLM call resilience ────────────────────────────────────
 //
-// Root cause of v4.4.x OLLAMA_DOWN bursts (285+ failures/day):
-//   1. fetch() had NO timeout — hung calls blocked the event loop
-//   2. Concurrent calls overwhelmed Ollama's single-instance generation
-//   3. No retry on transient "fetch failed" errors
-//   4. No keep_alive — model unloaded between calls, cold-start each time
+// v4.4.x OLLAMA_DOWN bursts 교훈 유지:
+//   1. AbortController 기반 timeout (기본 120s)
+//   2. Module-level mutex — 동시 호출 직렬화 (MLX도 기본적으로 sequential)
+//   3. 3회 재시도 with exponential backoff
 //
-// This fix introduces:
-//   - AbortController-based timeout (default 120s, configurable)
-//   - Module-level mutex serializing all Ollama calls (Ollama can only
-//     process one generation at a time per model anyway)
-//   - 3-attempt retry with exponential backoff for transient network errors
-//   - keep_alive: '15m' to keep the model resident in memory between calls
+// MLX는 Ollama의 keep_alive 개념 불필요 (모델이 서버 기동 시 상주).
 
-const OLLAMA_TIMEOUT_MS = 120_000;  // 2 minutes per request
-const OLLAMA_KEEP_ALIVE = '15m';
-const OLLAMA_RETRY_ATTEMPTS = 3;
-const OLLAMA_RETRY_BASE_DELAY_MS = 1_000;
+const LLM_TIMEOUT_MS = 120_000;
+const LLM_RETRY_ATTEMPTS = 3;
+const LLM_RETRY_BASE_DELAY_MS = 1_000;
 
 /**
- * Module-level promise chain that serializes all callOllama invocations.
- * Ollama processes one generation at a time per model — concurrent fetches
- * just queue up at the OS socket layer and time out. Serializing in-process
- * gives us clean error handling and predictable behaviour.
+ * Module-level promise chain that serializes all LLM invocations.
+ * MLX 서버도 generation 당 1개씩 처리하므로 직렬화 유지.
  */
-let ollamaQueue: Promise<unknown> = Promise.resolve();
+let llmQueue: Promise<unknown> = Promise.resolve();
 
 function sleep(ms: number): Promise<void> {
   return new Promise(resolve => setTimeout(resolve, ms));
@@ -271,7 +266,11 @@ function isRetriableError(err: unknown): boolean {
     || msg.includes('etimedout');
 }
 
-async function callOllamaRaw(
+/**
+ * OpenAI 호환 `/v1/chat/completions` 호출.
+ * MLX mlx_lm.server는 이 엔드포인트 + 표준 스키마 지원.
+ */
+async function callLlmRaw(
   model: string,
   url: string,
   prompt: string,
@@ -279,37 +278,44 @@ async function callOllamaRaw(
   numPredict: number,
 ): Promise<string> {
   const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), OLLAMA_TIMEOUT_MS);
+  const timeoutId = setTimeout(() => controller.abort(), LLM_TIMEOUT_MS);
 
   try {
-    const res = await fetch(`${url}/api/generate`, {
+    const res = await fetch(`${url}/v1/chat/completions`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       signal: controller.signal,
       body: JSON.stringify({
         model,
-        prompt,
-        system,
+        messages: [
+          { role: 'system', content: system },
+          { role: 'user', content: prompt },
+        ],
+        temperature: 0.2,
+        top_p: 0.9,
+        max_tokens: numPredict,
         stream: false,
-        format: 'json',
-        keep_alive: OLLAMA_KEEP_ALIVE,
-        options: { temperature: 0.2, num_predict: numPredict, top_p: 0.9 },
+        // MLX는 response_format 미지원할 수 있으나 시도 — 무시돼도 무해.
+        // JSON 준수는 system prompt의 "valid JSON only" 지시에 의존.
+        response_format: { type: 'json_object' },
       }),
     });
 
     if (!res.ok) {
       const errText = await res.text().catch(() => '');
-      throw new Error(`Ollama 요청 실패 (HTTP ${res.status}): ${errText.slice(0, 200)}`);
+      throw new Error(`LLM 요청 실패 (HTTP ${res.status}): ${errText.slice(0, 200)}`);
     }
-    const data = await res.json() as { response?: string; thinking?: string };
-    return data.response || data.thinking || '';
+    const data = await res.json() as {
+      choices?: Array<{ message?: { content?: string } }>;
+    };
+    return data.choices?.[0]?.message?.content || '';
   } finally {
     clearTimeout(timeoutId);
   }
 }
 
 /** Exported for unit tests only — production callers use getTradeDecision(). */
-export async function callOllama(
+export async function callLlm(
   model: string,
   url: string,
   prompt: string,
@@ -317,30 +323,30 @@ export async function callOllama(
   numPredict: number = 1024,
 ): Promise<string> {
   // Serialize via module-level queue (mutex)
-  const task = ollamaQueue.catch(() => undefined).then(async () => {
+  const task = llmQueue.catch(() => undefined).then(async () => {
     let lastErr: unknown;
-    for (let attempt = 0; attempt < OLLAMA_RETRY_ATTEMPTS; attempt++) {
+    for (let attempt = 0; attempt < LLM_RETRY_ATTEMPTS; attempt++) {
       try {
-        return await callOllamaRaw(model, url, prompt, system, numPredict);
+        return await callLlmRaw(model, url, prompt, system, numPredict);
       } catch (err) {
         lastErr = err;
-        if (attempt === OLLAMA_RETRY_ATTEMPTS - 1) break;
+        if (attempt === LLM_RETRY_ATTEMPTS - 1) break;
         if (!isRetriableError(err)) break;
-        const delay = OLLAMA_RETRY_BASE_DELAY_MS * Math.pow(2, attempt);
-        logger.debug({ err: (err as Error).message, attempt: attempt + 1, delay }, 'Ollama call failed, retrying');
+        const delay = LLM_RETRY_BASE_DELAY_MS * Math.pow(2, attempt);
+        logger.debug({ err: (err as Error).message, attempt: attempt + 1, delay }, 'LLM call failed, retrying');
         await sleep(delay);
       }
     }
-    throw lastErr instanceof Error ? lastErr : new Error('Ollama 호출 실패');
+    throw lastErr instanceof Error ? lastErr : new Error('LLM 호출 실패');
   });
 
-  ollamaQueue = task.catch(() => undefined);
+  llmQueue = task.catch(() => undefined);
   return task as Promise<string>;
 }
 
 async function getTradeDecisionSingle(input: StockAnalysisInput, phase: AnalysisPhase, settings: any): Promise<TradeDecision> {
   const prompt = buildStructuredPrompt(input, phase);
-  const responseText = await callOllama(settings.ollamaModel, settings.ollamaUrl, prompt, buildSystemPrompt());
+  const responseText = await callLlm(settings.mlxModel, settings.mlxUrl, prompt, buildSystemPrompt());
   logger.debug({ ticker: input.ticker, phase, length: responseText.length }, 'Ollama raw response received');
   return parseDecisionResponse(responseText, input);
 }
@@ -357,7 +363,7 @@ ${dataBlock}
 
 반드시 JSON으로 응답: { "bullCase": "매수 근거 3~5문장", "bullConfidence": 0~100, "keyBullFactors": ["요소1", "요소2"] }`;
 
-  const bullResponse = await callOllama(settings.ollamaModel, settings.ollamaUrl, bullPrompt, systemPrompt, 400);
+  const bullResponse = await callLlm(settings.mlxModel, settings.mlxUrl, bullPrompt, systemPrompt, 400);
   logger.debug({ ticker: input.ticker }, 'Ollama Bull analysis done');
 
   // 2차: 약세(Bear) 분석
@@ -368,7 +374,7 @@ ${dataBlock}
 
 반드시 JSON으로 응답: { "bearCase": "매도/위험 근거 3~5문장", "bearConfidence": 0~100, "keyBearFactors": ["요소1", "요소2"] }`;
 
-  const bearResponse = await callOllama(settings.ollamaModel, settings.ollamaUrl, bearPrompt, systemPrompt, 400);
+  const bearResponse = await callLlm(settings.mlxModel, settings.mlxUrl, bearPrompt, systemPrompt, 400);
   logger.debug({ ticker: input.ticker }, 'Ollama Bear analysis done');
 
   // 3차: 종합 판단
@@ -388,7 +394,7 @@ ${dataBlock}
 
 ${RESPONSE_SCHEMA}`;
 
-  const finalResponse = await callOllama(settings.ollamaModel, settings.ollamaUrl, finalPrompt, systemPrompt, 1024);
+  const finalResponse = await callLlm(settings.mlxModel, settings.mlxUrl, finalPrompt, systemPrompt, 1024);
   logger.debug({ ticker: input.ticker, phase, length: finalResponse.length }, 'Ollama debate final response received');
 
   return parseDecisionResponse(finalResponse, input);
