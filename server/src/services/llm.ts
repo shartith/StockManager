@@ -2,7 +2,7 @@
  * 로컬 LLM 연동 서비스 (v4.12.0 MLX 기반)
  *
  * Apple Silicon 전용 MLX 서버를 OpenAI 호환 API (`/v1/chat/completions`)로 호출.
- * 기본 모델: mlx-community/gemma-3-4b-it-4bit (2.5GB).
+ * 기본 모델: mlx-community/gemma-3n-E4B-it-4bit (~4.4GB).
  * MLX 서버는 bin/stock-manager의 ensureMlx()가 자동 기동.
  *
  * 4개 시점별 정형화된 입력/출력:

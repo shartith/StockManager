@@ -287,7 +287,7 @@ router.post('/llm/pull', validate(pullModelSchema), asyncHandler(async (req: Req
 
 /**
  * MLX 모델 삭제 (HuggingFace 캐시 디렉토리 제거).
- * mlx-community/gemma-3-4b-it-4bit → ~/.cache/huggingface/hub/models--mlx-community--gemma-3-4b-it-4bit
+ * mlx-community/gemma-3n-E4B-it-4bit → ~/.cache/huggingface/hub/models--mlx-community--gemma-3-4b-it-4bit
  */
 router.delete('/llm/models/:name(*)', asyncHandler(async (req: Request, res: Response) => {
   const name = req.params.name;

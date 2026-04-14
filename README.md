@@ -143,18 +143,18 @@ npm run build
 
 ### MLX 설정 (Apple Silicon Mac)
 
-Homebrew로 `stock-manager`를 설치하면 mlx-lm + 기본 모델이 함께 설치됩니다. 최초 실행 시 모델(`mlx-community/gemma-3-4b-it-4bit`, ~2.5GB)이 자동 다운로드됩니다.
+Homebrew로 `stock-manager`를 설치하면 mlx-lm + 기본 모델이 함께 설치됩니다. 최초 실행 시 모델(`mlx-community/gemma-3n-E4B-it-4bit`, ~4.4GB)이 자동 다운로드됩니다.
 
 개발 모드에서 수동 기동:
 
 ```bash
 python3 -m venv ~/.stock-manager/venv
 ~/.stock-manager/venv/bin/pip install mlx-lm
-~/.stock-manager/venv/bin/mlx_lm.server --port 8000 --model mlx-community/gemma-3-4b-it-4bit
+~/.stock-manager/venv/bin/mlx_lm.server --port 8000 --model mlx-community/gemma-3n-E4B-it-4bit
 ```
 
 설정 화면에서 모델 변경 가능. 권장 모델:
-- `mlx-community/gemma-3-4b-it-4bit` — 기본, 2.5GB, 한국어 양호
+- `mlx-community/gemma-3n-E4B-it-4bit` — 기본, ~4.4GB, Gemma 3n 매트료시카 아키텍처, 한국어 양호
 - `mlx-community/Qwen2.5-7B-Instruct-4bit` — 4GB, 16GB+ RAM 권장
 - `mlx-community/Llama-3.2-3B-Instruct-4bit` — 1.8GB, 빠른 응답
 - `mlx-community/gemma-2-2b-it-4bit` — 1.3GB, 저사양

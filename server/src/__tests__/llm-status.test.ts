@@ -70,7 +70,7 @@ describe('checkLlmStatus', () => {
       ok: true,
       json: async () => ({
         data: [
-          { id: 'mlx-community/gemma-3-4b-it-4bit', object: 'model' },
+          { id: 'mlx-community/gemma-3n-E4B-it-4bit', object: 'model' },
           { id: 'mlx-community/Qwen2.5-7B-Instruct-4bit', object: 'model' },
         ],
       }),
@@ -79,7 +79,7 @@ describe('checkLlmStatus', () => {
     const status = await checkLlmStatus();
     expect(status.connected).toBe(true);
     expect(status.models).toEqual([
-      'mlx-community/gemma-3-4b-it-4bit',
+      'mlx-community/gemma-3n-E4B-it-4bit',
       'mlx-community/Qwen2.5-7B-Instruct-4bit',
     ]);
   });

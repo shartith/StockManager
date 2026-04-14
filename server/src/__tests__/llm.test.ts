@@ -88,14 +88,14 @@ describe('callLlm (v4.5.2 resilience)', () => {
       json: async () => ({ choices: [{ message: { content: 'ok' } }] }),
     });
 
-    await callLlm('mlx-community/gemma-3-4b-it-4bit', 'http://localhost:8000', 'my-prompt', 'sys-prompt', 256);
+    await callLlm('mlx-community/gemma-3n-E4B-it-4bit', 'http://localhost:8000', 'my-prompt', 'sys-prompt', 256);
 
     const callArg = fetchSpy.mock.calls[0][1];
     const url = String(fetchSpy.mock.calls[0][0]);
     const body = JSON.parse(callArg.body as string);
 
     expect(url).toContain('/v1/chat/completions');
-    expect(body.model).toBe('mlx-community/gemma-3-4b-it-4bit');
+    expect(body.model).toBe('mlx-community/gemma-3n-E4B-it-4bit');
     expect(body.stream).toBe(false);
     expect(body.max_tokens).toBe(256);
     expect(body.messages).toEqual([

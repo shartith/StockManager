@@ -135,7 +135,7 @@ router.post('/config', validate(saveConfigSchema), (req: Request, res: Response)
     mcpEnabled: !!mcpEnabled,
 
     mlxUrl: mlxUrl || 'http://localhost:8000',
-    mlxModel: mlxModel || 'mlx-community/gemma-3-4b-it-4bit',
+    mlxModel: mlxModel || 'mlx-community/gemma-3n-E4B-it-4bit',
     mlxEnabled: mlxEnabled !== false,
 
     ...(dartApiKey ? { dartApiKey } : {}),

@@ -21,7 +21,7 @@ const command = process.argv[2];
 // ── MLX 자동 설치 및 구동 ──
 
 const MLX_PORT = process.env.MLX_PORT || 8000;
-const MLX_MODEL = process.env.MLX_MODEL || 'mlx-community/gemma-3-4b-it-4bit';
+const MLX_MODEL = process.env.MLX_MODEL || 'mlx-community/gemma-3n-E4B-it-4bit';
 const venvDir = process.env.STOCK_MANAGER_VENV || path.join(dataDir, 'venv');
 
 function isAppleSilicon() {

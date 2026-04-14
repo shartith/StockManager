@@ -167,8 +167,8 @@
               <div>
                 <p class="text-xs text-amber-700 mb-1">MLX 서버 기동:</p>
                 <div class="flex items-center gap-2">
-                  <code class="flex-1 bg-white px-3 py-1.5 rounded border border-amber-200 text-xs font-mono text-txt-primary">~/.stock-manager/venv/bin/mlx_lm.server --port 8000 --model mlx-community/gemma-3-4b-it-4bit</code>
-                  <button type="button" @click="copyToClipboard('~/.stock-manager/venv/bin/mlx_lm.server --port 8000 --model mlx-community/gemma-3-4b-it-4bit')"
+                  <code class="flex-1 bg-white px-3 py-1.5 rounded border border-amber-200 text-xs font-mono text-txt-primary">~/.stock-manager/venv/bin/mlx_lm.server --port 8000 --model mlx-community/gemma-3n-E4B-it-4bit</code>
+                  <button type="button" @click="copyToClipboard('~/.stock-manager/venv/bin/mlx_lm.server --port 8000 --model mlx-community/gemma-3n-E4B-it-4bit')"
                     class="px-2 py-1.5 bg-amber-100 text-amber-700 rounded text-xs hover:bg-amber-200 transition whitespace-nowrap">
                     복사
                   </button>
@@ -204,7 +204,7 @@
                     {{ m.name }}<span v-if="m.size"> ({{ formatModelSize(m.size) }})</span>
                   </option>
                 </select>
-                <input v-else v-model="form.mlxModel" type="text" placeholder="mlx-community/gemma-3-4b-it-4bit"
+                <input v-else v-model="form.mlxModel" type="text" placeholder="mlx-community/gemma-3n-E4B-it-4bit"
                   class="flex-1 border border-border rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-accent" />
                 <button type="button" @click="loadLlmModels"
                   class="px-3 py-2 border border-border rounded-lg text-xs text-txt-secondary hover:bg-surface-2 transition whitespace-nowrap">
@@ -253,7 +253,7 @@
                 </button>
               </div>
               <div class="flex gap-2">
-                <input v-model="pullModelName" type="text" placeholder="모델명 (예: mlx-community/gemma-3-4b-it-4bit)"
+                <input v-model="pullModelName" type="text" placeholder="모델명 (예: mlx-community/gemma-3n-E4B-it-4bit)"
                   class="flex-1 border border-border rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-accent" />
                 <button type="button" @click="pullModel" :disabled="pulling || !pullModelName"
                   class="px-4 py-2 bg-primary text-white rounded-lg text-sm font-medium hover:bg-primary-hover disabled:opacity-50 transition whitespace-nowrap">
@@ -1120,7 +1120,7 @@ const form = ref({
   isVirtual: true,
 
   mlxUrl: 'http://localhost:8000',
-  mlxModel: 'mlx-community/gemma-3-4b-it-4bit',
+  mlxModel: 'mlx-community/gemma-3n-E4B-it-4bit',
   mlxEnabled: true,
 
   dartApiKey: '',
@@ -1203,7 +1203,7 @@ const pullSuccess = ref('');
 const copiedCmd = ref('');
 
 const recommendedModels = [
-  { name: 'mlx-community/gemma-3-4b-it-4bit', size: '2.5GB' },
+  { name: 'mlx-community/gemma-3n-E4B-it-4bit', size: '4.4GB' },
   { name: 'mlx-community/Qwen2.5-7B-Instruct-4bit', size: '4.0GB' },
   { name: 'mlx-community/Llama-3.2-3B-Instruct-4bit', size: '1.8GB' },
   { name: 'mlx-community/gemma-2-2b-it-4bit', size: '1.3GB' },
@@ -1394,7 +1394,7 @@ async function loadConfig() {
     secretSaved.value = saved.hasSecret;
 
     form.value.mlxUrl = saved.mlxUrl || 'http://localhost:8000';
-    form.value.mlxModel = saved.mlxModel || 'mlx-community/gemma-3-4b-it-4bit';
+    form.value.mlxModel = saved.mlxModel || 'mlx-community/gemma-3n-E4B-it-4bit';
     form.value.mlxEnabled = saved.mlxEnabled ?? true;
 
     form.value.dartEnabled = saved.dartEnabled ?? false;

@@ -68,7 +68,7 @@ describe('settings', () => {
       expect(settings.kisAppKey).toBe('');
       expect(settings.kisAppSecret).toBe('');
       expect(settings.mlxUrl).toBe('http://localhost:8000');
-      expect(settings.mlxModel).toBe('mlx-community/gemma-3-4b-it-4bit');
+      expect(settings.mlxModel).toBe('mlx-community/gemma-3n-E4B-it-4bit');
       expect(settings.mlxEnabled).toBe(true); // v4.12.0: MLX 기본 활성화
       expect(settings.autoTradeEnabled).toBe(false);
       expect(settings.investmentStyle).toBe('balanced');

@@ -182,7 +182,7 @@ describe('updateRecommendationStatusSchema + generateRecommendationSchema + deci
 
   it('pullModelSchema requires non-empty model', () => {
     expect(() => pullModelSchema.parse({ model: '' })).toThrow();
-    expect(pullModelSchema.parse({ model: 'mlx-community/gemma-3-4b-it-4bit' }).model).toBe('mlx-community/gemma-3-4b-it-4bit');
+    expect(pullModelSchema.parse({ model: 'mlx-community/gemma-3n-E4B-it-4bit' }).model).toBe('mlx-community/gemma-3n-E4B-it-4bit');
   });
 });
 
@@ -192,7 +192,7 @@ describe('saveConfigSchema — SSRF guards and URL validation', () => {
   it('applies sensible defaults', () => {
     const c = saveConfigSchema.parse(valid());
     expect(c.mlxUrl).toBe('http://localhost:8000');
-    expect(c.mlxModel).toBe('mlx-community/gemma-3-4b-it-4bit');
+    expect(c.mlxModel).toBe('mlx-community/gemma-3n-E4B-it-4bit');
     expect(c.isVirtual).toBe(true);
     expect(c.autoTradeEnabled).toBe(false);
     expect(c.portfolioMaxHoldings).toBe(10);

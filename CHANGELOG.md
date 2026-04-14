@@ -2,6 +2,14 @@
 
 Stock Manager 주요 릴리즈 변경사항. 자세한 노트는 [GitHub Releases](https://github.com/shartith/StockManager/releases)에서 확인.
 
+## v4.12.1 — 2026-04-14
+
+**기본 MLX 모델 교체: gemma-3-4b-it-4bit → gemma-3n-E4B-it-4bit**
+
+- 신규 기본 모델 `mlx-community/gemma-3n-E4B-it-4bit` (~4.4GB) — Gemma 3n 매트료시카 아키텍처
+- 설정/스키마/bin 스크립트/문서/Homebrew caveats 일괄 갱신
+- 기존 `gemma-3-4b-it-4bit` 사용자는 설정 유지 (기본값만 변경). 신규 설치 시에만 새 모델 다운로드
+
 ## v4.12.0 — 2026-04-14
 
 **Ollama → MLX 완전 전환 (Apple Silicon 전용 LLM 백엔드)**
@@ -10,7 +18,7 @@ Stock Manager 주요 릴리즈 변경사항. 자세한 노트는 [GitHub Release
 - 신규 `server/src/services/llm.ts` (ollama.ts 대체) — OpenAI-호환 `/v1/chat/completions` 어댑터, mutex/retry/timeout 유지
 - 신규 엔드포인트: `/api/analysis/llm/{status,models,pull}`, `DELETE /api/analysis/llm/models/:name`
 - 설정: `ollamaUrl/Model/Enabled` → `mlxUrl/Model/Enabled` (legacy 필드 자동 strip, `ollamaEnabled=true`이면 `mlxEnabled=true`로 자동 승계)
-- 기본 설정: `http://localhost:8000`, `mlx-community/gemma-3-4b-it-4bit`, `mlxEnabled=true`
+- 기본 설정: `http://localhost:8000`, `mlx-community/gemma-3n-E4B-it-4bit`, `mlxEnabled=true`
 - Homebrew 통합: `bin/stock-manager`의 `ensureMlx()`가 `~/.stock-manager/venv` 생성 + `mlx-lm` 설치 + `mlx_lm.server` 기동을 자동 수행
 - 신규 명령: `stock-manager --uninstall-ollama` — 바이너리 + `~/.ollama/` 모델 + brew 서비스 일괄 정리 (확인 프롬프트)
 - Ollama 잔존 감지 → 시작 시 안내 메시지 출력 (`detectOllamaLeftovers`)

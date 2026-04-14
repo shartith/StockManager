@@ -124,7 +124,7 @@ export const saveConfigSchema = z.object({
       } catch { return false; }
     }, { message: 'mlxUrl은 유효한 http/https URL이어야 합니다' })
     .default('http://localhost:8000'),
-  mlxModel: z.string().default('mlx-community/gemma-3-4b-it-4bit'),
+  mlxModel: z.string().default('mlx-community/gemma-3n-E4B-it-4bit'),
   mlxEnabled: z.boolean().default(true),
 
   dartApiKey: z.string().optional(),

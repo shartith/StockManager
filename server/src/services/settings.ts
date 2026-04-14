@@ -45,7 +45,7 @@ export interface AppSettings {
 
   // MLX (로컬 LLM, Apple Silicon 전용, OpenAI-compat API)
   mlxUrl: string;           // 기본 http://localhost:8000
-  mlxModel: string;         // 기본 mlx-community/gemma-3-4b-it-4bit
+  mlxModel: string;         // 기본 mlx-community/gemma-3n-E4B-it-4bit
   mlxEnabled: boolean;
 
   // DART (금융감독원 공시)
@@ -128,7 +128,7 @@ const DEFAULT_SETTINGS: AppSettings = {
   mcpEnabled: false,
 
   mlxUrl: 'http://localhost:8000',
-  mlxModel: 'mlx-community/gemma-3-4b-it-4bit',
+  mlxModel: 'mlx-community/gemma-3n-E4B-it-4bit',
   mlxEnabled: true,
 
   dartApiKey: '',
