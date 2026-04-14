@@ -6,6 +6,7 @@ import { collectAndCacheNews, getCachedNews, summarizeNewsWithAI } from '../serv
 import { getAccessToken, getKisConfig } from '../services/kisAuth';
 import { getSettings } from '../services/settings';
 import { normalizeMarket } from '../services/marketNormalizer';
+import { expireStaleRecommendations } from '../services/scheduler/watchlistCleanup';
 import { validate } from '../middleware/validate';
 import { asyncHandler } from '../middleware/errorHandler';
 import { createRecommendationSchema, updateRecommendationStatusSchema, generateRecommendationSchema } from '../schemas';
@@ -465,5 +466,15 @@ async function fetchCandlesForRecommendation(ticker: string, appKey: string, app
     return null;
   }
 }
+
+/** 낮은 평가/만료 추천종목 일괄 정리 (수동 트리거, Ollama 무관) */
+router.post('/cleanup', (_req: Request, res: Response) => {
+  const result = expireStaleRecommendations();
+  res.json({
+    success: true,
+    message: `${result.expired}건 만료, ${result.purged}건 영구 삭제 (30일 이상)`,
+    ...result,
+  });
+});
 
 export default router;

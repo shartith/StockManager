@@ -340,6 +340,40 @@
         </div>
       </div>
 
+      <!-- 체결률 지표 (v4.11.0) -->
+      <div v-if="fillRate" class="solid-card mb-8 overflow-hidden">
+        <div class="p-5 border-b border-border flex items-center justify-between">
+          <div>
+            <h3 class="text-sm font-semibold text-txt-secondary">⚡ 체결률 (최근 {{ fillRate.days }}일)</h3>
+            <p class="text-xs text-txt-tertiary mt-1">BUY 신호 대비 실제/가상 체결 비율 — 시스템 효율성 지표</p>
+          </div>
+        </div>
+        <div class="p-5 grid grid-cols-2 md:grid-cols-5 gap-4">
+          <div>
+            <p class="text-xs text-txt-secondary mb-1">BUY 신호</p>
+            <p class="text-2xl font-bold text-txt-primary">{{ fillRate.signals }}</p>
+          </div>
+          <div>
+            <p class="text-xs text-txt-secondary mb-1">실매수</p>
+            <p class="text-2xl font-bold text-accent">{{ fillRate.realFills }}</p>
+          </div>
+          <div>
+            <p class="text-xs text-txt-secondary mb-1">🧪 가상매수</p>
+            <p class="text-2xl font-bold text-purple-500">{{ fillRate.paperFills }}</p>
+          </div>
+          <div>
+            <p class="text-xs text-txt-secondary mb-1">차단(BLOCKED)</p>
+            <p class="text-2xl font-bold text-txt-tertiary">{{ fillRate.blocked }}</p>
+          </div>
+          <div>
+            <p class="text-xs text-txt-secondary mb-1">체결률 (실+가상)</p>
+            <p class="text-2xl font-bold" :class="fillRate.combinedFillRate >= 50 ? 'text-profit' : fillRate.combinedFillRate >= 20 ? 'text-amber-500' : 'text-loss'">
+              {{ fillRate.combinedFillRate }}%
+            </p>
+          </div>
+        </div>
+      </div>
+
       <!-- 가상매매(Paper Trading) 요약 -->
       <div v-if="paperSummary" class="solid-card mb-8 overflow-hidden border-l-4 border-purple-500">
         <div class="p-5 border-b border-border flex items-center justify-between">
@@ -666,6 +700,22 @@ async function loadPaperSummary() {
   }
 }
 
+// v4.11.0: 체결률 지표
+interface FillRate {
+  days: number; signals: number; realFills: number; paperFills: number; blocked: number;
+  realFillRate: number; combinedFillRate: number;
+}
+const fillRate = ref<FillRate | null>(null);
+
+async function loadFillRate() {
+  try {
+    const { data } = await schedulerApi.getFillRate(7);
+    fillRate.value = data;
+  } catch {
+    fillRate.value = null;
+  }
+}
+
 onMounted(async () => {
   await checkKisConfig();
   store.fetchSummary();
@@ -673,5 +723,6 @@ onMounted(async () => {
   loadMarketContext();
   loadSystemEvents();
   loadPaperSummary();
+  loadFillRate();
 });
 </script>

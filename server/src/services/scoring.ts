@@ -280,7 +280,7 @@ function promoteToWatchlist(ticker: string, market: string, score: number): bool
   }
 
   // 이미 관심종목이면 스킵
-  const existing = queryOne('SELECT id FROM watchlist WHERE stock_id = ?', [stock.id]);
+  const existing = queryOne('SELECT id FROM watchlist WHERE stock_id = ? AND deleted_at IS NULL', [stock.id]);
   if (existing) return false;
 
   // 포트폴리오 규칙 체크
@@ -332,7 +332,7 @@ async function promoteToWatchlistAndTrade(ticker: string, market: string, score:
     stock = queryOne('SELECT id FROM stocks WHERE ticker = ?', [ticker]);
   }
 
-  const existing = queryOne('SELECT id FROM watchlist WHERE stock_id = ?', [stock.id]);
+  const existing = queryOne('SELECT id FROM watchlist WHERE stock_id = ? AND deleted_at IS NULL', [stock.id]);
 
   // 포트폴리오 규칙 체크 (신규 관심종목 추가 시)
   if (!existing) {

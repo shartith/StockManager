@@ -263,6 +263,33 @@ app.get('/api/scheduler/status', (_req, res) => {
   res.json(getSchedulerStatus());
 });
 
+// ── 체결률 지표 (v4.11.0) — 신호 대비 실제 체결 비율 ──
+app.get('/api/scheduler/fill-rate', (req, res) => {
+  const days = Math.max(1, Math.min(30, Number(req.query.days) || 7));
+  const { queryOne } = require('./db');
+  const row = queryOne(
+    `SELECT
+       (SELECT COUNT(*) FROM trade_signals WHERE signal_type = 'BUY' AND created_at >= datetime('now', '-' || ? || ' days')) AS buy_signals,
+       (SELECT COUNT(*) FROM auto_trades WHERE order_type = 'BUY' AND status = 'FILLED' AND created_at >= datetime('now', '-' || ? || ' days')) AS real_fills,
+       (SELECT COUNT(*) FROM paper_trades WHERE order_type = 'BUY' AND created_at >= datetime('now', '-' || ? || ' days')) AS paper_fills,
+       (SELECT COUNT(*) FROM system_events WHERE category = 'TRADE_BLOCKED' AND created_at >= datetime('now', '-' || ? || ' days')) AS blocked`,
+    [days, days, days, days],
+  );
+  const signals = Number(row?.buy_signals ?? 0);
+  const real = Number(row?.real_fills ?? 0);
+  const paper = Number(row?.paper_fills ?? 0);
+  const blocked = Number(row?.blocked ?? 0);
+  res.json({
+    days,
+    signals,
+    realFills: real,
+    paperFills: paper,
+    blocked,
+    realFillRate: signals > 0 ? Math.round((real / signals) * 100) : 0,
+    combinedFillRate: signals > 0 ? Math.round(((real + paper) / signals) * 100) : 0,
+  });
+});
+
 // ── System events ──
 app.get('/api/system-events', (req, res) => {
   const unresolved = req.query.unresolved === 'true';

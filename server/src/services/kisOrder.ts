@@ -378,6 +378,13 @@ export async function executeOrder(req: OrderRequest): Promise<OrderResult> {
     }
     const sizing = checkPositionSizingRules(orderPrice, req.market, fxRate);
     if (!sizing.allowed) {
+      // v4.11.0: 체결 차단 사유를 system_events에 기록 (Dashboard에서 확인 가능)
+      try {
+        const { logSystemEvent } = await import('./systemEvent');
+        await logSystemEvent('INFO', 'TRADE_BLOCKED',
+          `매수 차단 (포지션 규칙): ${req.ticker}`,
+          sizing.reason ?? '', req.ticker);
+      } catch {}
       return { success: false, message: `포지션 규칙: ${sizing.reason}`, quantity: 0, price: orderPrice, fee: 0 };
     }
 

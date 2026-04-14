@@ -430,6 +430,9 @@ export async function initializeDB(): Promise<Db> {
   dbRun(`INSERT OR IGNORE INTO trading_rules (rule_id, name, description, category, is_enabled, priority, params_json) VALUES ('SECTOR_TAILWIND', '섹터 순풍 가점', '상위 3 섹터 매수 신뢰도 +15', 'VOLATILITY', 1, 17, '{}')`);
   dbRun(`INSERT OR IGNORE INTO trading_rules (rule_id, name, description, category, is_enabled, priority, params_json) VALUES ('NARROW_LEADERSHIP', '협소 리더십 경고', '소수 섹터만 상승 시 비주도 섹터 매수 -15', 'VOLATILITY', 1, 18, '{}')`);
   dbRun(`INSERT OR IGNORE INTO trading_rules (rule_id, name, description, category, is_enabled, priority, params_json) VALUES ('POOR_QUOTE_QUALITY', '호가 품질 경고', '스프레드 > 0.5% 또는 호가 깊이 부족 시 매수 신뢰도 -20', 'VOLUME', 1, 19, '{}')`);
+  // v4.11.0: 신규 룰
+  dbRun(`INSERT OR IGNORE INTO trading_rules (rule_id, name, description, category, is_enabled, priority, params_json) VALUES ('SIGNAL_COOLDOWN', '신호 쿨다운', '같은 종목 최근 30분 내 동일 BUY 신호 반복 방지 — 신뢰도 -50, 필요 시 HOLD 전환', 'TIME', 1, 20, '{}')`);
+  dbRun(`INSERT OR IGNORE INTO trading_rules (rule_id, name, description, category, is_enabled, priority, params_json) VALUES ('RECENT_LOSS_PENALTY', '반복 손실 종목 패널티', '최근 5건 중 2건 이상 손실 확정된 종목 — 신뢰도 -30, 3건 이상 시 HOLD 전환', 'VOLATILITY', 1, 21, '{}')`);
 
   // --- Indexes ---
   dbRun('CREATE INDEX IF NOT EXISTS idx_transactions_stock_id ON transactions(stock_id)');

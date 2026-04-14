@@ -207,6 +207,15 @@ export async function runContinuousMonitor(market: Market) {
 
     if (!settings.ollamaEnabled) continue;
 
+    // v4.11.0: Rule 20 pre-check — 같은 종목 30분 내 BUY 신호 있으면 LLM 호출 skip
+    const cooldownHit = queryOne(
+      `SELECT id FROM trade_signals WHERE stock_id = ? AND signal_type = 'BUY' AND created_at >= datetime('now', '-30 minutes') LIMIT 1`,
+      [stock.id],
+    );
+    if (cooldownHit) {
+      continue; // 중복 LLM 호출 방지
+    }
+
     try {
       const candles = await fetchCandleData(stock.ticker, market);
       if (!candles || candles.length < 30) continue;

@@ -14,7 +14,7 @@ import { runContinuousMonitor } from './continuousMonitor';
 import { runProfitTaking } from './profitTaking';
 import { runRecommendationRefresh } from './recommendations';
 import { runWeekendLearning } from './weekendLearning';
-import { cleanupWatchlist } from './watchlistCleanup';
+import { cleanupWatchlist, expireStaleRecommendations } from './watchlistCleanup';
 import { checkDartDisclosures } from './dartMonitor';
 import { runNasSync } from '../nasSync';
 import { generateRebalanceSignals } from '../portfolioManager';
@@ -102,11 +102,13 @@ export function startScheduler() {
   }, { timezone: 'Asia/Seoul' }));
   logger.info('[Scheduler] 일일 성과 평가 스케줄 등록 (18:00 KST)');
 
-  // ── 관심종목 자동 정리 (22:00 KST, 매일) ──
-  schedulerState.activeTasks.push(cron.schedule('0 22 * * *', () => {
+  // ── 관심종목 + 추천 자동 정리 (매 1시간, Ollama 무관) ──
+  // 평가가 낮아지면 즉시 제거하기 위해 매시간 실행 (이전 22:00 1회 → 시간당)
+  schedulerState.activeTasks.push(cron.schedule('0 * * * *', () => {
     try { cleanupWatchlist(); } catch (err) { logger.error({ err }, 'cleanupWatchlist failed'); }
+    try { expireStaleRecommendations(); } catch (err) { logger.error({ err }, 'expireStaleRecommendations failed'); }
   }, { timezone: 'Asia/Seoul' }));
-  logger.info('[Scheduler] 관심종목 자동 정리 스케줄 등록 (22:00 KST)');
+  logger.info('[Scheduler] 관심종목/추천 자동 정리 등록 (매 1시간)');
 
   // ── 주말 학습 (토요일 06:00 KST) ──
   schedulerState.activeTasks.push(cron.schedule('0 6 * * 6', () => {

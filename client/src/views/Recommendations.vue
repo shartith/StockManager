@@ -2,10 +2,20 @@
   <div>
     <div class="flex items-center justify-between mb-6">
       <h2 class="text-2xl font-bold text-txt-primary">추천 종목</h2>
-      <button @click="showAdd = true" class="px-4 py-2 bg-primary text-white rounded-lg text-sm hover:bg-primary-hover transition">
-        + 추천 추가
-      </button>
+      <div class="flex gap-2">
+        <button @click="doCleanup" :disabled="cleaning"
+          class="text-xs px-3 py-2 bg-surface-2 text-txt-primary rounded-lg hover:bg-surface-3 disabled:opacity-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+          title="만료/저평가 추천 즉시 정리">
+          {{ cleaning ? '정리 중...' : '🧹 만료된 추천 정리' }}
+        </button>
+        <button @click="showAdd = true" class="px-4 py-2 bg-primary text-white rounded-lg text-sm hover:bg-primary-hover transition">
+          + 추천 추가
+        </button>
+      </div>
     </div>
+    <p v-if="cleanupMsg" class="mb-3 text-sm" :class="cleanupMsg.startsWith('❌') ? 'text-loss' : 'text-profit'">
+      {{ cleanupMsg }}
+    </p>
 
     <!-- 시장 탭 -->
     <div class="flex gap-1 mb-6 bg-surface-3 rounded-lg p-1 w-fit">
@@ -206,6 +216,22 @@ async function dismissRec(id: number) {
     await recommendationsApi.updateStatus(id, 'DISMISSED');
     await fetchRecs();
   } catch { /* */ }
+}
+
+const cleaning = ref(false);
+const cleanupMsg = ref('');
+async function doCleanup() {
+  if (!confirm('만료/저평가 추천을 즉시 정리하시겠습니까?\n\n제거 기준:\n• expires_at 경과\n• score < 40 (즉시)\n• confidence < 50 (즉시)\n• 생성 3일 이상 경과\n\n7일 이상 된 EXPIRED/DISMISSED는 영구 삭제됩니다.')) return;
+  cleaning.value = true;
+  cleanupMsg.value = '';
+  try {
+    const { data } = await recommendationsApi.cleanup();
+    cleanupMsg.value = `✅ ${data.message}`;
+    await fetchRecs();
+  } catch (err) {
+    cleanupMsg.value = `❌ ${err instanceof Error ? err.message : '정리 실패'}`;
+  }
+  cleaning.value = false;
 }
 
 onMounted(fetchRecs);

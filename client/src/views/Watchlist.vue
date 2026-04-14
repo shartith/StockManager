@@ -3,6 +3,12 @@
     <div class="flex items-center justify-between mb-6">
       <h2 class="text-2xl font-bold text-txt-primary">관심 종목</h2>
       <div class="flex gap-2 items-center">
+        <!-- 수동 정리 버튼 -->
+        <button @click="doCleanup" :disabled="cleaning"
+          class="text-xs px-3 py-1.5 bg-surface-2 text-txt-primary rounded-lg hover:bg-surface-3 disabled:opacity-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+          title="평가가 낮아진 종목을 즉시 정리">
+          {{ cleaning ? '정리 중...' : '🧹 낮은 평가 정리' }}
+        </button>
         <!-- 스케줄러 상태 -->
         <span class="text-xs px-3 py-1 rounded-full font-medium"
           :class="schedulerStatus.active ? 'bg-green-50 text-green-700' : 'bg-surface-3 text-txt-secondary'">
@@ -10,6 +16,9 @@
         </span>
       </div>
     </div>
+    <p v-if="cleanupMsg" class="mb-3 text-sm" :class="cleanupMsg.startsWith('❌') ? 'text-loss' : 'text-profit'">
+      {{ cleanupMsg }}
+    </p>
 
     <!-- 시장 필터 -->
     <div class="flex gap-1 mb-6 bg-surface-3 rounded-lg p-1 w-fit">
@@ -224,6 +233,22 @@ async function analyze(item: any) {
     analysisResult.value = data;
   } catch { /* */ }
   finally { analyzing.value = null; }
+}
+
+const cleaning = ref(false);
+const cleanupMsg = ref('');
+async function doCleanup() {
+  if (!confirm('평가가 낮아진 관심종목을 즉시 정리하시겠습니까?\n\n제거 기준:\n• 3일간 매수 신호 없음\n• 최신 추천 점수 < 40\n• 최근 5개 신호 평균 신뢰도 < 40%\n• 최근 3개 신호에 BUY 없음\n\n실보유 종목은 제외됩니다.')) return;
+  cleaning.value = true;
+  cleanupMsg.value = '';
+  try {
+    const { data } = await watchlistApi.cleanup();
+    cleanupMsg.value = `✅ ${data.message}`;
+    await fetchWatchlist();
+  } catch (err) {
+    cleanupMsg.value = `❌ ${err instanceof Error ? err.message : '정리 실패'}`;
+  }
+  cleaning.value = false;
 }
 
 onMounted(() => {

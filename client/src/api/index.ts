@@ -127,6 +127,7 @@ export const recommendationsApi = {
   updateStatus: (id: number, status: string) => api.patch(`/recommendations/${id}`, { status }),
   delete: (id: number) => api.delete(`/recommendations/${id}`),
   addToWatchlist: (id: number) => api.post(`/recommendations/${id}/watch`),
+  cleanup: () => api.post('/recommendations/cleanup'),
 };
 
 // 관심종목 API
@@ -136,6 +137,7 @@ export const watchlistApi = {
     api.post('/watchlist', data),
   update: (id: number, data: { auto_trade_enabled?: boolean; notes?: string }) =>
     api.patch(`/watchlist/${id}`, data),
+  cleanup: () => api.post('/watchlist/cleanup'),
   delete: (id: number) => api.delete(`/watchlist/${id}`),
 };
 
@@ -153,6 +155,7 @@ export const notificationsApi = {
 // 스케줄러 API
 export const schedulerApi = {
   getStatus: () => api.get('/scheduler/status'),
+  getFillRate: (days = 7) => api.get('/scheduler/fill-rate', { params: { days } }),
 };
 
 // 피드백 / 성과 분석 API

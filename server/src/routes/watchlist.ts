@@ -2,6 +2,7 @@ import { Router, Request, Response } from 'express';
 import { queryAll, queryOne, execute, logAudit } from '../db';
 import { validate } from '../middleware/validate';
 import { createWatchlistSchema, updateWatchlistSchema } from '../schemas';
+import { cleanupWatchlist } from '../services/scheduler/watchlistCleanup';
 
 const router = Router();
 
@@ -72,7 +73,17 @@ router.delete('/:id', (req: Request, res: Response) => {
 
   execute("UPDATE watchlist SET deleted_at = datetime('now') WHERE id = ?", [id]);
   logAudit('watchlist', id, 'DELETE', existing, null);
-  res.json({ message: '삭제 완��' });
+  res.json({ message: '삭제 완료' });
+});
+
+/** 낮은 평가 관심종목 일괄 정리 (수동 트리거) */
+router.post('/cleanup', (_req: Request, res: Response) => {
+  const result = cleanupWatchlist();
+  res.json({
+    success: true,
+    message: `${result.removed}개 제거, ${result.disabled}개 자동매매 비활성화`,
+    ...result,
+  });
 });
 
 export default router;

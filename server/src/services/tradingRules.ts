@@ -1,5 +1,5 @@
 import logger from '../logger';
-import { queryAll } from '../db';
+import { queryAll, queryOne } from '../db';
 import { getSettings } from './settings';
 
 // ── Types ──
@@ -91,6 +91,8 @@ export function applyTradingRules(
   isHolding: boolean,
   sectorContext?: SectorContext,
   quoteContext?: QuoteContext,
+  /** v4.11.0: stockId — SIGNAL_COOLDOWN, RECENT_LOSS_PENALTY 등 종목별 상태 기반 규칙용 */
+  stockId?: number,
 ): TradingRuleResult {
   const settings = getSettings();
   if (!settings.tradingRulesEnabled) {
@@ -351,6 +353,53 @@ export function applyTradingRules(
           if (settings.tradingRulesStrictMode) {
             adjustedSignal = 'HOLD';
             reasons.push('엄격 모드 — HOLD 전환');
+          }
+        }
+        break;
+
+      // v4.11.0: Rule 20 — 같은 종목 최근 30분 내 동일 방향 BUY 신호 반복 방지
+      case 'SIGNAL_COOLDOWN':
+        if (stockId && adjustedSignal === 'BUY') {
+          const cooldownMin = 30;
+          const recent = queryOne(
+            `SELECT id FROM trade_signals
+             WHERE stock_id = ? AND signal_type = 'BUY'
+               AND created_at >= datetime('now', '-' || ? || ' minutes')
+             LIMIT 1`,
+            [stockId, cooldownMin],
+          );
+          if (recent) {
+            totalConfidenceAdj -= 50;
+            triggered.push(rule.rule_id);
+            reasons.push(`${cooldownMin}분 내 동일 BUY 신호 존재 — 중복 판단 (신뢰도 -50)`);
+            if (settings.tradingRulesStrictMode || totalConfidenceAdj + signal.confidence < 50) {
+              adjustedSignal = 'HOLD';
+              reasons.push('쿨다운 위반 — HOLD 전환');
+            }
+          }
+        }
+        break;
+
+      // v4.11.0: Rule 21 — 최근 5건 중 2건 이상 손실 확정된 종목 패널티
+      case 'RECENT_LOSS_PENALTY':
+        if (stockId && adjustedSignal === 'BUY') {
+          const lossCheck = queryOne(
+            `SELECT COUNT(*) AS losses, COUNT(*) OVER () AS total FROM (
+               SELECT return_7d FROM signal_performance
+               WHERE stock_id = ? AND return_7d IS NOT NULL
+               ORDER BY created_at DESC LIMIT 5
+             ) WHERE return_7d < 0`,
+            [stockId],
+          );
+          const losses = Number(lossCheck?.losses ?? 0);
+          if (losses >= 2) {
+            totalConfidenceAdj -= 30;
+            triggered.push(rule.rule_id);
+            reasons.push(`최근 ${losses}건 손실 확정 — 신뢰도 -30`);
+            if (losses >= 3 || settings.tradingRulesStrictMode) {
+              adjustedSignal = 'HOLD';
+              reasons.push('반복 손실 종목 — HOLD 전환');
+            }
           }
         }
         break;
