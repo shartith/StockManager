@@ -12,6 +12,7 @@ import logger from '../../logger';
 import { Market, addLog, schedulerState } from './types';
 import { getHoldingInfo, fetchCandleData, fetchIntradayCandles, analyzeStock, sleep } from './helpers';
 import { evaluateSellRules, updatePeakPrice, resetPeakPrice } from '../sellRules';
+import { autoCreatePaperBuy, getPaperHoldings, executePaperSell } from '../paperTrading';
 
 /** 위험 감지 즉시 매도 판단 */
 function checkEmergencySell(holding: any, currentPrice: number, stockId: number): { sell: boolean; reason: string } {
@@ -222,6 +223,7 @@ export async function runContinuousMonitor(market: Market) {
             "SELECT COUNT(*) as cnt FROM auto_trades WHERE stock_id = ? AND order_type = 'BUY' AND date(created_at) = date('now') AND status IN ('SUBMITTED', 'FILLED')",
             [stock.id]
           );
+          let realBought = false;
           if ((todayOrders?.cnt ?? 0) < 3) {
             const result = await executeOrder({
               stockId: stock.id, ticker: stock.ticker, market: stock.market as any,
@@ -229,6 +231,7 @@ export async function runContinuousMonitor(market: Market) {
             });
             if (result.success) {
               actions++;
+              realBought = true;
               addLog(market, 'POST_OPEN', 'completed',
                 `장중 매수: ${stock.ticker} ${result.quantity}주 (변동 ${changeRate.toFixed(1)}%, 신뢰도 ${decision.confidence}%)`);
               createNotification({
@@ -239,6 +242,23 @@ export async function runContinuousMonitor(market: Market) {
             } else {
               addLog(market, 'POST_OPEN', 'error',
                 `장중 매수 실패: ${stock.ticker} — ${result.message || '알 수 없는 오류'}`);
+            }
+          }
+
+          // 실매수 안 되었으면 가상매수 시도 (paperTradingEnabled + 실 종목 중복 금지)
+          if (!realBought && settings.paperTradingEnabled) {
+            const paperResult = await autoCreatePaperBuy({
+              stockId: stock.id, ticker: stock.ticker, market: stock.market || market,
+              currentPrice,
+            });
+            if (paperResult.created) {
+              addLog(market, 'POST_OPEN', 'completed',
+                `가상매수: ${stock.ticker} ${paperResult.quantity}주 @ ${currentPrice.toLocaleString()} (실매수 불가 → 학습 데이터화)`);
+              createNotification({
+                type: 'AUTO_TRADE', title: '가상매수',
+                message: `${stock.ticker} ${paperResult.quantity}주 가상매수 (학습 데이터)`,
+                ticker: stock.ticker, market, actionUrl: '/transactions',
+              });
             }
           }
         } else if (decision.signal === 'SELL' && decision.confidence >= 60 && holding && holding.quantity > 0) {
@@ -269,6 +289,49 @@ export async function runContinuousMonitor(market: Market) {
 
   if (actions > 0) {
     logger.info(`[Scheduler] [${market}] 장중 모니터링: ${actions}건 매매 실행`);
+  }
+
+  // === 가상 보유 종목 매도 규칙 평가 (실 매도와 동일 sellRules 적용) ===
+  if (settings.paperTradingEnabled && settings.sellRulesEnabled) {
+    const paperHoldings = getPaperHoldings();
+    for (const ph of paperHoldings) {
+      const ph_market = ph.market || market;
+      // 시장 필터 — 현재 호출된 market에 해당하는 종목만 처리
+      const isMatched =
+        (market === 'NYSE' && ['NYSE', 'NASDAQ', 'NASD', 'AMEX'].includes(ph_market)) ||
+        ph_market === market;
+      if (!isMatched) continue;
+
+      const phPrice = prices.get(ph.ticker);
+      if (!phPrice) continue;
+
+      const unrealizedPnLPercent = ((phPrice - ph.avgPrice) / ph.avgPrice) * 100;
+      const result = evaluateSellRules({
+        stockId: ph.stock_id,
+        ticker: ph.ticker,
+        currentPrice: phPrice,
+        avgPrice: ph.avgPrice,
+        quantity: ph.quantity,
+        unrealizedPnLPercent,
+      });
+      if (result.shouldSell) {
+        try {
+          const sellResult = executePaperSell(ph.stock_id, phPrice, result.rule || 'UNKNOWN');
+          if (sellResult.sold) {
+            resetPeakPrice(ph.stock_id);
+            addLog(market, 'POST_OPEN', 'completed',
+              `가상매도: ${ph.ticker} ${ph.quantity}주 — ${result.reason} (P&L ${sellResult.pnl?.toLocaleString()}원, ${sellResult.pnlPercent?.toFixed(1)}%)`);
+            createNotification({
+              type: 'AUTO_TRADE', title: `가상매도 (${result.rule})`,
+              message: `${ph.ticker} ${ph.quantity}주 가상매도 — ${result.reason}, 손익 ${sellResult.pnl?.toLocaleString()}원`,
+              ticker: ph.ticker, market, actionUrl: '/transactions',
+            });
+          }
+        } catch (err) { logger.error({ err, ticker: ph.ticker }, 'Paper sell execution failed'); }
+      } else {
+        // 가상 보유도 sellRules의 peak tracking에 포함됨 (updatePeakPrice는 evaluateSellRules 내부에서 호출됨)
+      }
+    }
   }
 
   // 미체결 주문 관리 (국내만)

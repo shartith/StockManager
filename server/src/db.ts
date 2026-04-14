@@ -470,6 +470,46 @@ export async function initializeDB(): Promise<Db> {
   try { dbRun('ALTER TABLE watchlist ADD COLUMN deleted_at DATETIME'); } catch {}
   try { dbRun('ALTER TABLE recommendations ADD COLUMN deleted_at DATETIME'); } catch {}
 
+  // --- v4.10.0: Paper Trading (가상매매) 테이블 ---
+  // 추천 BUY 신호가 발생했지만 실매매가 안 된 종목을 자동 가상 매수/매도하여
+  // 학습 데이터로 활용. transactions/auto_trades와 분리되어 실 매매 평균단가를
+  // 오염시키지 않음.
+  dbRun(`
+    CREATE TABLE IF NOT EXISTS paper_trades (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      stock_id INTEGER NOT NULL,
+      signal_id INTEGER,
+      recommendation_id INTEGER,
+      order_type TEXT NOT NULL CHECK(order_type IN ('BUY', 'SELL')),
+      quantity REAL NOT NULL,
+      price REAL NOT NULL,
+      fee REAL DEFAULT 0,
+      pair_id INTEGER,
+      reason TEXT DEFAULT '',
+      pnl REAL,
+      pnl_percent REAL,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (stock_id) REFERENCES stocks(id) ON DELETE CASCADE,
+      FOREIGN KEY (signal_id) REFERENCES trade_signals(id),
+      FOREIGN KEY (recommendation_id) REFERENCES recommendations(id)
+    )
+  `);
+  dbRun('CREATE INDEX IF NOT EXISTS idx_paper_trades_stock ON paper_trades(stock_id)');
+  dbRun('CREATE INDEX IF NOT EXISTS idx_paper_trades_pair ON paper_trades(pair_id)');
+  dbRun('CREATE INDEX IF NOT EXISTS idx_paper_trades_signal ON paper_trades(signal_id)');
+  dbRun('CREATE INDEX IF NOT EXISTS idx_paper_trades_created ON paper_trades(created_at)');
+
+  // signal_performance에 paper 구분 + 링크 컬럼 추가 (정확도 평가 시 합산용)
+  try { dbRun('ALTER TABLE signal_performance ADD COLUMN is_paper INTEGER DEFAULT 0'); } catch {}
+  try { dbRun('ALTER TABLE signal_performance ADD COLUMN paper_trade_id INTEGER'); } catch {}
+
+  // --- v4.10.0: market 코드 정규화 마이그레이션 ---
+  // 'NASD' → 'NASDAQ', 'NYS' → 'NYSE', 'NAS' → 'NASDAQ', 'AMS' → 'AMEX' 통일
+  try { dbRun("UPDATE stocks SET market='NASDAQ' WHERE UPPER(market) IN ('NASD', 'NAS')"); } catch {}
+  try { dbRun("UPDATE stocks SET market='NYSE' WHERE UPPER(market) IN ('NYS')"); } catch {}
+  try { dbRun("UPDATE stocks SET market='AMEX' WHERE UPPER(market) IN ('AMS')"); } catch {}
+  try { dbRun("UPDATE stocks SET market='KRX' WHERE UPPER(market) IN ('KOSPI', 'KOSDAQ')"); } catch {}
+
   // No saveDB() needed at the end of initializeDB — better-sqlite3 writes
   // changes directly to the on-disk file as they happen.
   return db;

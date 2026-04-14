@@ -23,6 +23,7 @@ import { getSettings } from './settings';
 import { loadWeights } from './weightOptimizer';
 import { checkPromotionEligibility } from './portfolioManager';
 import type { QuoteBook } from './quoteBook';
+import { normalizeMarket } from './marketNormalizer';
 import logger from '../logger';
 
 // ─── 스코어 타입 ──────────────────────────────────────────
@@ -274,7 +275,7 @@ function promoteToWatchlist(ticker: string, market: string, score: number): bool
   let stock = queryOne('SELECT id FROM stocks WHERE ticker = ?', [ticker]);
   if (!stock) {
     const rec = queryOne("SELECT name FROM recommendations WHERE ticker = ? AND status = 'ACTIVE'", [ticker]);
-    execute('INSERT INTO stocks (ticker, name, market) VALUES (?, ?, ?)', [ticker, rec?.name || ticker, market]);
+    execute('INSERT INTO stocks (ticker, name, market) VALUES (?, ?, ?)', [ticker, rec?.name || ticker, normalizeMarket(market)]);
     stock = queryOne('SELECT id FROM stocks WHERE ticker = ?', [ticker]);
   }
 
@@ -327,7 +328,7 @@ async function promoteToWatchlistAndTrade(ticker: string, market: string, score:
   let stock = queryOne('SELECT id FROM stocks WHERE ticker = ?', [ticker]);
   if (!stock) {
     const rec = queryOne("SELECT name FROM recommendations WHERE ticker = ? AND status = 'ACTIVE'", [ticker]);
-    execute('INSERT INTO stocks (ticker, name, market) VALUES (?, ?, ?)', [ticker, rec?.name || ticker, market]);
+    execute('INSERT INTO stocks (ticker, name, market) VALUES (?, ?, ?)', [ticker, rec?.name || ticker, normalizeMarket(market)]);
     stock = queryOne('SELECT id FROM stocks WHERE ticker = ?', [ticker]);
   }
 

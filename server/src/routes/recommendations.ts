@@ -5,6 +5,7 @@ import { getTradeDecision, buildAnalysisInput, AnalysisPhase } from '../services
 import { collectAndCacheNews, getCachedNews, summarizeNewsWithAI } from '../services/newsCollector';
 import { getAccessToken, getKisConfig } from '../services/kisAuth';
 import { getSettings } from '../services/settings';
+import { normalizeMarket } from '../services/marketNormalizer';
 import { validate } from '../middleware/validate';
 import { asyncHandler } from '../middleware/errorHandler';
 import { createRecommendationSchema, updateRecommendationStatusSchema, generateRecommendationSchema } from '../schemas';
@@ -357,10 +358,10 @@ router.post('/:id/watch', (req: Request, res: Response) => {
   const rec = queryOne('SELECT * FROM recommendations WHERE id = ?', [Number(req.params.id)]);
   if (!rec) return res.status(404).json({ error: '추천 종목을 찾을 수 없습니다' });
 
-  // 종목이 없으면 생성
+  // 종목이 없으면 생성 (market 코드 정규화)
   let stock = queryOne('SELECT id FROM stocks WHERE ticker = ?', [rec.ticker]);
   if (!stock) {
-    execute('INSERT INTO stocks (ticker, name, market) VALUES (?, ?, ?)', [rec.ticker, rec.name, rec.market]);
+    execute('INSERT INTO stocks (ticker, name, market) VALUES (?, ?, ?)', [rec.ticker, rec.name, normalizeMarket(rec.market)]);
     stock = queryOne('SELECT id FROM stocks WHERE ticker = ?', [rec.ticker]);
   }
 

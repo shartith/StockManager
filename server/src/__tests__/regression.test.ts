@@ -85,6 +85,7 @@ describe('Settings <-> Zod schema parity', () => {
     'trailingStopRate', 'maxHoldMinutes',
     'positionMaxRatio', 'positionMinCashRatio', 'positionMaxPositions',
     'dynamicScreeningEnabled', 'screeningVolumeRatioMin', 'screeningMinMarketCap',
+    'paperTradingEnabled', 'paperTradeAmount',
   ];
 
   // Fields that have a known mapping difference between AppSettings and

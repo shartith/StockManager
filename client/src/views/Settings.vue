@@ -676,6 +676,47 @@
         </div>
       </div>
 
+      <!-- 섹션: 가상매매 (v4.10.0) -->
+      <div class="bg-surface-1 rounded-xl border border-border shadow-sm overflow-hidden">
+        <div class="px-6 py-4 bg-surface-2 border-b border-border">
+          <div class="flex items-center justify-between">
+            <div>
+              <h3 class="text-sm font-semibold text-txt-primary">가상매매 (Paper Trading)</h3>
+              <p class="text-xs text-txt-secondary mt-0.5">추천 BUY 신호가 발생했지만 실매매가 안 된 종목을 자동으로 가상 매수하여 학습 데이터로 활용합니다.</p>
+            </div>
+            <label class="flex items-center gap-2 cursor-pointer">
+              <div class="relative inline-block">
+                <input type="checkbox" v-model="form.paperTradingEnabled" class="sr-only" />
+                <div class="w-9 h-5 rounded-full transition-colors" :class="form.paperTradingEnabled ? 'bg-primary' : 'bg-surface-3'"></div>
+                <div class="absolute top-0.5 left-0.5 w-4 h-4 bg-white rounded-full shadow transition-transform" :class="form.paperTradingEnabled ? 'translate-x-4' : 'translate-x-0'"></div>
+              </div>
+              <span class="text-sm text-txt-primary">활성화</span>
+            </label>
+          </div>
+        </div>
+        <div class="p-6 space-y-4" :class="{ 'opacity-50 pointer-events-none': !form.paperTradingEnabled }">
+          <div>
+            <label class="block text-sm font-medium text-txt-primary mb-1">종목당 가상매수 금액 (KRW)</label>
+            <div class="flex items-center gap-2">
+              <input v-model.number="form.paperTradeAmount" type="number" min="10000" step="100000"
+                class="w-40 border border-border rounded-lg px-3 py-2 text-sm tabular-nums text-right focus:outline-none focus:ring-2 focus:ring-accent" />
+              <span class="text-sm text-txt-secondary">원</span>
+              <span class="text-xs text-txt-tertiary">({{ (form.paperTradeAmount / 10000).toLocaleString() }}만원)</span>
+            </div>
+            <p class="text-xs text-txt-tertiary mt-1">가상매수 시 종목당 투자 금액. 해외 종목은 USD/KRW 환율로 환산하여 수량 계산. 기본 100만원.</p>
+          </div>
+          <div class="bg-surface-2 rounded-lg p-3 text-xs text-txt-secondary">
+            <p class="font-semibold mb-2">가상매매 규칙:</p>
+            <ul class="space-y-1 ml-2">
+              <li>• <strong>중복 방지</strong>: 실매매로 보유 중인 종목은 가상매매하지 않습니다 (transactions/auto_trades 합산 체크)</li>
+              <li>• <strong>매도</strong>: 위 매도 규칙 4종(목표수익률/손절/트레일링/시간초과)을 동일하게 적용</li>
+              <li>• <strong>학습 합산</strong>: 정확도 평가/가중치 최적화 시 가상매매 데이터도 자동 합산 (signal_performance.is_paper)</li>
+              <li>• <strong>전용 화면</strong>: Portfolio · Transactions · 차트에서 실/가상 구분 표시</li>
+            </ul>
+          </div>
+        </div>
+      </div>
+
       <!-- 섹션: 데이터 동기화 (NAS) -->
       <div class="bg-surface-1 rounded-xl border border-border shadow-sm overflow-hidden">
         <div class="px-6 py-4 bg-surface-2 border-b border-border">
@@ -1127,6 +1168,10 @@ const form = ref({
   screeningVolumeRatioMin: 1.5,
   screeningMinMarketCap: 500,
 
+  // v4.10.0: 가상매매
+  paperTradingEnabled: true,
+  paperTradeAmount: 1_000_000,
+
   nasSyncEnabled: false,
   nasSyncPath: '',
   nasSyncTime: '0 20 * * *',
@@ -1394,6 +1439,10 @@ async function loadConfig() {
     form.value.dynamicScreeningEnabled = saved.dynamicScreeningEnabled ?? true;
     form.value.screeningVolumeRatioMin = saved.screeningVolumeRatioMin ?? 1.5;
     form.value.screeningMinMarketCap = saved.screeningMinMarketCap ?? 500;
+
+    // v4.10.0: 가상매매
+    form.value.paperTradingEnabled = saved.paperTradingEnabled ?? true;
+    form.value.paperTradeAmount = saved.paperTradeAmount ?? 1_000_000;
 
     form.value.nasSyncEnabled = saved.nasSyncEnabled ?? false;
     form.value.nasSyncPath = saved.nasSyncPath || '';

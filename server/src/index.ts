@@ -28,6 +28,7 @@ import feedbackRouter from './routes/feedback';
 import tradingRulesRouter from './routes/tradingRules';
 import nasSyncRouter from './routes/nasSync';
 import heatmapRouter from './routes/heatmap';
+import paperTradingRouter from './routes/paperTrading';
 import { getSettings } from './services/settings';
 import { startScheduler, stopScheduler, getSchedulerStatus } from './services/scheduler';
 import { getRecentEvents, getUnresolvedEvents, getEventCounts, resolveEvent, deleteEvent, deleteAllEvents } from './services/systemEvent';
@@ -103,6 +104,7 @@ app.use('/api/feedback', feedbackRouter);
 app.use('/api/trading-rules', tradingRulesRouter);
 app.use('/api/nas-sync', nasSyncRouter);
 app.use('/api/heatmap', heatmapRouter);
+app.use('/api/paper-trading', paperTradingRouter);
 
 // ── WS token endpoint ──
 app.get('/api/ws-token', (_req, res) => {

@@ -256,7 +256,17 @@ export interface PositionSizingResult {
  * 이 함수는 사용자 지정 규칙(positionMaxRatio/positionMinCashRatio/
  * positionMaxPositions)을 반영한 추가 gate 역할.
  */
-export function checkPositionSizingRules(price: number, _market: string): PositionSizingResult {
+/**
+ * @param price 주문가 (KRX는 KRW, 해외는 USD)
+ * @param market 'KRX' | 'NYSE' | 'NASDAQ' | 'NASD' | 'AMEX' | ''
+ * @param fxRate 해외 종목의 USD→KRW 환율 (KRX는 무시). 기본 1.
+ *   호출처에서 stockPrice.getMarketContext().usdKrw로 조달 권장.
+ */
+export function checkPositionSizingRules(
+  price: number,
+  market: string,
+  fxRate: number = 1,
+): PositionSizingResult {
   const settings = getSettings();
   const portfolio = getTotalPortfolioValue();
 
@@ -286,13 +296,13 @@ export function checkPositionSizingRules(price: number, _market: string): Positi
     };
   }
 
-  // 3. 단일 종목 최대 투자 한도
+  // 3. 단일 종목 최대 투자 한도 (KRW 기준)
   const maxRatio = settings.positionMaxRatio ?? 25;
   const maxInvestPerStock = totalBudget * (maxRatio / 100);
 
-  // 4. 매수 금액 = min(종목 한도, 가용 현금 × 0.9)
-  const buyAmount = Math.min(maxInvestPerStock, cash * 0.9);
-  if (buyAmount <= 0 || price <= 0) {
+  // 4. 매수 금액 = min(종목 한도, 가용 현금 × 0.9) — KRW 기준
+  const buyAmountKrw = Math.min(maxInvestPerStock, cash * 0.9);
+  if (buyAmountKrw <= 0 || price <= 0) {
     return {
       allowed: false,
       reason: '매수 가능 금액 없음',
@@ -301,19 +311,26 @@ export function checkPositionSizingRules(price: number, _market: string): Positi
     };
   }
 
-  const qty = Math.floor(buyAmount / price);
+  // 해외 종목: price(USD) × fxRate = priceKrw 기준으로 수량 계산.
+  // 환율 미공급(=1) 시 fallback으로 동일 단위 처리. KRX는 fxRate=1 자명.
+  const isOverseas = market !== 'KRX' && market !== '';
+  const effectiveFxRate = isOverseas ? fxRate : 1;
+  const priceKrw = price * effectiveFxRate;
+
+  const qty = Math.floor(buyAmountKrw / priceKrw);
   if (qty <= 0) {
     return {
       allowed: false,
-      reason: `주가(${price.toLocaleString()})가 매수 가능 금액(${Math.round(buyAmount).toLocaleString()})을 초과`,
-      maxBuyAmount: buyAmount,
+      reason: `주가(${price.toLocaleString()}${isOverseas ? ' USD' : ''})가 매수 가능 금액(${Math.round(buyAmountKrw).toLocaleString()}원)을 초과`,
+      maxBuyAmount: buyAmountKrw,
       maxBuyQuantity: 0,
     };
   }
 
   return {
     allowed: true,
-    maxBuyAmount: buyAmount,
+    // maxBuyAmount는 KRW 기준 그대로 반환 (호출처 정보용)
+    maxBuyAmount: buyAmountKrw,
     maxBuyQuantity: qty,
   };
 }

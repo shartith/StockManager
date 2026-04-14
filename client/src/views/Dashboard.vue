@@ -340,6 +340,40 @@
         </div>
       </div>
 
+      <!-- 가상매매(Paper Trading) 요약 -->
+      <div v-if="paperSummary" class="solid-card mb-8 overflow-hidden border-l-4 border-purple-500">
+        <div class="p-5 border-b border-border flex items-center justify-between">
+          <div>
+            <h3 class="text-sm font-semibold text-txt-secondary">🧪 가상매매 현황 <span class="text-xs font-normal text-purple-500 ml-1">학습 데이터</span></h3>
+            <p class="text-xs text-txt-tertiary mt-1">실매매 안 된 추천 종목을 자동 가상매수하여 모델 정확도 평가에 활용</p>
+          </div>
+        </div>
+        <div class="p-5 grid grid-cols-2 md:grid-cols-4 gap-4">
+          <div>
+            <p class="text-xs text-txt-secondary mb-1">오픈 포지션</p>
+            <p class="text-2xl font-bold text-txt-primary">{{ paperSummary.openPositions }}<span class="text-sm text-txt-tertiary ml-1">종목</span></p>
+          </div>
+          <div>
+            <p class="text-xs text-txt-secondary mb-1">실현 손익</p>
+            <p class="text-2xl font-bold tabular-nums" :class="paperSummary.totalRealizedPnL >= 0 ? 'text-profit' : 'text-loss'">
+              {{ paperSummary.totalRealizedPnL >= 0 ? '+' : '' }}{{ Math.round(paperSummary.totalRealizedPnL).toLocaleString() }}<span class="text-sm text-txt-tertiary ml-1">원</span>
+            </p>
+          </div>
+          <div>
+            <p class="text-xs text-txt-secondary mb-1">평균 수익률</p>
+            <p class="text-2xl font-bold" :class="paperSummary.totalRealizedPnLPercent >= 0 ? 'text-profit' : 'text-loss'">
+              {{ paperSummary.totalRealizedPnLPercent >= 0 ? '+' : '' }}{{ paperSummary.totalRealizedPnLPercent.toFixed(1) }}%
+            </p>
+          </div>
+          <div>
+            <p class="text-xs text-txt-secondary mb-1">승률 ({{ paperSummary.closedTrades }}건)</p>
+            <p class="text-2xl font-bold" :class="paperSummary.winRate >= 50 ? 'text-profit' : 'text-loss'">
+              {{ paperSummary.winRate }}%
+            </p>
+          </div>
+        </div>
+      </div>
+
       <!-- 보유 종목 테이블 -->
       <div class="solid-card overflow-hidden">
         <div class="p-5 border-b border-border">
@@ -399,7 +433,7 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, inject, type Ref } from 'vue';
 import { usePortfolioStore } from '@/stores/portfolio';
-import { chartApi, schedulerApi, analysisApi, systemEventsApi } from '@/api';
+import { chartApi, schedulerApi, analysisApi, systemEventsApi, paperTradingApi } from '@/api';
 import { useAutoRefresh } from '@/composables/useAutoRefresh';
 
 // v4.7.3: pull the toast singleton provided by App.vue so destructive
@@ -614,11 +648,30 @@ async function loadMarketContext() {
   } catch {}
 }
 
+interface PaperSummary {
+  openPositions: number;
+  totalRealizedPnL: number;
+  totalRealizedPnLPercent: number;
+  closedTrades: number;
+  winRate: number;
+}
+const paperSummary = ref<PaperSummary | null>(null);
+
+async function loadPaperSummary() {
+  try {
+    const { data } = await paperTradingApi.getSummary();
+    paperSummary.value = data;
+  } catch {
+    paperSummary.value = null;
+  }
+}
+
 onMounted(async () => {
   await checkKisConfig();
   store.fetchSummary();
   loadSystemStatus();
   loadMarketContext();
   loadSystemEvents();
+  loadPaperSummary();
 });
 </script>

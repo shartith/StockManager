@@ -2,6 +2,7 @@ import { Router, Request, Response } from 'express';
 import { getAccessToken, getKisConfig } from '../services/kisAuth';
 import { getSettings, saveSettings } from '../services/settings';
 import { startScheduler } from '../services/scheduler';
+import { normalizeMarket } from '../services/marketNormalizer';
 import { queryOne, queryAll, execute, logAudit } from '../db';
 import { getMarketContext } from '../services/stockPrice';
 import { getDomesticOrderableAmount } from '../services/kisOrder';
@@ -103,6 +104,10 @@ router.get('/config/form', (_req: Request, res: Response) => {
     dynamicScreeningEnabled: settings.dynamicScreeningEnabled,
     screeningVolumeRatioMin: settings.screeningVolumeRatioMin,
     screeningMinMarketCap: settings.screeningMinMarketCap,
+
+    // v4.10.0: 가상매매
+    paperTradingEnabled: settings.paperTradingEnabled,
+    paperTradeAmount: settings.paperTradeAmount,
   });
 });
 
@@ -189,6 +194,10 @@ router.post('/config', validate(saveConfigSchema), (req: Request, res: Response)
     dynamicScreeningEnabled: req.body.dynamicScreeningEnabled ?? true,
     screeningVolumeRatioMin: Number(req.body.screeningVolumeRatioMin) || 1.5,
     screeningMinMarketCap: Number(req.body.screeningMinMarketCap) || 500,
+
+    // v4.10.0: 가상매매
+    paperTradingEnabled: req.body.paperTradingEnabled ?? true,
+    paperTradeAmount: Number(req.body.paperTradeAmount) || 1_000_000,
   });
 
   process.env.KIS_APP_KEY = appKey;
@@ -641,7 +650,7 @@ const dbReconcileDeps: ReconcileDeps = {
     return row?.id ?? null;
   },
   insertStock(ticker, name, market) {
-    execute('INSERT INTO stocks (ticker, name, market, sector) VALUES (?, ?, ?, ?)', [ticker, name, market, '']);
+    execute('INSERT INTO stocks (ticker, name, market, sector) VALUES (?, ?, ?, ?)', [ticker, name, normalizeMarket(market), '']);
     const row = queryOne('SELECT id FROM stocks WHERE ticker = ?', [ticker]);
     return row?.id ?? 0;
   },

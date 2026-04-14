@@ -13,6 +13,7 @@ import logger from '../../logger';
 import { Market, addLog } from './types';
 import { fetchCandleData, analyzeStock, sleep } from './helpers';
 import { runDynamicScreening } from '../stockScreener';
+import { autoCreatePaperBuy } from '../paperTrading';
 
 /** 장 시작 전: 뉴스 수집 + 초기 분석 + 즉시 매수 */
 export async function runMarketOpen(market: Market) {
@@ -86,6 +87,7 @@ export async function runMarketOpen(market: Market) {
             "SELECT id FROM auto_trades WHERE stock_id = ? AND order_type = 'BUY' AND date(created_at) = date('now')",
             [stock.id]
           );
+          let realBought = false;
           if (!alreadyOrdered) {
             try {
               // 30% 수량만 매수 (1차 분할)
@@ -101,6 +103,7 @@ export async function runMarketOpen(market: Market) {
                   // split_stage=1 기록
                   execute("UPDATE auto_trades SET split_stage = 1 WHERE stock_id = ? AND order_type = 'BUY' AND date(created_at) = date('now') AND status = 'FILLED'", [stock.id]);
                   buyCount++;
+                  realBought = true;
                   addLog(market, 'PRE_OPEN', 'completed',
                     `1차 분할매수(30%): ${stock.ticker} ${splitQty}주 @ ${result.price?.toLocaleString()} (신뢰도 ${decision.confidence}%)`);
                   createNotification({
@@ -114,6 +117,28 @@ export async function runMarketOpen(market: Market) {
                 }
               }
             } catch (err) { logger.error({ err, ticker: stock.ticker }, 'Split buy order execution failed'); }
+          }
+
+          // 실매수 안 되었으면 가상매수 (학습 데이터화)
+          if (!realBought && settings.paperTradingEnabled) {
+            try {
+              const price = await getCurrentPrice(stock.ticker, stock.market as any);
+              if (price && price > 0) {
+                const paperResult = await autoCreatePaperBuy({
+                  stockId: stock.id, ticker: stock.ticker, market: stock.market || market,
+                  currentPrice: price,
+                });
+                if (paperResult.created) {
+                  addLog(market, 'PRE_OPEN', 'completed',
+                    `가상매수: ${stock.ticker} ${paperResult.quantity}주 @ ${price.toLocaleString()} (실매수 불가 → 학습 데이터)`);
+                  createNotification({
+                    type: 'AUTO_TRADE', title: '가상매수 (PRE_OPEN)',
+                    message: `${stock.ticker} ${paperResult.quantity}주 가상매수 — 학습 데이터`,
+                    ticker: stock.ticker, market, actionUrl: '/transactions',
+                  });
+                }
+              }
+            } catch (err) { logger.error({ err, ticker: stock.ticker }, 'Paper buy failed'); }
           }
         }
       }

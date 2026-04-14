@@ -222,6 +222,14 @@ export const nasSyncApi = {
 };
 
 // 히트맵 API
+export const paperTradingApi = {
+  getHoldings: () => api.get('/paper-trading/holdings'),
+  getSummary: () => api.get('/paper-trading/summary'),
+  getHistory: () => api.get('/paper-trading/history'),
+  sell: (stockId: number, currentPrice?: number) =>
+    api.post(`/paper-trading/sell/${stockId}`, currentPrice ? { currentPrice } : {}),
+};
+
 export const heatmapApi = {
   getPortfolio: () => api.get('/heatmap/portfolio'),
   getMarket: (market: 'KRX' | 'US') => api.get('/heatmap/market', { params: { market } }),

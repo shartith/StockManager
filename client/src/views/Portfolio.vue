@@ -155,6 +155,54 @@
       <div class="h-72"><PortfolioHistoryChart /></div>
     </div>
 
+    <!-- 가상 보유 종목 (Paper Trading) -->
+    <div v-if="paperHoldings.length > 0" class="mt-6 glass-card p-5 border-l-4 border-purple-500">
+      <div class="flex items-center justify-between mb-4">
+        <div>
+          <h3 class="font-semibold text-txt-primary">🧪 가상 보유 종목 <span class="text-xs font-normal text-purple-500 ml-1">학습 데이터</span></h3>
+          <p class="text-xs text-txt-tertiary mt-1">시스템이 추천했지만 실매매 안 된 종목 — 매도 규칙 동일 적용</p>
+        </div>
+        <button @click="loadPaperHoldings" class="text-xs text-accent hover:underline">새로고침</button>
+      </div>
+      <div class="overflow-x-auto">
+        <table class="w-full text-sm">
+          <thead>
+            <tr class="text-left text-xs text-txt-secondary border-b border-border">
+              <th class="px-3 py-2">종목</th>
+              <th class="px-3 py-2 text-right">수량</th>
+              <th class="px-3 py-2 text-right">매수가</th>
+              <th class="px-3 py-2 text-right">현재가</th>
+              <th class="px-3 py-2 text-right">평가손익</th>
+              <th class="px-3 py-2 text-right">수익률</th>
+              <th class="px-3 py-2 text-right">매수일</th>
+              <th class="px-3 py-2 text-center">조작</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="ph in paperHoldings" :key="ph.stock_id" class="border-b border-border-subtle hover:bg-surface-2">
+              <td class="px-3 py-2">
+                <div class="font-medium text-txt-primary">{{ ph.ticker }}</div>
+                <div class="text-xs text-txt-tertiary">{{ ph.name }} · {{ ph.market }}</div>
+              </td>
+              <td class="px-3 py-2 text-right tabular-nums">{{ ph.quantity }}</td>
+              <td class="px-3 py-2 text-right tabular-nums text-txt-secondary">{{ Math.round(ph.avgPrice).toLocaleString() }}</td>
+              <td class="px-3 py-2 text-right tabular-nums">{{ ph.currentPrice ? Math.round(ph.currentPrice).toLocaleString() : '-' }}</td>
+              <td class="px-3 py-2 text-right tabular-nums" :class="(ph.unrealizedPnL ?? 0) >= 0 ? 'text-profit' : 'text-loss'">
+                {{ ph.unrealizedPnL != null ? (ph.unrealizedPnL >= 0 ? '+' : '') + Math.round(ph.unrealizedPnL).toLocaleString() : '-' }}
+              </td>
+              <td class="px-3 py-2 text-right" :class="(ph.unrealizedPnLPercent ?? 0) >= 0 ? 'text-profit' : 'text-loss'">
+                {{ ph.unrealizedPnLPercent != null ? (ph.unrealizedPnLPercent >= 0 ? '+' : '') + ph.unrealizedPnLPercent.toFixed(2) + '%' : '-' }}
+              </td>
+              <td class="px-3 py-2 text-right text-xs text-txt-tertiary">{{ ph.buyDate?.slice(0, 10) }}</td>
+              <td class="px-3 py-2 text-center">
+                <button @click="manualPaperSell(ph.stock_id, ph.ticker)" class="text-xs text-loss hover:underline">수동 매도</button>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
     <!-- 자산 배분 -->
     <div v-if="summary && summary.allocation.length > 1" class="mt-6 glass-card p-5">
       <h3 class="font-semibold text-txt-primary mb-4">자산 배분</h3>
@@ -366,7 +414,7 @@
 
 <script setup lang="ts">
 import { ref, onMounted } from 'vue';
-import { portfolioApi, transactionsApi, analysisApi } from '@/api';
+import { portfolioApi, transactionsApi, analysisApi, paperTradingApi } from '@/api';
 // v4.7.0: lazy-load ChartModal to keep lightweight-charts (~170KB) out of
 // the initial Portfolio bundle. The chart only loads when the user clicks
 // the 차트 button.
@@ -487,7 +535,44 @@ async function loadPortfolio() {
   loading.value = false;
 }
 
-onMounted(loadPortfolio);
+// ─── 가상매매(Paper Trading) ─────────────────────────────────
+interface PaperHolding {
+  stock_id: number;
+  ticker: string;
+  name: string;
+  market: string;
+  quantity: number;
+  avgPrice: number;
+  currentPrice?: number | null;
+  unrealizedPnL?: number;
+  unrealizedPnLPercent?: number;
+  buyDate?: string;
+}
+const paperHoldings = ref<PaperHolding[]>([]);
+
+async function loadPaperHoldings() {
+  try {
+    const { data } = await paperTradingApi.getHoldings();
+    paperHoldings.value = data;
+  } catch {
+    paperHoldings.value = [];
+  }
+}
+
+async function manualPaperSell(stockId: number, ticker: string) {
+  if (!confirm(`${ticker} 가상 보유분을 수동 매도하시겠습니까? (시뮬레이션이라 실 자산 영향 없음)`)) return;
+  try {
+    await paperTradingApi.sell(stockId);
+    await loadPaperHoldings();
+  } catch {
+    alert('가상 매도 실패');
+  }
+}
+
+onMounted(() => {
+  loadPortfolio();
+  loadPaperHoldings();
+});
 </script>
 
 <style scoped>

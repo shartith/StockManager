@@ -43,9 +43,11 @@
         <option v-for="s in stocks" :key="s.id" :value="s.id">{{ s.ticker }} {{ s.name }}</option>
       </select>
       <select v-model="filter.source" class="border border-border rounded-lg px-3 py-1.5 text-sm">
-        <option value="">전체 (자동/수동)</option>
-        <option value="manual">수동</option>
-        <option value="auto">자동</option>
+        <option value="">전체 (실/가상)</option>
+        <option value="manual">수동 (실)</option>
+        <option value="auto">자동매매 (실)</option>
+        <option value="paper">🧪 가상매매</option>
+        <option value="real">실매매만 (수동+자동)</option>
       </select>
     </div>
 
@@ -135,7 +137,8 @@
                   :class="t.type === 'BUY' ? 'bg-red-100 text-red-700' : 'bg-blue-100 text-blue-700'">
                   {{ t.type === 'BUY' ? '매수' : '매도' }}
                 </span>
-                <span v-if="isAutoTrade(t)" class="ml-1 px-1.5 py-0.5 rounded text-xs bg-purple-100 text-purple-700">자동</span>
+                <span v-if="t.is_paper" class="ml-1 px-1.5 py-0.5 rounded text-xs bg-purple-200 text-purple-800 font-bold">🧪 가상</span>
+                <span v-else-if="isAutoTrade(t)" class="ml-1 px-1.5 py-0.5 rounded text-xs bg-purple-100 text-purple-700">자동</span>
               </td>
               <td class="text-right px-4 py-3">{{ t.quantity }}</td>
               <td class="text-right px-4 py-3">{{ formatNumber(t.price) }}</td>
@@ -147,7 +150,8 @@
               </td>
               <td class="px-4 py-3 text-txt-tertiary text-xs max-w-[150px] truncate">{{ t.memo || '-' }}</td>
               <td class="px-4 py-3 text-center">
-                <button @click="deleteTransaction(t.id)" class="text-red-500 hover:text-red-700 text-xs">삭제</button>
+                <button v-if="!t.is_paper" @click="deleteTransaction(t.id)" class="text-red-500 hover:text-red-700 text-xs">삭제</button>
+                <span v-else class="text-xs text-txt-tertiary">-</span>
               </td>
             </tr>
             <tr v-if="filteredTransactions.length === 0">
@@ -162,7 +166,7 @@
 
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue';
-import { stocksApi, transactionsApi } from '@/api';
+import { stocksApi, transactionsApi, paperTradingApi } from '@/api';
 
 const stocks = ref<any[]>([]);
 const transactions = ref<any[]>([]);
@@ -191,8 +195,10 @@ const filteredTransactions = computed(() => {
   return transactions.value.filter(t => {
     if (filter.value.type && t.type !== filter.value.type) return false;
     if (filter.value.stockId && t.stock_id !== Number(filter.value.stockId)) return false;
-    if (filter.value.source === 'auto' && !isAutoTrade(t)) return false;
-    if (filter.value.source === 'manual' && isAutoTrade(t)) return false;
+    if (filter.value.source === 'paper' && !t.is_paper) return false;
+    if (filter.value.source === 'real' && t.is_paper) return false;
+    if (filter.value.source === 'auto' && (t.is_paper || !isAutoTrade(t))) return false;
+    if (filter.value.source === 'manual' && (t.is_paper || isAutoTrade(t))) return false;
     return true;
   });
 });
@@ -208,9 +214,28 @@ const stats = computed(() => {
 });
 
 async function loadData() {
-  const [stockRes, txRes] = await Promise.all([stocksApi.getAll(), transactionsApi.getAll()]);
+  const [stockRes, txRes, paperRes] = await Promise.all([
+    stocksApi.getAll(),
+    transactionsApi.getAll(),
+    paperTradingApi.getHistory().catch(() => ({ data: [] })),
+  ]);
   stocks.value = stockRes.data;
-  transactions.value = txRes.data.transactions;
+  // 실 transactions + 가상 paper_trades를 병합 — 날짜 desc 정렬
+  const realTx = (txRes.data.transactions || []).map((t: any) => ({ ...t, is_paper: false }));
+  const paperTx = (paperRes.data || []).map((p: any) => ({
+    id: `paper-${p.id}`,
+    is_paper: true,
+    stock_id: p.stock_id,
+    ticker: p.ticker,
+    stock_name: p.name,
+    type: p.order_type,
+    quantity: p.quantity,
+    price: p.price,
+    fee: p.fee,
+    date: (p.created_at || '').slice(0, 10),
+    memo: `🧪 가상매매${p.reason ? ` (${p.reason})` : ''}${p.pnl != null ? ` · 손익 ${Math.round(p.pnl).toLocaleString()}원` : ''}`,
+  }));
+  transactions.value = [...realTx, ...paperTx].sort((a, b) => (b.date || '').localeCompare(a.date || ''));
 }
 
 async function addTransaction() {

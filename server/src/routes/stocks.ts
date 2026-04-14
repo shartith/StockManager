@@ -3,6 +3,7 @@ import { queryAll, queryOne, execute, logAudit } from '../db';
 import { validate } from '../middleware/validate';
 import { asyncHandler } from '../middleware/errorHandler';
 import { createStockSchema, updateStockSchema } from '../schemas';
+import { normalizeMarket } from '../services/marketNormalizer';
 
 const router = Router();
 
@@ -18,7 +19,8 @@ router.get('/:id', (req: Request, res: Response) => {
 });
 
 router.post('/', validate(createStockSchema), asyncHandler(async (req: Request, res: Response) => {
-  const { ticker, name, market, sector } = req.body;
+  const { ticker, name, sector } = req.body;
+  const market = normalizeMarket(req.body.market);
 
   const existing = queryOne('SELECT id FROM stocks WHERE ticker = ? AND deleted_at IS NULL', [ticker]);
   if (existing) return res.status(409).json({ error: '이미 등록된 종목코드입니다' });
@@ -33,7 +35,8 @@ router.post('/', validate(createStockSchema), asyncHandler(async (req: Request, 
 }));
 
 router.put('/:id', validate(updateStockSchema), (req: Request, res: Response) => {
-  const { ticker, name, market, sector } = req.body;
+  const { ticker, name, sector } = req.body;
+  const market = req.body.market ? normalizeMarket(req.body.market) : undefined;
   const id = Number(req.params.id);
   const existing = queryOne('SELECT * FROM stocks WHERE id = ? AND deleted_at IS NULL', [id]);
   if (!existing) return res.status(404).json({ error: '종목을 찾을 수 없습니다' });

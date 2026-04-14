@@ -367,7 +367,16 @@ export async function executeOrder(req: OrderRequest): Promise<OrderResult> {
   let quantity = req.quantity;
   if (req.orderType === 'BUY') {
     // 2a. 포지션 사이징 규칙 (예산/종목 수/현금 비율 gate)
-    const sizing = checkPositionSizingRules(orderPrice, req.market);
+    // 해외 종목: USD 가격을 KRW로 환산해야 totalValue/cash와 단위가 일치
+    let fxRate = 1;
+    if (req.market !== 'KRX') {
+      try {
+        const { getMarketContext } = await import('./stockPrice');
+        const ctx = await getMarketContext();
+        fxRate = ctx.usdKrw?.price ?? 1400; // fallback: 평균치
+      } catch { fxRate = 1400; }
+    }
+    const sizing = checkPositionSizingRules(orderPrice, req.market, fxRate);
     if (!sizing.allowed) {
       return { success: false, message: `포지션 규칙: ${sizing.reason}`, quantity: 0, price: orderPrice, fee: 0 };
     }

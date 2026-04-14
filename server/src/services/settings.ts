@@ -113,6 +113,10 @@ export interface AppSettings {
   dynamicScreeningEnabled: boolean;
   screeningVolumeRatioMin: number;  // RISING: 5일 평균 거래량의 N배
   screeningMinMarketCap: number;    // FLAT: 시가총액 N억 이상
+
+  // v4.10.0: 가상매매(Paper Trading)
+  paperTradingEnabled: boolean;     // 추천 BUY 신호 → 실매매 안 된 종목 자동 가상매수
+  paperTradeAmount: number;         // 가상매수 종목당 금액 (KRW, 해외도 환산)
 }
 
 const DEFAULT_SETTINGS: AppSettings = {
@@ -181,6 +185,9 @@ const DEFAULT_SETTINGS: AppSettings = {
   dynamicScreeningEnabled: true,
   screeningVolumeRatioMin: 1.5,
   screeningMinMarketCap: 500,
+
+  paperTradingEnabled: true,
+  paperTradeAmount: 1_000_000,
 };
 
 let _cache: AppSettings | null = null;
