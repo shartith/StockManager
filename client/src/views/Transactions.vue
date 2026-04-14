@@ -126,7 +126,7 @@
             </tr>
           </thead>
           <tbody>
-            <tr v-for="t in filteredTransactions" :key="t.id" class="border-t border-border-subtle hover:bg-surface-2">
+            <tr v-for="t in pagedTransactions" :key="t.id" class="border-t border-border-subtle hover:bg-surface-2">
               <td class="px-4 py-3 text-txt-secondary">{{ t.date }}</td>
               <td class="px-4 py-3">
                 <span class="font-medium">{{ t.ticker }}</span>
@@ -159,14 +159,21 @@
             </tr>
           </tbody>
         </table>
+        <PaginationBar
+          v-model:page="txPage"
+          v-model:pageSize="txPageSize"
+          :total="filteredTransactions.length"
+        />
       </div>
     </div>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue';
+import { ref, computed, onMounted, watch } from 'vue';
 import { stocksApi, transactionsApi, paperTradingApi } from '@/api';
+import { usePagination } from '@/composables/usePagination';
+import PaginationBar from '@/components/PaginationBar.vue';
 
 const stocks = ref<any[]>([]);
 const transactions = ref<any[]>([]);
@@ -202,6 +209,11 @@ const filteredTransactions = computed(() => {
     return true;
   });
 });
+
+// 페이지네이션 — filteredTransactions 기준
+const { page: txPage, pageSize: txPageSize, paged: pagedTransactions } = usePagination(filteredTransactions, 50);
+// 필터 변경 시 1페이지로 리셋
+watch(() => filter.value, () => { txPage.value = 1; }, { deep: true });
 
 const stats = computed(() => {
   const all = transactions.value;

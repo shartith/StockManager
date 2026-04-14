@@ -193,11 +193,11 @@ export const saveConfigSchema = z.object({
   // 동적 스크리닝
   dynamicScreeningEnabled: z.boolean().default(true),
   screeningVolumeRatioMin: z.number().min(1).max(10).default(1.5),
-  screeningMinMarketCap: z.number().min(0).max(100000).default(500),
+  screeningMinMarketCap: z.number().min(0).default(500),
 
   // 가상매매 (v4.10.0)
   paperTradingEnabled: z.boolean().default(true),
-  paperTradeAmount: z.number().int().min(10000).max(100_000_000).default(1_000_000),
+  paperTradeAmount: z.number().int().positive().default(1_000_000),
 });
 
 // ── System Events ──

@@ -70,7 +70,7 @@
             </tr>
           </thead>
           <tbody>
-            <tr v-for="d in dividends" :key="d.id" class="border-t border-border-subtle hover:bg-surface-2">
+            <tr v-for="d in pagedDividends" :key="d.id" class="border-t border-border-subtle hover:bg-surface-2">
               <td class="px-4 py-3 text-txt-secondary">{{ d.date }}</td>
               <td class="px-4 py-3 font-medium">{{ d.ticker }} <span class="text-txt-tertiary text-xs">{{ d.stock_name }}</span></td>
               <td class="text-right px-4 py-3 font-medium text-accent">{{ formatCurrency(d.amount) }}</td>
@@ -84,6 +84,7 @@
             </tr>
           </tbody>
         </table>
+        <PaginationBar v-model:page="dvPage" v-model:pageSize="dvPageSize" :total="dividends.length" />
       </div>
     </div>
   </div>
@@ -92,6 +93,8 @@
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue';
 import { stocksApi, dividendsApi } from '@/api';
+import { usePagination } from '@/composables/usePagination';
+import PaginationBar from '@/components/PaginationBar.vue';
 
 const stocks = ref<any[]>([]);
 const dividends = ref<any[]>([]);
@@ -133,6 +136,8 @@ async function deleteDividend(id: number) {
   await dividendsApi.delete(id);
   loadData();
 }
+
+const { page: dvPage, pageSize: dvPageSize, paged: pagedDividends } = usePagination(dividends, 50);
 
 onMounted(loadData);
 </script>

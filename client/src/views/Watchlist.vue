@@ -50,7 +50,7 @@
           </tr>
         </thead>
         <tbody>
-          <tr v-for="item in filteredList" :key="item.id" class="border-t border-border-subtle hover:bg-surface-2">
+          <tr v-for="item in pagedList" :key="item.id" class="border-t border-border-subtle hover:bg-surface-2">
             <td class="px-4 py-3">
               <div class="font-medium text-txt-primary truncate">{{ item.ticker }}</div>
               <div class="text-xs text-txt-tertiary truncate">{{ item.name }}</div>
@@ -99,6 +99,7 @@
           </tr>
         </tbody>
       </table>
+      <PaginationBar v-model:page="wlPage" v-model:pageSize="wlPageSize" :total="filteredList.length" />
     </div>
 
     <!-- 분석 결과 모달 -->
@@ -150,8 +151,10 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, defineAsyncComponent } from 'vue';
+import { ref, computed, onMounted, watch, defineAsyncComponent } from 'vue';
 import { watchlistApi, analysisApi, schedulerApi } from '@/api';
+import { usePagination } from '@/composables/usePagination';
+import PaginationBar from '@/components/PaginationBar.vue';
 // v4.7.0: lazy-load ChartModal (lightweight-charts ~170KB)
 const ChartModal = defineAsyncComponent(() => import('@/components/ChartModal.vue'));
 
@@ -180,6 +183,9 @@ const filteredList = computed(() => {
   if (selectedMarket.value === 'ALL') return watchlist.value;
   return watchlist.value.filter(w => w.market === selectedMarket.value || w.stock_market === selectedMarket.value);
 });
+
+const { page: wlPage, pageSize: wlPageSize, paged: pagedList } = usePagination(filteredList, 50);
+watch(selectedMarket, () => { wlPage.value = 1; });
 
 async function fetchWatchlist() {
   loading.value = true;

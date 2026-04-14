@@ -75,7 +75,7 @@
       <p>{{ selectedMarket === 'ALL' ? '추천 종목이 없습니다' : `${selectedMarket} 추천 종목이 없습니다` }}</p>
     </div>
     <div v-else class="grid gap-4">
-      <div v-for="rec in filteredRecs" :key="rec.id"
+      <div v-for="rec in pagedRecs" :key="rec.id"
         class="bg-surface-1 rounded-xl border border-border shadow-sm p-5 hover:shadow-md transition">
         <div class="flex items-start gap-4">
           <div class="flex-1 min-w-0">
@@ -124,6 +124,7 @@
           </div>
         </div>
       </div>
+      <PaginationBar v-model:page="recPage" v-model:pageSize="recPageSize" :total="filteredRecs.length" />
     </div>
     <!-- 차트 모달 -->
     <ChartModal :visible="chartModalVisible" :ticker="chartModalTicker" @close="chartModalVisible = false" />
@@ -131,8 +132,10 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, defineAsyncComponent } from 'vue';
+import { ref, computed, onMounted, watch, defineAsyncComponent } from 'vue';
 import { recommendationsApi } from '@/api';
+import { usePagination } from '@/composables/usePagination';
+import PaginationBar from '@/components/PaginationBar.vue';
 // v4.7.0: lazy-load ChartModal (lightweight-charts ~170KB)
 const ChartModal = defineAsyncComponent(() => import('@/components/ChartModal.vue'));
 
@@ -164,6 +167,9 @@ const filteredRecs = computed(() => {
   if (selectedMarket.value === 'ALL') return recommendations.value;
   return recommendations.value.filter(r => r.market === selectedMarket.value);
 });
+
+const { page: recPage, pageSize: recPageSize, paged: pagedRecs } = usePagination(filteredRecs, 20);
+watch(selectedMarket, () => { recPage.value = 1; });
 
 function formatDate(dt: string) {
   return new Date(dt).toLocaleDateString('ko-KR', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });

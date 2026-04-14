@@ -44,7 +44,7 @@
 
     <!-- 알림 목록 -->
     <div class="space-y-3">
-      <div v-for="a in alerts" :key="a.id"
+      <div v-for="a in pagedAlerts" :key="a.id"
         class="bg-surface-1 rounded-xl shadow-sm border border-border p-4 flex items-center justify-between">
         <div class="flex items-center gap-4">
           <div class="w-10 h-10 rounded-full flex items-center justify-center text-lg"
@@ -74,6 +74,8 @@
         <p class="text-lg mb-1">설정된 알림이 없습니다</p>
         <p class="text-sm">가격 알림이나 목표 수익률 알림을 설정해보세요</p>
       </div>
+
+      <PaginationBar v-model:page="alPage" v-model:pageSize="alPageSize" :total="alerts.length" />
     </div>
   </div>
 </template>
@@ -81,6 +83,8 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue';
 import { stocksApi, alertsApi } from '@/api';
+import { usePagination } from '@/composables/usePagination';
+import PaginationBar from '@/components/PaginationBar.vue';
 
 const stocks = ref<any[]>([]);
 const alerts = ref<any[]>([]);
@@ -125,6 +129,8 @@ async function deleteAlert(id: number) {
   await alertsApi.delete(id);
   loadData();
 }
+
+const { page: alPage, pageSize: alPageSize, paged: pagedAlerts } = usePagination(alerts, 50);
 
 onMounted(loadData);
 </script>

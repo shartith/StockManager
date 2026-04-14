@@ -393,7 +393,7 @@
             </div>
             <div>
               <label class="block text-sm font-medium text-txt-primary mb-1">일일 최대 거래</label>
-              <input v-model.number="form.autoTradeMaxDailyTrades" type="number" min="1" max="100"
+              <input v-model.number="form.autoTradeMaxDailyTrades" type="number" min="1"
                 class="w-full border border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-accent" />
               <p class="text-xs text-txt-tertiary mt-1">{{ form.autoTradeMaxDailyTrades }}회</p>
             </div>
@@ -659,7 +659,7 @@
           <div>
             <label class="block text-sm font-medium text-txt-primary mb-1">최소 시가총액 (FLAT 국면)</label>
             <div class="flex items-center gap-2">
-              <input v-model.number="form.screeningMinMarketCap" type="number" min="0" max="100000"
+              <input v-model.number="form.screeningMinMarketCap" type="number" min="0"
                 class="w-32 border border-border rounded-lg px-3 py-2 text-sm text-center focus:outline-none focus:ring-2 focus:ring-accent" />
               <span class="text-sm text-txt-secondary">억원</span>
             </div>
@@ -698,12 +698,12 @@
           <div>
             <label class="block text-sm font-medium text-txt-primary mb-1">종목당 가상매수 금액 (KRW)</label>
             <div class="flex items-center gap-2">
-              <input v-model.number="form.paperTradeAmount" type="number" min="10000" step="100000"
-                class="w-40 border border-border rounded-lg px-3 py-2 text-sm tabular-nums text-right focus:outline-none focus:ring-2 focus:ring-accent" />
+              <input v-model.number="form.paperTradeAmount" type="number" min="1" step="100000"
+                class="w-48 border border-border rounded-lg px-3 py-2 text-sm tabular-nums text-right focus:outline-none focus:ring-2 focus:ring-accent" />
               <span class="text-sm text-txt-secondary">원</span>
               <span class="text-xs text-txt-tertiary">({{ (form.paperTradeAmount / 10000).toLocaleString() }}만원)</span>
             </div>
-            <p class="text-xs text-txt-tertiary mt-1">가상매수 시 종목당 투자 금액. 해외 종목은 USD/KRW 환율로 환산하여 수량 계산. 기본 100만원.</p>
+            <p class="text-xs text-txt-tertiary mt-1">가상매수 시 종목당 투자 금액. 해외 종목은 USD/KRW 환율로 환산하여 수량 계산. <strong>한도 제한 없음</strong> — 기본 100만원, 원하는 만큼 설정 가능.</p>
           </div>
           <div class="bg-surface-2 rounded-lg p-3 text-xs text-txt-secondary">
             <p class="font-semibold mb-2">가상매매 규칙:</p>
