@@ -350,13 +350,13 @@
           <div class="grid grid-cols-3 gap-4">
             <div>
               <label class="block text-sm font-medium text-txt-primary mb-1">총 최대 투자금액</label>
-              <input v-model.number="form.autoTradeMaxInvestment" type="number" min="0" step="1000000"
+              <input v-model.number="form.autoTradeMaxInvestment" type="number" min="0" step="1"
                 class="w-full border border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-accent" />
               <p class="text-xs text-txt-tertiary mt-1">{{ formatCurrency(form.autoTradeMaxInvestment) }}</p>
             </div>
             <div>
               <label class="block text-sm font-medium text-txt-primary mb-1">종목당 최대</label>
-              <input v-model.number="form.autoTradeMaxPerStock" type="number" min="0" step="500000"
+              <input v-model.number="form.autoTradeMaxPerStock" type="number" min="0" step="1"
                 class="w-full border border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-accent" />
               <p class="text-xs text-txt-tertiary mt-1">{{ formatCurrency(form.autoTradeMaxPerStock) }}</p>
             </div>
@@ -667,7 +667,7 @@
           <div>
             <label class="block text-sm font-medium text-txt-primary mb-1">종목당 가상매수 금액 (KRW)</label>
             <div class="flex items-center gap-2">
-              <input v-model.number="form.paperTradeAmount" type="number" min="1" step="100000"
+              <input v-model.number="form.paperTradeAmount" type="number" min="1" step="1"
                 class="w-48 border border-border rounded-lg px-3 py-2 text-sm tabular-nums text-right focus:outline-none focus:ring-2 focus:ring-accent" />
               <span class="text-sm text-txt-secondary">원</span>
               <span class="text-xs text-txt-tertiary">({{ (form.paperTradeAmount / 10000).toLocaleString() }}만원)</span>
