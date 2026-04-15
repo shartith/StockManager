@@ -2,6 +2,19 @@
 
 Stock Manager 주요 릴리즈 변경사항. 자세한 노트는 [GitHub Releases](https://github.com/shartith/StockManager/releases)에서 확인.
 
+## v4.13.0 — 2026-04-15
+
+**외부 OpenAI 호환 LLM 연결로 전환. MLX 번들 제거.**
+
+- **LLM 전환**: 번들된 Apple MLX 서버 제거, 외부 OpenAI 호환 엔드포인트로 통합 (`ai.unids.kr`, Ollama, OpenAI 등 지원). 하드웨어/OS 제한 해제.
+- **설정 필드 이름 변경**: `mlxUrl`/`mlxModel`/`mlxEnabled` → `llmUrl`/`llmModel`/`llmEnabled`. 신규 `llmApiKey` (Bearer 토큰) 필드 추가. 기본 `llmUrl`은 `https://ai.unids.kr/v1`. `llmModel` 기본값은 빈 값 (사용자 선택).
+- **URL 규약**: `llmUrl` 은 `/v1` 을 포함한 full base URL (OpenAI 관례). 내부에서 `${llmUrl}/chat/completions`, `${llmUrl}/models` 형태로 호출.
+- **자동 마이그레이션**: 기존 `mlxEnabled`/`mlxUrl`/`mlxModel` 값은 1회에 한해 `llm*` 으로 이관. 구 MLX 기본 URL(`http://localhost:8000`)은 새 기본값으로 대체, 사용자 커스텀 URL은 보존. 모델은 포맷 호환성 이유로 빈 값으로 리셋.
+- **bin/stock-manager**: MLX 자동 설치/기동 코드 (`ensureMlx`, Python venv, mlx-lm pip install) 완전 제거. 잔존 venv는 `rm -rf ~/.stock-manager/venv` 로 수동 제거.
+- **API**: `POST /api/analysis/llm/pull` / `DELETE /api/analysis/llm/models/:name` → 410 Gone (외부 LLM 사용 시 서버 측 관리 불필요).
+- **NAS 동기화**: `llmApiKey` 는 SECRET_FIELDS 에 추가되어 외부 공유 시 마스킹. `llmUrl`/`llmModel`/`llmApiKey` 는 DEVICE_SPECIFIC_FIELDS 로 동기화에서 제외.
+- **Settings UI**: MLX 섹션 → "외부 LLM 서버 (OpenAI 호환)" 로 개편. URL/API 키/모델 입력 필드 + 예시 힌트 제공.
+
 ## v4.12.2 — 2026-04-14
 
 **Ollama 잔존 참조 일괄 정리 (cosmetic + e2e bug 수정)**

@@ -211,7 +211,7 @@
       <div class="glass-card px-4 py-2.5 flex items-center gap-2">
         <span class="status-dot" :class="systemStatus.llmConnected ? 'connected' : 'disconnected'" />
         <span class="text-xs text-txt-secondary">
-          MLX {{ systemStatus.llmConnected ? '연결됨' : '미연결' }}
+          LLM {{ systemStatus.llmConnected ? '연결됨' : '미연결' }}
         </span>
       </div>
       <div class="glass-card px-4 py-2.5 flex items-center gap-3">

@@ -22,9 +22,9 @@ vi.mock('../db', () => ({
 
 vi.mock('../services/settings', () => ({
   getSettings: vi.fn(() => ({
-    mlxUrl: 'http://localhost:8000',
-    mlxModel: 'exaone3.5:2.4b',
-    mlxEnabled: true,
+    llmUrl: 'http://localhost:8000',
+    llmModel: 'exaone3.5:2.4b',
+    llmEnabled: true,
     debateMode: false,
     investmentStyle: 'balanced',
   })),
@@ -47,9 +47,9 @@ describe('callLlm (v4.5.2 resilience)', () => {
     }));
     vi.doMock('../services/settings', () => ({
       getSettings: vi.fn(() => ({
-        mlxUrl: 'http://localhost:8000',
-        mlxModel: 'exaone3.5:2.4b',
-        mlxEnabled: true,
+        llmUrl: 'http://localhost:8000',
+        llmModel: 'exaone3.5:2.4b',
+        llmEnabled: true,
         debateMode: false,
         investmentStyle: 'balanced',
       })),
@@ -82,13 +82,14 @@ describe('callLlm (v4.5.2 resilience)', () => {
     expect(fetchSpy).toHaveBeenCalledTimes(1);
   });
 
-  it('sends OpenAI-compatible request body (v4.12.0 MLX)', async () => {
+  it('sends OpenAI-compatible request body (v4.13.0 external LLM)', async () => {
     fetchSpy.mockResolvedValueOnce({
       ok: true,
       json: async () => ({ choices: [{ message: { content: 'ok' } }] }),
     });
 
-    await callLlm('mlx-community/gemma-3n-E4B-it-4bit', 'http://localhost:8000', 'my-prompt', 'sys-prompt', 256);
+    // llmUrl 은 /v1 을 포함한 full base URL (OpenAI 관례)
+    await callLlm('mlx-community/gemma-3n-E4B-it-4bit', 'https://ai.unids.kr/v1', 'my-prompt', 'sys-prompt', 256);
 
     const callArg = fetchSpy.mock.calls[0][1];
     const url = String(fetchSpy.mock.calls[0][0]);

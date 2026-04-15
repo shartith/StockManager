@@ -79,7 +79,7 @@ export function startScheduler() {
   }
 
   // ── 추천종목 자동 갱신 (매 시간) ──
-  if (settings.mlxEnabled) {
+  if (settings.llmEnabled) {
     schedulerState.activeTasks.push(cron.schedule('0 * * * *', () => {
       runRecommendationRefresh().catch(err => logger.error({ err }, 'runRecommendationRefresh failed'));
     }, { timezone: 'Asia/Seoul' }));

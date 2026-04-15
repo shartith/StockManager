@@ -54,7 +54,7 @@ Homepage: https://github.com/shartith/StockManager
 Section: finance
 Priority: optional
 Description: Stock portfolio management and automated trading system
- KIS API integration, MLX (Apple Silicon) LLM trading decisions,
+ KIS API integration, external OpenAI-compatible LLM trading decisions,
  automated scheduling, and web-based trading platform.
 EOF
 

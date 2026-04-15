@@ -148,6 +148,7 @@ const SECRET_FIELDS = [
   'kisAppKey',
   'kisAppSecret',
   'dartApiKey',
+  'llmApiKey',
   'nasPassword',
 ] as const;
 
@@ -162,8 +163,9 @@ const SECRET_FIELDS = [
  * to OOM crashes when the bigger model loaded on the smaller machine.
  */
 const DEVICE_SPECIFIC_FIELDS = [
-  'mlxModel',             // model size depends on local RAM/GPU
-  'mlxUrl',               // may differ per device
+  'llmModel',             // model choice may differ per device
+  'llmUrl',                // may differ per device
+  'llmApiKey',             // credential is device/account-scoped
   'kisAccountNo',         // each device may have a different account
   'kisAccountProductCode',
   'kisAppKey',            // already secret, but also device-scoped

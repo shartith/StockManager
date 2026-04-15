@@ -1,5 +1,9 @@
 # Ollama → MLX 전환 가이드 (v4.12.0)
 
+> **참고: v4.13.0부터 MLX 번들 제거, 외부 OpenAI 호환 LLM으로 전환.**
+> 본 문서는 v4.12 이력 기록용입니다. 현재 버전은 `llmUrl`/`llmModel`/`llmApiKey`
+> 설정으로 외부 서버(ai.unids.kr, Ollama, OpenAI 등)를 사용합니다.
+
 Stock Manager v4.12.0부터 로컬 LLM 백엔드가 **Ollama에서 MLX**로 전환되었습니다.
 이 문서는 기존 Ollama 사용자를 위한 마이그레이션 안내입니다.
 

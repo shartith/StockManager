@@ -19,9 +19,9 @@ vi.mock('../db', () => ({
 
 vi.mock('../services/settings', () => ({
   getSettings: vi.fn(() => ({
-    mlxUrl: 'http://localhost:8000',
-    mlxModel: 'qwen3:4b',
-    mlxEnabled: true,
+    llmUrl: 'http://localhost:8000/v1',
+    llmModel: 'qwen3:4b',
+    llmEnabled: true,
     debateMode: false,
     investmentStyle: 'balanced',
   })),
@@ -44,9 +44,9 @@ describe('checkLlmStatus', () => {
     }));
     vi.doMock('../services/settings', () => ({
       getSettings: vi.fn(() => ({
-        mlxUrl: 'http://localhost:8000',
-        mlxModel: 'qwen3:4b',
-        mlxEnabled: true,
+        llmUrl: 'http://localhost:8000/v1',
+        llmModel: 'qwen3:4b',
+        llmEnabled: true,
       })),
     }));
     vi.doMock('../logger', () => ({

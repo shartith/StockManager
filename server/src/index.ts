@@ -126,14 +126,17 @@ app.get('/api/health', async (_req, res) => {
     checks.database = 'error';
   }
 
-  // MLX LLM check
-  const mlxUrl = process.env.MLX_URL || getSettings().mlxUrl || 'http://localhost:8000';
+  // LLM check (외부 OpenAI 호환 서버; llmUrl 은 /v1 포함 full base URL)
+  const settings = getSettings();
+  const llmUrl = process.env.LLM_URL || settings.llmUrl || 'https://ai.unids.kr/v1';
   try {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 3000);
-    const mlxRes = await fetch(`${mlxUrl}/v1/models`, { signal: controller.signal });
+    const headers: Record<string, string> = {};
+    if (settings.llmApiKey) headers['Authorization'] = `Bearer ${settings.llmApiKey}`;
+    const llmRes = await fetch(`${llmUrl}/models`, { signal: controller.signal, headers });
     clearTimeout(timeout);
-    checks.llm = mlxRes.ok ? 'ok' : 'error';
+    checks.llm = llmRes.ok ? 'ok' : 'error';
   } catch {
     checks.llm = 'unreachable';
   }

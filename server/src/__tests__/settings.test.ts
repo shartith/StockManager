@@ -67,9 +67,10 @@ describe('settings', () => {
       const settings = getSettings();
       expect(settings.kisAppKey).toBe('');
       expect(settings.kisAppSecret).toBe('');
-      expect(settings.mlxUrl).toBe('http://localhost:8000');
-      expect(settings.mlxModel).toBe('mlx-community/gemma-3n-E4B-it-4bit');
-      expect(settings.mlxEnabled).toBe(true); // v4.12.0: MLX 기본 활성화
+      expect(settings.llmUrl).toBe('https://ai.unids.kr/v1');
+      expect(settings.llmModel).toBe('');
+      expect(settings.llmEnabled).toBe(true); // v4.13.0: 외부 LLM 기본 활성화
+      expect(settings.llmApiKey).toBe('');
       expect(settings.autoTradeEnabled).toBe(false);
       expect(settings.investmentStyle).toBe('balanced');
       expect(settings.stopLossPercent).toBe(3);
@@ -117,17 +118,17 @@ describe('settings', () => {
       vi.mocked(fsModule.default.readFileSync).mockReturnValue(
         JSON.stringify({
           kisAppKey: 'my-key',
-          mlxModel: 'llama3',
+          llmModel: 'llama3',
           autoTradeEnabled: true,
         })
       );
 
       const settings = getSettings();
       expect(settings.kisAppKey).toBe('my-key');
-      expect(settings.mlxModel).toBe('llama3');
+      expect(settings.llmModel).toBe('llama3');
       expect(settings.autoTradeEnabled).toBe(true);
       // Defaults should still be present
-      expect(settings.mlxUrl).toBe('http://localhost:8000');
+      expect(settings.llmUrl).toBe('https://ai.unids.kr/v1');
       expect(settings.stopLossPercent).toBe(3);
     });
 
@@ -138,7 +139,7 @@ describe('settings', () => {
 
       const settings = getSettings();
       expect(settings.kisAppKey).toBe('');
-      expect(settings.mlxUrl).toBe('http://localhost:8000');
+      expect(settings.llmUrl).toBe('https://ai.unids.kr/v1');
     });
 
     it('caches settings on second call', async () => {
@@ -233,17 +234,17 @@ describe('settings', () => {
       getSettings();
 
       // Save partial update
-      saveSettings({ mlxModel: 'custom-model', autoTradeEnabled: true });
+      saveSettings({ llmModel: 'custom-model', autoTradeEnabled: true });
 
       // Verify writeFileSync was called
       expect(fsModule.default.writeFileSync).toHaveBeenCalledTimes(1);
       const writtenData = JSON.parse(
         vi.mocked(fsModule.default.writeFileSync).mock.calls[0][1] as string
       );
-      expect(writtenData.mlxModel).toBe('custom-model');
+      expect(writtenData.llmModel).toBe('custom-model');
       expect(writtenData.autoTradeEnabled).toBe(true);
       // Default values should persist
-      expect(writtenData.mlxUrl).toBe('http://localhost:8000');
+      expect(writtenData.llmUrl).toBe('https://ai.unids.kr/v1');
     });
 
     it('creates data directory if it does not exist', async () => {
@@ -252,7 +253,7 @@ describe('settings', () => {
       vi.mocked(fsModule.default.existsSync).mockReturnValue(false);
 
       getSettings();
-      saveSettings({ mlxModel: 'test' });
+      saveSettings({ llmModel: 'test' });
 
       expect(fsModule.default.mkdirSync).toHaveBeenCalledWith(
         expect.any(String),
@@ -285,7 +286,7 @@ describe('settings', () => {
       const fsModule = await import('fs');
 
       mod.getSettings();
-      mod.saveSettings({ mlxModel: 'test' });
+      mod.saveSettings({ llmModel: 'test' });
 
       const writtenData = JSON.parse(
         vi.mocked(fsModule.default.writeFileSync).mock.calls[0][1] as string,
@@ -316,14 +317,14 @@ describe('settings', () => {
       expect(firstSave.kisAppSecret).toBe('user-entered-secret');
 
       // User changes another setting and saves again — keys MUST still be in file
-      saveSettings({ mlxModel: 'updated-model' });
+      saveSettings({ llmModel: 'updated-model' });
 
       const secondSave = JSON.parse(
         vi.mocked(fsModule.default.writeFileSync).mock.calls[1][1] as string,
       );
       expect(secondSave.kisAppKey).toBe('user-entered-key');
       expect(secondSave.kisAppSecret).toBe('user-entered-secret');
-      expect(secondSave.mlxModel).toBe('updated-model');
+      expect(secondSave.llmModel).toBe('updated-model');
     });
 
     it('preserves file-loaded secrets across saves when no external env vars set', async () => {
@@ -335,7 +336,7 @@ describe('settings', () => {
 
       getSettings();
       // Internal env sync happens (so other modules can read), but ENV_SECRETS snapshot is empty
-      saveSettings({ mlxModel: 'test' });
+      saveSettings({ llmModel: 'test' });
 
       const writtenData = JSON.parse(
         vi.mocked(fsModule.default.writeFileSync).mock.calls[0][1] as string,
@@ -363,10 +364,10 @@ describe('settings', () => {
       vi.mocked(fsModule.default.existsSync).mockReturnValue(false);
 
       getSettings();
-      saveSettings({ mlxModel: 'updated-model' });
+      saveSettings({ llmModel: 'updated-model' });
 
       const settings = getSettings();
-      expect(settings.mlxModel).toBe('updated-model');
+      expect(settings.llmModel).toBe('updated-model');
     });
   });
 
@@ -384,7 +385,7 @@ describe('settings', () => {
       vi.mocked(fsModule.default.readFileSync).mockReturnValue(
         JSON.stringify({
           kisAppKey: 'real-key',
-          mlxModel: 'exaone3.5:2.4b',
+          llmModel: 'exaone3.5:2.4b',
           externalAiApiKey: 'sk-ant-api03-leaked-secret',
           externalAiProvider: 'claude',
           externalAiModel: 'claude-sonnet-4.6',
@@ -393,7 +394,7 @@ describe('settings', () => {
 
       const settings = getSettings() as unknown as Record<string, unknown>;
       expect(settings.kisAppKey).toBe('real-key');
-      expect(settings.mlxModel).toBe('exaone3.5:2.4b');
+      expect(settings.llmModel).toBe('exaone3.5:2.4b');
       // Legacy fields must be stripped from cache
       expect(settings.externalAiApiKey).toBeUndefined();
       expect(settings.externalAiProvider).toBeUndefined();
@@ -413,13 +414,13 @@ describe('settings', () => {
       );
 
       getSettings();
-      saveSettings({ mlxModel: 'updated' });
+      saveSettings({ llmModel: 'updated' });
 
       const written = JSON.parse(
         vi.mocked(fsModule.default.writeFileSync).mock.calls[0][1] as string,
       );
       expect(written.kisAppKey).toBe('real-key');
-      expect(written.mlxModel).toBe('updated');
+      expect(written.llmModel).toBe('updated');
       // Legacy fields must NOT be persisted on next save (self-cleaning migration)
       expect(written.externalAiApiKey).toBeUndefined();
       expect(written.externalAiProvider).toBeUndefined();
@@ -434,13 +435,13 @@ describe('settings', () => {
           externalAiApiKey: null,
           externalAiProvider: 12345,
           externalAiModel: { nested: 'object' },
-          mlxUrl: 'http://localhost:8000',
+          llmUrl: 'http://localhost:8000',
         }),
       );
 
       // Should not throw despite weird types
       const settings = getSettings();
-      expect(settings.mlxUrl).toBe('http://localhost:8000');
+      expect(settings.llmUrl).toBe('http://localhost:8000');
       expect((settings as unknown as Record<string, unknown>).externalAiApiKey).toBeUndefined();
     });
 
@@ -450,17 +451,80 @@ describe('settings', () => {
       vi.mocked(fsModule.default.readFileSync).mockReturnValue(
         JSON.stringify({
           kisAppKey: 'real-key',
-          mlxModel: 'real-model',
-          mlxUrl: 'real-url',
+          llmModel: 'real-model',
+          llmUrl: 'real-url',
           dartApiKey: 'real-dart',
         }),
       );
 
       const settings = getSettings();
       expect(settings.kisAppKey).toBe('real-key');
-      expect(settings.mlxModel).toBe('real-model');
-      expect(settings.mlxUrl).toBe('real-url');
+      expect(settings.llmModel).toBe('real-model');
+      expect(settings.llmUrl).toBe('real-url');
       expect(settings.dartApiKey).toBe('real-dart');
+    });
+  });
+
+  // v4.13.0: llmApiKey (Bearer token for external OpenAI-compatible LLM)
+  describe('llmApiKey (v4.13.0)', () => {
+    it('defaults to empty string when no file exists', async () => {
+      const fsModule = await import('fs');
+      vi.mocked(fsModule.default.existsSync).mockReturnValue(false);
+
+      const settings = getSettings();
+      expect(settings.llmApiKey).toBe('');
+    });
+
+    it('persists llmApiKey via saveSettings when set via UI', async () => {
+      const fsModule = await import('fs');
+      vi.mocked(fsModule.default.existsSync).mockReturnValue(false);
+
+      getSettings();
+      saveSettings({ llmApiKey: 'sk-test-1234' });
+
+      const written = JSON.parse(
+        vi.mocked(fsModule.default.writeFileSync).mock.calls[0][1] as string,
+      );
+      expect(written.llmApiKey).toBe('sk-test-1234');
+    });
+
+    it('migrates mlx* fields to llm* on first load', async () => {
+      const fsModule = await import('fs');
+      vi.mocked(fsModule.default.existsSync).mockReturnValue(true);
+      vi.mocked(fsModule.default.readFileSync).mockReturnValue(
+        JSON.stringify({
+          mlxEnabled: true,
+          mlxUrl: 'http://localhost:8000',
+          mlxModel: 'mlx-community/gemma-3n-E4B-it-4bit',
+        }),
+      );
+
+      const settings = getSettings() as unknown as Record<string, unknown>;
+      // legacy fields stripped
+      expect(settings.mlxUrl).toBeUndefined();
+      expect(settings.mlxModel).toBeUndefined();
+      expect(settings.mlxEnabled).toBeUndefined();
+      // migrated: old MLX default URL replaced with new external default
+      expect(settings.llmEnabled).toBe(true);
+      expect(settings.llmUrl).toBe('https://ai.unids.kr/v1');
+      // model reset — user must re-select
+      expect(settings.llmModel).toBe('');
+    });
+
+    it('preserves customized mlxUrl during migration', async () => {
+      const fsModule = await import('fs');
+      vi.mocked(fsModule.default.existsSync).mockReturnValue(true);
+      vi.mocked(fsModule.default.readFileSync).mockReturnValue(
+        JSON.stringify({
+          mlxEnabled: false,
+          mlxUrl: 'http://custom-host:9000',
+          mlxModel: 'some-model',
+        }),
+      );
+
+      const settings = getSettings();
+      expect(settings.llmEnabled).toBe(false);
+      expect(settings.llmUrl).toBe('http://custom-host:9000');
     });
   });
 });

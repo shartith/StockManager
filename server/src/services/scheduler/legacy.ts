@@ -90,7 +90,7 @@ export async function handlePreOpen(market: Market, stocks: any[]) {
       const candles = await fetchCandleData(stock.ticker, market);
       if (!candles || candles.length < 30) continue;
 
-      if (settings.mlxEnabled) {
+      if (settings.llmEnabled) {
         const decision = await analyzeStock(stock, market, 'PRE_OPEN', candles, newsSummary, sentimentScore);
         addLog(market, 'PRE_OPEN', 'completed',
           `${stock.ticker}: ${decision.signal} (신뢰도 ${decision.confidence}%) — ${decision.reasoning.slice(0, 60)}`);
@@ -201,7 +201,7 @@ export async function handlePreClose1h(market: Market, stocks: any[]) {
         newsSummary = sentiment.summary;
       }
 
-      if (settings.mlxEnabled) {
+      if (settings.llmEnabled) {
         const decision = await analyzeStock(stock, market, 'PRE_CLOSE_1H', candles, newsSummary);
         addLog(market, 'PRE_CLOSE_1H', 'completed',
           `${stock.ticker}: ${decision.signal} (신뢰도 ${decision.confidence}%) — ${decision.reasoning.slice(0, 60)}`);

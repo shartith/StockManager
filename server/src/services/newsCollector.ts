@@ -1,7 +1,7 @@
 /**
- * 뉴스 수집 + MLX 로컬 LLM 요약 서비스
+ * 뉴스 수집 + 외부 LLM 요약 서비스
  * 뉴스 수집: 네이버 금융 (국내), Yahoo Finance (해외)
- * 요약: MLX (로컬 LLM)
+ * 요약: 외부 OpenAI 호환 LLM (Ollama / OpenAI 원격)
  */
 
 import { getSettings } from './settings';
@@ -179,7 +179,7 @@ export interface NewsSentiment {
   sentimentLabel: 'POSITIVE' | 'NEGATIVE' | 'NEUTRAL';
 }
 
-/** MLX 로컬 LLM으로 뉴스 요약 + 감성 분석 */
+/** 외부 LLM으로 뉴스 요약 + 감성 분석 */
 export async function summarizeNewsWithAI(newsItems: NewsItem[], ticker: string): Promise<NewsSentiment> {
   const fallback: NewsSentiment = {
     summary: newsItems?.length ? newsItems.map(n => `- ${n.title}`).join('\n') : '',
@@ -190,7 +190,7 @@ export async function summarizeNewsWithAI(newsItems: NewsItem[], ticker: string)
   if (!newsItems || newsItems.length === 0) return fallback;
 
   const settings = getSettings();
-  if (!settings.mlxEnabled || !settings.mlxUrl) return fallback;
+  if (!settings.llmEnabled || !settings.llmUrl) return fallback;
 
   const newsText = newsItems.map((n, i) => `${i + 1}. ${n.title}${n.summary ? '\n   ' + n.summary : ''}`).join('\n');
   const system = '당신은 한국 주식 시장의 뉴스를 분석하는 전문 애널리스트입니다. 반드시 valid JSON으로만 응답하세요.';
@@ -207,7 +207,7 @@ ${newsText}
 
   try {
     const { callLlm } = await import('./llm');
-    const text = await callLlm(settings.mlxModel, settings.mlxUrl, prompt, system, 500);
+    const text = await callLlm(settings.llmModel, settings.llmUrl, prompt, system, 500, settings.llmApiKey);
 
     try {
       const jsonMatch = text.match(/\{[\s\S]*\}/);

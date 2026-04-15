@@ -20,9 +20,9 @@ vi.mock('../db', () => ({
 
 vi.mock('../services/settings', () => ({
   getSettings: vi.fn(() => ({
-    mlxUrl: 'http://localhost:8000',
-    mlxModel: 'qwen3:4b',
-    mlxEnabled: true,
+    llmUrl: 'http://localhost:8000',
+    llmModel: 'qwen3:4b',
+    llmEnabled: true,
     debateMode: false,
     investmentStyle: 'balanced',
   })),
@@ -86,9 +86,9 @@ describe('getTradeDecision — single mode + parseDecisionResponse', () => {
     }));
     vi.doMock('../services/settings', () => ({
       getSettings: vi.fn(() => ({
-        mlxUrl: 'http://localhost:8000',
-        mlxModel: 'qwen3:4b',
-        mlxEnabled: true,
+        llmUrl: 'http://localhost:8000',
+        llmModel: 'qwen3:4b',
+        llmEnabled: true,
         debateMode: false,
         investmentStyle: 'balanced',
       })),
@@ -234,9 +234,9 @@ describe('getTradeDecision — single mode + parseDecisionResponse', () => {
     vi.resetModules();
     vi.doMock('../services/settings', () => ({
       getSettings: vi.fn(() => ({
-        mlxUrl: 'http://localhost:8000',
-        mlxModel: 'qwen3:4b',
-        mlxEnabled: false,
+        llmUrl: 'http://localhost:8000',
+        llmModel: 'qwen3:4b',
+        llmEnabled: false,
         debateMode: false,
       })),
     }));
@@ -259,9 +259,9 @@ describe('getTradeDecision — debate mode (3-call orchestration)', () => {
     }));
     vi.doMock('../services/settings', () => ({
       getSettings: vi.fn(() => ({
-        mlxUrl: 'http://localhost:8000',
-        mlxModel: 'qwen3:4b',
-        mlxEnabled: true,
+        llmUrl: 'http://localhost:8000',
+        llmModel: 'qwen3:4b',
+        llmEnabled: true,
         debateMode: true,
         investmentStyle: 'balanced',
       })),
@@ -317,7 +317,7 @@ describe('buildAnalysisInput (pure helper)', () => {
     vi.doMock('../db', () => ({ queryAll: vi.fn(() => []), queryOne: vi.fn(() => null), execute: vi.fn() }));
     vi.doMock('../services/settings', () => ({
       getSettings: vi.fn(() => ({
-        mlxUrl: '', mlxModel: '', mlxEnabled: false, debateMode: false,
+        llmUrl: '', llmModel: '', llmEnabled: false, debateMode: false,
       })),
     }));
     vi.doMock('../logger', () => ({ default: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() } }));

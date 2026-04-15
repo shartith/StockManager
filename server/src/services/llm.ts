@@ -1,9 +1,11 @@
 /**
- * 로컬 LLM 연동 서비스 (v4.12.0 MLX 기반)
+ * 외부 OpenAI 호환 LLM 서비스 (v4.13.0).
  *
- * Apple Silicon 전용 MLX 서버를 OpenAI 호환 API (`/v1/chat/completions`)로 호출.
- * 기본 모델: mlx-community/gemma-3n-E4B-it-4bit (~4.4GB).
- * MLX 서버는 bin/stock-manager의 ensureMlx()가 자동 기동.
+ * URL/모델/API키 는 사용자 설정. ai.unids.kr, Ollama(localhost:11434/v1),
+ * OpenAI 등 지원.
+ *
+ * llmUrl 은 /v1 을 포함하는 full base URL이어야 한다 (OpenAI 관례).
+ * 호출 시 `${llmUrl}/chat/completions`, `${llmUrl}/models` 형태로 사용.
  *
  * 4개 시점별 정형화된 입력/출력:
  *   PRE_OPEN   — 장 시작 전: 매수 후보 탐색
@@ -194,13 +196,15 @@ export interface TradeDecision {
   holdingPeriod: 'DAY_TRADE' | 'SWING' | 'SHORT_TERM' | 'MID_TERM';
 }
 
-// ─── LLM 서비스 (MLX) ──────────────────────────────────────
+// ─── LLM 서비스 (외부 OpenAI 호환) ───────────────────────────
 
-/** MLX 서버 연결 상태 확인 — OpenAI 호환 `/v1/models` 엔드포인트 */
+/** LLM 서버 연결 상태 확인 — `${llmUrl}/models` (llmUrl은 /v1 포함 full base URL) */
 export async function checkLlmStatus(): Promise<{ connected: boolean; models: string[] }> {
   const settings = getSettings();
   try {
-    const res = await fetch(`${settings.mlxUrl}/v1/models`);
+    const headers: Record<string, string> = {};
+    if (settings.llmApiKey) headers['Authorization'] = `Bearer ${settings.llmApiKey}`;
+    const res = await fetch(`${settings.llmUrl}/models`, { headers });
     if (!res.ok) return { connected: false, models: [] };
     const data: any = await res.json();
     // OpenAI 형식: { data: [{ id: 'model-name', ... }] }
@@ -218,8 +222,8 @@ export async function getTradeDecision(
 ): Promise<TradeDecision> {
   const settings = getSettings();
 
-  if (!settings.mlxEnabled) {
-    throw new Error('MLX LLM이 비활성화되어 있습니다');
+  if (!settings.llmEnabled) {
+    throw new Error('LLM이 비활성화되어 있습니다');
   }
 
   // 토론 모드: 강세/약세 분석 후 종합 판단 (3회 호출)
@@ -235,10 +239,8 @@ export async function getTradeDecision(
 //
 // v4.4.x LLM_DOWN bursts 교훈 유지:
 //   1. AbortController 기반 timeout (기본 120s)
-//   2. Module-level mutex — 동시 호출 직렬화 (MLX도 기본적으로 sequential)
+//   2. Module-level mutex — 동시 호출 직렬화 (외부 서버 부하 완화)
 //   3. 3회 재시도 with exponential backoff
-//
-// MLX는 Ollama의 keep_alive 개념 불필요 (모델이 서버 기동 시 상주).
 
 const LLM_TIMEOUT_MS = 120_000;
 const LLM_RETRY_ATTEMPTS = 3;
@@ -246,7 +248,7 @@ const LLM_RETRY_BASE_DELAY_MS = 1_000;
 
 /**
  * Module-level promise chain that serializes all LLM invocations.
- * MLX 서버도 generation 당 1개씩 처리하므로 직렬화 유지.
+ * 대부분의 OpenAI 호환 서버는 generation 당 1개씩 처리하므로 직렬화 유지.
  */
 let llmQueue: Promise<unknown> = Promise.resolve();
 
@@ -267,8 +269,9 @@ function isRetriableError(err: unknown): boolean {
 }
 
 /**
- * OpenAI 호환 `/v1/chat/completions` 호출.
- * MLX mlx_lm.server는 이 엔드포인트 + 표준 스키마 지원.
+ * OpenAI 호환 `chat/completions` 호출.
+ * url 은 /v1 을 포함하는 full base URL (예: https://ai.unids.kr/v1).
+ * apiKey 가 있으면 `Authorization: Bearer <apiKey>` 헤더를 추가.
  */
 async function callLlmRaw(
   model: string,
@@ -276,14 +279,17 @@ async function callLlmRaw(
   prompt: string,
   system: string,
   numPredict: number,
+  apiKey: string = '',
 ): Promise<string> {
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), LLM_TIMEOUT_MS);
 
   try {
-    const res = await fetch(`${url}/v1/chat/completions`, {
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+    if (apiKey) headers['Authorization'] = `Bearer ${apiKey}`;
+    const res = await fetch(`${url}/chat/completions`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers,
       signal: controller.signal,
       body: JSON.stringify({
         model,
@@ -295,7 +301,7 @@ async function callLlmRaw(
         top_p: 0.9,
         max_tokens: numPredict,
         stream: false,
-        // MLX는 response_format 미지원할 수 있으나 시도 — 무시돼도 무해.
+        // 일부 서버는 response_format 미지원일 수 있으나 시도 — 무시돼도 무해.
         // JSON 준수는 system prompt의 "valid JSON only" 지시에 의존.
         response_format: { type: 'json_object' },
       }),
@@ -321,13 +327,14 @@ export async function callLlm(
   prompt: string,
   system: string,
   numPredict: number = 1024,
+  apiKey: string = '',
 ): Promise<string> {
   // Serialize via module-level queue (mutex)
   const task = llmQueue.catch(() => undefined).then(async () => {
     let lastErr: unknown;
     for (let attempt = 0; attempt < LLM_RETRY_ATTEMPTS; attempt++) {
       try {
-        return await callLlmRaw(model, url, prompt, system, numPredict);
+        return await callLlmRaw(model, url, prompt, system, numPredict, apiKey);
       } catch (err) {
         lastErr = err;
         if (attempt === LLM_RETRY_ATTEMPTS - 1) break;
@@ -346,7 +353,7 @@ export async function callLlm(
 
 async function getTradeDecisionSingle(input: StockAnalysisInput, phase: AnalysisPhase, settings: any): Promise<TradeDecision> {
   const prompt = buildStructuredPrompt(input, phase);
-  const responseText = await callLlm(settings.mlxModel, settings.mlxUrl, prompt, buildSystemPrompt());
+  const responseText = await callLlm(settings.llmModel, settings.llmUrl, prompt, buildSystemPrompt(), 1024, settings.llmApiKey);
   logger.debug({ ticker: input.ticker, phase, length: responseText.length }, 'LLM raw response received');
   return parseDecisionResponse(responseText, input);
 }
@@ -363,7 +370,7 @@ ${dataBlock}
 
 반드시 JSON으로 응답: { "bullCase": "매수 근거 3~5문장", "bullConfidence": 0~100, "keyBullFactors": ["요소1", "요소2"] }`;
 
-  const bullResponse = await callLlm(settings.mlxModel, settings.mlxUrl, bullPrompt, systemPrompt, 400);
+  const bullResponse = await callLlm(settings.llmModel, settings.llmUrl, bullPrompt, systemPrompt, 400, settings.llmApiKey);
   logger.debug({ ticker: input.ticker }, 'LLM Bull analysis done');
 
   // 2차: 약세(Bear) 분석
@@ -374,7 +381,7 @@ ${dataBlock}
 
 반드시 JSON으로 응답: { "bearCase": "매도/위험 근거 3~5문장", "bearConfidence": 0~100, "keyBearFactors": ["요소1", "요소2"] }`;
 
-  const bearResponse = await callLlm(settings.mlxModel, settings.mlxUrl, bearPrompt, systemPrompt, 400);
+  const bearResponse = await callLlm(settings.llmModel, settings.llmUrl, bearPrompt, systemPrompt, 400, settings.llmApiKey);
   logger.debug({ ticker: input.ticker }, 'LLM Bear analysis done');
 
   // 3차: 종합 판단
@@ -394,7 +401,7 @@ ${dataBlock}
 
 ${RESPONSE_SCHEMA}`;
 
-  const finalResponse = await callLlm(settings.mlxModel, settings.mlxUrl, finalPrompt, systemPrompt, 1024);
+  const finalResponse = await callLlm(settings.llmModel, settings.llmUrl, finalPrompt, systemPrompt, 1024, settings.llmApiKey);
   logger.debug({ ticker: input.ticker, phase, length: finalResponse.length }, 'LLM debate final response received');
 
   return parseDecisionResponse(finalResponse, input);

@@ -26,7 +26,7 @@ export type EventCategory =
 async function getAiAdvice(severity: string, category: string, title: string, detail: string, ticker: string): Promise<string> {
   try {
     const settings = getSettings();
-    if (!settings.mlxEnabled || !settings.mlxUrl) return '';
+    if (!settings.llmEnabled || !settings.llmUrl) return '';
 
     const system = '당신은 자동매매 시스템의 운영 이벤트에 대한 대응 방안을 조언하는 전문가입니다.';
     const prompt = `자동매매 시스템에서 다음 이벤트가 발생했습니다. 즉시 취할 수 있는 조치와 향후 방지 방안을 2~3문장으로 제안하세요.
@@ -38,7 +38,7 @@ async function getAiAdvice(severity: string, category: string, title: string, de
 ${ticker ? `종목: ${ticker}` : ''}`;
 
     const { callLlm } = await import('./llm');
-    const text = await callLlm(settings.mlxModel, settings.mlxUrl, prompt, system, 300);
+    const text = await callLlm(settings.llmModel, settings.llmUrl, prompt, system, 300, settings.llmApiKey);
     return text.trim();
   } catch {
     return '';

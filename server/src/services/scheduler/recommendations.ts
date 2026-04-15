@@ -231,7 +231,7 @@ async function fetchOverseasGainerRank(market: Market): Promise<{ticker: string;
 export async function runRecommendationRefresh() {
   const MAX_PER_MARKET = 10;
   const settings = getSettings();
-  if (!settings.mlxEnabled) return;
+  if (!settings.llmEnabled) return;
 
   const { appKey, appSecret, baseUrl } = getKisConfig();
   if (!appKey || !appSecret) {

@@ -183,7 +183,7 @@ router.post('/:ticker/decision', validate(decisionSchema), asyncHandler(async (r
     // trade_signals에 저장
     execute(
       'INSERT INTO trade_signals (stock_id, signal_type, source, confidence, indicators_json, llm_reasoning) VALUES (?, ?, ?, ?, ?, ?)',
-      [stock.id, decision.signal, `mlx-${phase}`, decision.confidence, JSON.stringify({
+      [stock.id, decision.signal, `llm-${phase}`, decision.confidence, JSON.stringify({
         indicators: input.indicators,
         volumeAnalysis: input.volumeAnalysis,
         targetPrice: decision.targetPrice,
@@ -212,23 +212,25 @@ router.post('/:ticker/decision', validate(decisionSchema), asyncHandler(async (r
   }
 }));
 
-/** MLX 서버 상태 확인 — `/v1/models` 기반 */
+/** 외부 LLM 서버 상태 확인 — `${llmUrl}/models` (llmUrl 은 /v1 포함) */
 router.get('/llm/status', asyncHandler(async (_req: Request, res: Response) => {
   const status = await checkLlmStatus();
   res.json(status);
 }));
 
-/** MLX에 로드된 모델 조회 — 현재 서버에 로드된 모델(기본 1개) 반환 */
+/** LLM 서버에 등록된 모델 조회 */
 router.get('/llm/models', asyncHandler(async (_req: Request, res: Response) => {
   const settings = getSettings();
   try {
-    const r = await fetch(`${settings.mlxUrl}/v1/models`);
+    const headers: Record<string, string> = {};
+    if (settings.llmApiKey) headers['Authorization'] = `Bearer ${settings.llmApiKey}`;
+    const r = await fetch(`${settings.llmUrl}/models`, { headers });
     if (!r.ok) return res.json({ models: [] });
     const data: any = await r.json();
     // OpenAI 형식: { data: [{ id, created, owned_by }] }
     const models = (data.data || []).map((m: any) => ({
       name: m.id,
-      size: 0, // MLX는 크기 정보 제공 안 함 (파일시스템 스캔 필요)
+      size: 0, // 외부 서버는 크기 정보 미제공
       modified: m.created ? new Date(m.created * 1000).toISOString() : undefined,
     }));
     res.json({ models });
@@ -238,76 +240,22 @@ router.get('/llm/models', asyncHandler(async (_req: Request, res: Response) => {
 }));
 
 /**
- * MLX 모델 다운로드 (huggingface-cli download 이용, 스트리밍 출력).
- * mlx_lm.server가 현재 로드 중인 모델은 재시작 없이는 교체 불가.
- * 이 엔드포인트는 캐시만 다운로드하고, 실제 모델 전환은 Settings 저장 후
- * mlx_lm.server 재시작 (stock-manager 재시작) 필요.
+ * v4.13.0: 외부 LLM 서버 전환으로 로컬 모델 다운로드는 서버 측에서 관리되지 않음.
+ * Settings UI 에서 모델명만 지정하면 됨.
  */
-router.post('/llm/pull', validate(pullModelSchema), asyncHandler(async (req: Request, res: Response) => {
-  const { model } = req.body;
-  const venv = process.env.STOCK_MANAGER_VENV
-    || `${process.env.HOME}/.stock-manager/venv`;
-  const cliPath = `${venv}/bin/huggingface-cli`;
-
-  res.setHeader('Content-Type', 'text/event-stream');
-  res.setHeader('Cache-Control', 'no-cache');
-  res.setHeader('Connection', 'keep-alive');
-
-  try {
-    const { spawn } = await import('child_process');
-    const child = spawn(cliPath, ['download', model], {
-      env: { ...process.env, HF_HUB_DISABLE_PROGRESS_BARS: '0' },
-    });
-
-    child.stdout.on('data', (chunk: Buffer) => {
-      const text = chunk.toString();
-      res.write(`data: ${JSON.stringify({ status: 'downloading', message: text.slice(0, 500) })}\n\n`);
-    });
-    child.stderr.on('data', (chunk: Buffer) => {
-      const text = chunk.toString();
-      res.write(`data: ${JSON.stringify({ status: 'progress', message: text.slice(0, 500) })}\n\n`);
-    });
-    child.on('close', (code) => {
-      if (code === 0) {
-        res.write(`data: ${JSON.stringify({ status: 'success', message: `${model} 다운로드 완료. Settings 저장 후 stock-manager 재시작 필요.` })}\n\n`);
-      } else {
-        res.write(`data: ${JSON.stringify({ error: `다운로드 실패 (exit ${code})` })}\n\n`);
-      }
-      res.end();
-    });
-    child.on('error', (err) => {
-      res.write(`data: ${JSON.stringify({ error: `huggingface-cli 실행 실패: ${err.message}. venv 설치를 확인하세요.` })}\n\n`);
-      res.end();
-    });
-  } catch (err: any) {
-    res.write(`data: ${JSON.stringify({ error: '모델 다운로드 실패' })}\n\n`);
-    res.end();
-  }
+router.post('/llm/pull', validate(pullModelSchema), asyncHandler(async (_req: Request, res: Response) => {
+  res.status(410).json({
+    error: 'v4.13.0부터 외부 LLM 사용. 모델 다운로드는 LLM 서버 측에서 관리됩니다. Settings에서 모델명만 지정하세요.',
+  });
 }));
 
 /**
- * MLX 모델 삭제 (HuggingFace 캐시 디렉토리 제거).
- * mlx-community/gemma-3n-E4B-it-4bit → ~/.cache/huggingface/hub/models--mlx-community--gemma-3-4b-it-4bit
+ * v4.13.0: 외부 LLM 사용으로 로컬 캐시 삭제 기능 불필요.
  */
-router.delete('/llm/models/:name(*)', asyncHandler(async (req: Request, res: Response) => {
-  const name = req.params.name;
-  if (!name) {
-    return res.status(400).json({ error: 'model name required' });
-  }
-  try {
-    const fs = await import('fs');
-    const path = await import('path');
-    const nameStr = Array.isArray(name) ? name.join('/') : String(name);
-    const dirName = `models--${nameStr.replace(/\//g, '--')}`;
-    const cacheDir = path.join(process.env.HOME || '', '.cache', 'huggingface', 'hub', dirName);
-    if (!fs.existsSync(cacheDir)) {
-      return res.status(404).json({ error: '캐시 디렉토리를 찾을 수 없습니다' });
-    }
-    fs.rmSync(cacheDir, { recursive: true, force: true });
-    res.json({ success: true });
-  } catch (err: any) {
-    res.status(500).json({ error: `모델 삭제 실패: ${err.message}` });
-  }
+router.delete('/llm/models/:name(*)', asyncHandler(async (_req: Request, res: Response) => {
+  res.status(410).json({
+    error: 'v4.13.0부터 외부 LLM 사용. 모델 삭제는 LLM 서버 측에서 수행하세요.',
+  });
 }));
 
 /** 뉴스 수집 */

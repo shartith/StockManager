@@ -78,7 +78,7 @@ export async function runMarketOpen(market: Market) {
       const candles = await fetchCandleData(stock.ticker, market);
       if (!candles || candles.length < 30) continue;
 
-      if (settings.mlxEnabled) {
+      if (settings.llmEnabled) {
         const decision = await analyzeStock(stock, market, 'MARKET_OPEN', candles, newsSummary, sentimentScore, marketContextStr);
 
         // 1차 분할 매수 (30%) — 시초가 관망 후 즉시

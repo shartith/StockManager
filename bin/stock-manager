@@ -18,125 +18,17 @@ const port = process.env.PORT || 3000;
 
 const command = process.argv[2];
 
-// ── MLX 자동 설치 및 구동 ──
+// v4.13.0: 로컬 MLX 번들 제거. LLM은 외부 OpenAI 호환 서버를 사용하며,
+// URL/모델/API 키는 Settings UI에서 설정한다. bin/ 에서 자동 기동/설치하지 않는다.
+// 기존 venv(~/.stock-manager/venv)가 남아 있다면 수동으로 제거해도 된다.
 
-const MLX_PORT = process.env.MLX_PORT || 8000;
-const MLX_MODEL = process.env.MLX_MODEL || 'mlx-community/gemma-3n-E4B-it-4bit';
-const venvDir = process.env.STOCK_MANAGER_VENV || path.join(dataDir, 'venv');
+// ── MLX venv 잔존 감지 및 제거 (v4.13.0~) ──
+// v4.12.x 에서 bin/stock-manager 가 자동 생성하던 ~/.stock-manager/venv (mlx-lm 설치) 정리.
+// Ollama는 이제 정식 지원 provider 이므로 자동 경고하지 않는다 — 필요 시 수동 uninstall.
 
-function isAppleSilicon() {
-  return os.platform() === 'darwin' && os.arch() === 'arm64';
+function getOllamaDir() {
+  return path.join(os.homedir(), '.ollama');
 }
-
-function findPython3() {
-  // Prefer Homebrew python@3.12, fall back to system python3
-  const candidates = [
-    '/opt/homebrew/opt/python@3.12/bin/python3',
-    '/opt/homebrew/bin/python3',
-    '/usr/local/bin/python3',
-    '/usr/bin/python3',
-  ];
-  for (const p of candidates) {
-    if (fs.existsSync(p)) return p;
-  }
-  try {
-    return execSync('which python3', { encoding: 'utf-8' }).trim();
-  } catch {
-    return null;
-  }
-}
-
-function mlxServerIsUp() {
-  try {
-    execSync(`curl -sf http://localhost:${MLX_PORT}/v1/models > /dev/null 2>&1`);
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-function ensureMlx() {
-  if (!isAppleSilicon()) {
-    console.log('  WARN: Apple Silicon이 아닙니다. MLX는 실행되지 않습니다.');
-    console.log('  LLM 기능이 제한됩니다. (설정에서 외부 MLX 서버 URL 지정 가능)');
-    return;
-  }
-
-  // 0. 이미 기동 중이면 skip
-  if (mlxServerIsUp()) {
-    return;
-  }
-
-  // 1. Python venv 생성
-  const venvPython = path.join(venvDir, 'bin', 'python3');
-  if (!fs.existsSync(venvPython)) {
-    const python3 = findPython3();
-    if (!python3) {
-      console.log('  ERROR: python3를 찾을 수 없습니다. brew install python@3.12');
-      return;
-    }
-    console.log(`  Python venv 생성 중 (${venvDir})...`);
-    try {
-      execSync(`"${python3}" -m venv "${venvDir}"`, { stdio: 'inherit' });
-    } catch {
-      console.log('  ERROR: Python venv 생성 실패');
-      return;
-    }
-  }
-
-  // 2. mlx-lm 설치 (idempotent)
-  const venvPip = path.join(venvDir, 'bin', 'pip');
-  try {
-    execSync(`"${venvPip}" show mlx-lm > /dev/null 2>&1`);
-  } catch {
-    console.log('  mlx-lm 설치 중 (한 번만 실행, 네트워크 필요)...');
-    try {
-      execSync(`"${venvPip}" install --quiet --upgrade pip`, { stdio: 'inherit' });
-      execSync(`"${venvPip}" install --quiet mlx-lm`, { stdio: 'inherit' });
-      console.log('  mlx-lm 설치 완료');
-    } catch {
-      console.log('  ERROR: mlx-lm 설치 실패. 수동으로 설치하세요:');
-      console.log(`    "${venvPip}" install mlx-lm`);
-      return;
-    }
-  }
-
-  // 3. MLX 서버 spawn
-  const mlxServer = path.join(venvDir, 'bin', 'mlx_lm.server');
-  if (!fs.existsSync(mlxServer)) {
-    console.log(`  ERROR: ${mlxServer} 없음. mlx-lm 설치 필요`);
-    return;
-  }
-  console.log(`  MLX 서버 시작 (모델: ${MLX_MODEL}, 포트: ${MLX_PORT})`);
-  console.log('  최초 실행 시 모델 다운로드로 2~5분 소요될 수 있습니다...');
-  try {
-    const mlxLog = path.join(dataDir, 'mlx.log');
-    const out = fs.openSync(mlxLog, 'a');
-    const err = fs.openSync(mlxLog, 'a');
-    const child = spawn(mlxServer, [
-      '--port', String(MLX_PORT),
-      '--model', MLX_MODEL,
-    ], {
-      detached: true,
-      stdio: ['ignore', out, err],
-    });
-    child.unref();
-
-    // 4. 헬스체크 (최대 30초 — 모델 다운로드는 첫 호출 시 진행)
-    for (let i = 0; i < 15; i++) {
-      execSync('sleep 2');
-      if (mlxServerIsUp()) {
-        console.log('  MLX 서버 준비 완료');
-        return;
-      }
-    }
-    console.log(`  WARN: MLX 서버 헬스체크 타임아웃 — 로그 확인: ${mlxLog}`);
-  } catch {
-    console.log('  ERROR: MLX 서버 시작 실패');
-  }
-}
-
-// ── Ollama 잔존 감지 및 제거 ──
 
 function hasOllamaBinary() {
   try {
@@ -147,37 +39,58 @@ function hasOllamaBinary() {
   }
 }
 
-function getOllamaDir() {
-  return path.join(os.homedir(), '.ollama');
-}
-
 function hasOllamaData() {
   return fs.existsSync(getOllamaDir());
 }
 
-function detectOllamaLeftovers() {
-  const hasBin = hasOllamaBinary();
-  const hasData = hasOllamaData();
-  if (!hasBin && !hasData) return;
+function getMlxVenvDir() {
+  return path.join(dataDir, 'venv');
+}
 
+function hasMlxVenv() {
+  return fs.existsSync(path.join(getMlxVenvDir(), 'bin', 'mlx_lm.server'));
+}
+
+function detectMlxLeftovers() {
+  if (!hasMlxVenv()) return;
   let sizeHint = '';
-  if (hasData) {
-    try {
-      const du = execSync(`du -sh "${getOllamaDir()}" 2>/dev/null | awk '{print $1}'`, { encoding: 'utf-8' }).trim();
-      if (du) sizeHint = ` (~${du})`;
-    } catch {}
-  }
+  try {
+    const du = execSync(`du -sh "${getMlxVenvDir()}" 2>/dev/null | awk '{print $1}'`, { encoding: 'utf-8' }).trim();
+    if (du) sizeHint = ` (~${du})`;
+  } catch {}
 
   console.log('');
   console.log('  ┌─────────────────────────────────────────────────────────────┐');
-  console.log('  │  Ollama 잔존 감지                                           │');
+  console.log('  │  v4.12.x MLX venv 잔존 감지                                 │');
   console.log('  ├─────────────────────────────────────────────────────────────┤');
-  console.log('  │  v4.12.0부터 MLX로 전환됨. Ollama는 더 이상 사용하지 않음. │');
+  console.log('  │  v4.13.0부터 외부 LLM (Ollama/OpenAI 원격) 사용.            │');
   console.log(`  │  디스크 공간 회수를 위해 제거 권장${sizeHint}`);
   console.log('  │                                                             │');
-  console.log('  │  자동 제거:  stock-manager --uninstall-ollama               │');
+  console.log('  │  자동 제거:  stock-manager --uninstall-mlx                  │');
   console.log('  └─────────────────────────────────────────────────────────────┘');
   console.log('');
+}
+
+function uninstallMlx() {
+  const venv = getMlxVenvDir();
+  if (!hasMlxVenv()) {
+    console.log('  제거할 MLX venv 가 없습니다.');
+    return;
+  }
+  console.log('');
+  console.log(`  MLX venv 제거: ${venv}`);
+  const readline = require('readline');
+  const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
+  rl.question('  계속하시겠습니까? [y/N] ', (answer) => {
+    rl.close();
+    if (answer.trim().toLowerCase() !== 'y') { console.log('  취소됨'); return; }
+    try {
+      fs.rmSync(venv, { recursive: true, force: true });
+      console.log('  MLX venv 제거 완료');
+    } catch (e) {
+      console.log(`  WARN: 삭제 실패 — ${e.message}`);
+    }
+  });
 }
 
 function uninstallOllama() {
@@ -255,8 +168,7 @@ function startDaemon() {
     return;
   }
 
-  ensureMlx();
-  detectOllamaLeftovers();
+  detectMlxLeftovers();
 
   const out = fs.openSync(logFile, 'a');
   const err = fs.openSync(logFile, 'a');
@@ -312,8 +224,6 @@ function showStatus() {
 }
 
 function runServer() {
-  ensureMlx();
-
   process.env.STOCK_MANAGER_DATA = dataDir;
   process.env.STOCK_MANAGER_CLIENT = path.join(appRoot, 'client', 'dist');
   process.env.PORT = String(port);
@@ -333,6 +243,10 @@ switch (command) {
   case '--uninstall-ollama':
   case 'uninstall-ollama':
     uninstallOllama();
+    break;
+  case '--uninstall-mlx':
+  case 'uninstall-mlx':
+    uninstallMlx();
     break;
   case 'start':
     startDaemon();
@@ -447,7 +361,13 @@ switch (command) {
     stock-manager logs [n]     Show last n log lines (default: 50)
 
   Maintenance:
-    stock-manager --uninstall-ollama   Remove legacy Ollama binary + models (~/.ollama)
+    stock-manager --uninstall-mlx      Remove legacy MLX venv (~/.stock-manager/venv)
+    stock-manager --uninstall-ollama   Remove local Ollama binary + models (~/.ollama)
+
+  LLM:
+    v4.13.0부터 외부 OpenAI 호환 LLM 서버를 사용합니다.
+    URL/모델/API 키는 웹 UI의 Settings 화면에서 설정하세요.
+    예: https://ai.unids.kr/v1, http://localhost:11434/v1 (Ollama), https://api.openai.com/v1
 
   Strategy:
     stock-manager export-strategy          Export strategy (no credentials)

@@ -20,10 +20,12 @@ const ENV_SECRETS: Readonly<{
   kisAppKey: string | undefined;
   kisAppSecret: string | undefined;
   dartApiKey: string | undefined;
+  llmApiKey: string | undefined;
 }> = {
   kisAppKey: process.env.KIS_APP_KEY,
   kisAppSecret: process.env.KIS_APP_SECRET,
   dartApiKey: process.env.DART_API_KEY,
+  llmApiKey: process.env.LLM_API_KEY,
 };
 
 export interface MarketScheduleConfig {
@@ -43,10 +45,13 @@ export interface AppSettings {
   kisVirtual: boolean;
   mcpEnabled: boolean;
 
-  // MLX (로컬 LLM, Apple Silicon 전용, OpenAI-compat API)
-  mlxUrl: string;           // 기본 http://localhost:8000
-  mlxModel: string;         // 기본 mlx-community/gemma-3n-E4B-it-4bit
-  mlxEnabled: boolean;
+  // 외부 OpenAI 호환 LLM (v4.13.0: Ollama / OpenAI 호환 원격 서버 지원)
+  // llmUrl 은 /v1 을 포함하는 full base URL (OpenAI 관례).
+  llmProvider: 'ollama' | 'openai'; // UI 표시용 프리셋 선택자
+  llmUrl: string;           // 기본 https://ai.unids.kr/v1
+  llmModel: string;         // 빈 값 = 사용자 선택
+  llmEnabled: boolean;
+  llmApiKey: string;        // Bearer 토큰 (OpenAI 호환 공개 API용). Ollama는 빈 값.
 
   // DART (금융감독원 공시)
   dartApiKey: string;
@@ -127,9 +132,11 @@ const DEFAULT_SETTINGS: AppSettings = {
   kisVirtual: true,
   mcpEnabled: false,
 
-  mlxUrl: 'http://localhost:8000',
-  mlxModel: 'mlx-community/gemma-3n-E4B-it-4bit',
-  mlxEnabled: true,
+  llmProvider: 'openai',
+  llmUrl: 'https://ai.unids.kr/v1',
+  llmModel: '',
+  llmEnabled: true,
+  llmApiKey: '',
 
   dartApiKey: '',
   dartEnabled: false,
@@ -203,6 +210,10 @@ let _cache: AppSettings | null = null;
  *
  * v4.12.0 removed Ollama entirely and switched to MLX. The ollama* fields
  * are now legacy and self-clean over time.
+ *
+ * v4.13.0 removed bundled MLX and switched to a generic external OpenAI-
+ * compatible endpoint (llm*). The mlx* fields are migrated once (see
+ * getSettings) and then treated as legacy to self-clean over time.
  */
 const LEGACY_FIELDS = [
   'externalAiApiKey',
@@ -211,6 +222,9 @@ const LEGACY_FIELDS = [
   'ollamaUrl',
   'ollamaModel',
   'ollamaEnabled',
+  'mlxUrl',
+  'mlxModel',
+  'mlxEnabled',
 ] as const;
 
 function stripLegacyFields(obj: Record<string, unknown>): Record<string, unknown> {
@@ -230,14 +244,22 @@ export function getSettings(): AppSettings {
       const raw = fs.readFileSync(SETTINGS_PATH, 'utf-8');
       const rawParsed = JSON.parse(raw) as Record<string, unknown>;
 
-      // v4.12.0 migration: 기존 ollama* 설정이 있으면 mlx* 로 이관 (한 번만)
-      const needsMlxMigration =
-        rawParsed.ollamaEnabled !== undefined && rawParsed.mlxEnabled === undefined;
-      if (needsMlxMigration) {
-        // ollamaEnabled → mlxEnabled (truthy 이관)
-        if (rawParsed.ollamaEnabled) rawParsed.mlxEnabled = true;
-        // URL은 강제로 새 MLX 주소로 설정 (Ollama URL 재사용 불가)
-        // Model은 기본값 사용 (MLX 모델명 포맷이 완전 다름)
+      // v4.13.0 migration: 기존 mlx* 설정이 있으면 llm* 로 이관 (한 번만).
+      // 구 MLX 기본 URL(http://localhost:8000)은 더 이상 유효하지 않으므로
+      // 새 기본값(https://ai.unids.kr/v1)으로 대체. 사용자가 다른 URL로
+      // 커스터마이즈한 경우는 보존(사용자 의도를 존중).
+      const needsLlmMigration =
+        rawParsed.mlxEnabled !== undefined && rawParsed.llmEnabled === undefined;
+      if (needsLlmMigration) {
+        if (rawParsed.mlxEnabled !== undefined) rawParsed.llmEnabled = !!rawParsed.mlxEnabled;
+        if (typeof rawParsed.mlxUrl === 'string') {
+          rawParsed.llmUrl = rawParsed.mlxUrl === 'http://localhost:8000'
+            ? 'https://ai.unids.kr/v1'
+            : rawParsed.mlxUrl;
+        }
+        // llmModel: 이전 MLX 모델명 포맷은 외부 OpenAI-호환 서버에서
+        // 통용되지 않을 수 있으므로 빈 값으로 리셋 → 사용자 재선택 유도.
+        rawParsed.llmModel = '';
       }
 
       const parsed = stripLegacyFields(rawParsed);
@@ -253,6 +275,7 @@ export function getSettings(): AppSettings {
   if (ENV_SECRETS.kisAppKey) _cache!.kisAppKey = ENV_SECRETS.kisAppKey;
   if (ENV_SECRETS.kisAppSecret) _cache!.kisAppSecret = ENV_SECRETS.kisAppSecret;
   if (ENV_SECRETS.dartApiKey) _cache!.dartApiKey = ENV_SECRETS.dartApiKey;
+  if (ENV_SECRETS.llmApiKey) _cache!.llmApiKey = ENV_SECRETS.llmApiKey;
 
   // Sync to process.env so other modules (e.g. KIS API client) can read them.
   // This does NOT affect strip logic in saveSettings — that uses ENV_SECRETS snapshot.
@@ -273,12 +296,13 @@ export function saveSettings(partial: Partial<AppSettings>) {
   // Strip secrets ONLY if they were originally provided via external env vars.
   // Keys entered through the UI MUST be persisted to settings.json so they
   // survive process restart and brew upgrade.
-  const { kisAppKey, kisAppSecret, dartApiKey, ...safeSettings } = _cache;
+  const { kisAppKey, kisAppSecret, dartApiKey, llmApiKey, ...safeSettings } = _cache;
   const toSave = {
     ...safeSettings,
     ...(ENV_SECRETS.kisAppKey ? {} : { kisAppKey }),
     ...(ENV_SECRETS.kisAppSecret ? {} : { kisAppSecret }),
     ...(ENV_SECRETS.dartApiKey ? {} : { dartApiKey }),
+    ...(ENV_SECRETS.llmApiKey ? {} : { llmApiKey }),
   };
   fs.writeFileSync(SETTINGS_PATH, JSON.stringify(toSave, null, 2), 'utf-8');
 

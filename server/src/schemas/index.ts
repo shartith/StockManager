@@ -110,8 +110,9 @@ export const saveConfigSchema = z.object({
   isVirtual: z.boolean().default(true),
   mcpEnabled: z.boolean().default(false),
 
-  // v4.12.0: MLX (Apple Silicon 전용, OpenAI-compat API)
-  mlxUrl: z.string()
+  // v4.13.0: 외부 OpenAI 호환 LLM 서버 (ai.unids.kr, Ollama, OpenAI 등)
+  // llmUrl 은 /v1 을 포함하는 full base URL (OpenAI 관례).
+  llmUrl: z.string()
     .refine(val => {
       if (!val) return true; // allow empty (will use default)
       try {
@@ -122,10 +123,12 @@ export const saveConfigSchema = z.object({
         if (blocked.includes(u.hostname)) return false;
         return true;
       } catch { return false; }
-    }, { message: 'mlxUrl은 유효한 http/https URL이어야 합니다' })
-    .default('http://localhost:8000'),
-  mlxModel: z.string().default('mlx-community/gemma-3n-E4B-it-4bit'),
-  mlxEnabled: z.boolean().default(true),
+    }, { message: 'llmUrl은 유효한 http/https URL이어야 합니다' })
+    .default('https://ai.unids.kr/v1'),
+  llmModel: z.string().default(''),
+  llmEnabled: z.boolean().default(true),
+  llmApiKey: z.string().default(''),
+  llmProvider: z.enum(['ollama', 'openai']).default('openai'),
 
   dartApiKey: z.string().optional(),
   dartEnabled: z.boolean().default(false),

@@ -44,9 +44,12 @@ router.get('/config/form', (_req: Request, res: Response) => {
     mcpEnabled: settings.mcpEnabled,
     hasSecret: !!settings.kisAppSecret,
 
-    mlxUrl: settings.mlxUrl,
-    mlxModel: settings.mlxModel,
-    mlxEnabled: settings.mlxEnabled,
+    llmProvider: settings.llmProvider,
+    llmUrl: settings.llmUrl,
+    llmModel: settings.llmModel,
+    llmEnabled: settings.llmEnabled,
+    // API 키는 GET 응답에 노출하지 않음 (설정 존재 여부만 표시)
+    hasLlmApiKey: !!settings.llmApiKey,
 
     dartEnabled: settings.dartEnabled,
     hasDartKey: !!settings.dartApiKey,
@@ -114,7 +117,7 @@ router.get('/config/form', (_req: Request, res: Response) => {
 // 설정 저장
 router.post('/config', validate(saveConfigSchema), (req: Request, res: Response) => {
   const { appKey, appSecret, accountNo, accountProductCode, isVirtual, mcpEnabled,
-    mlxUrl, mlxModel, mlxEnabled,
+    llmProvider, llmUrl, llmModel, llmEnabled, llmApiKey,
     dartApiKey, dartEnabled,
     investmentStyle, debateMode,
     autoTradeEnabled, autoTradeMaxInvestment, autoTradeMaxPerStock, autoTradeMaxDailyTrades,
@@ -134,9 +137,12 @@ router.post('/config', validate(saveConfigSchema), (req: Request, res: Response)
     kisVirtual: !!isVirtual,
     mcpEnabled: !!mcpEnabled,
 
-    mlxUrl: mlxUrl || 'http://localhost:8000',
-    mlxModel: mlxModel || 'mlx-community/gemma-3n-E4B-it-4bit',
-    mlxEnabled: mlxEnabled !== false,
+    llmProvider: llmProvider === 'ollama' ? 'ollama' : 'openai',
+    llmUrl: llmUrl || 'https://ai.unids.kr/v1',
+    llmModel: llmModel || '',
+    llmEnabled: llmEnabled !== false,
+    // API 키는 사용자가 비워둔 채 저장 시 기존값 유지, 값이 있으면 교체
+    ...(typeof llmApiKey === 'string' && llmApiKey.length > 0 ? { llmApiKey } : {}),
 
     ...(dartApiKey ? { dartApiKey } : {}),
     dartEnabled: !!dartEnabled,

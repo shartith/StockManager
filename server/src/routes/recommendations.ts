@@ -78,8 +78,8 @@ router.post('/', validate(createRecommendationSchema), (req: Request, res: Respo
 router.post('/generate', asyncHandler(async (req: Request, res: Response) => {
   const MAX_RECOMMENDATIONS = 10;
   const settings = getSettings();
-  if (!settings.mlxEnabled) {
-    return res.status(400).json({ error: 'MLX LLM이 비활성화되어 있습니다. 설정에서 활성화하세요.' });
+  if (!settings.llmEnabled) {
+    return res.status(400).json({ error: 'LLM이 비활성화되어 있습니다. 설정에서 활성화하세요.' });
   }
 
   const { appKey, appSecret, baseUrl } = getKisConfig();

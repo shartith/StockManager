@@ -125,23 +125,25 @@
         </div>
       </div>
 
-      <!-- 섹션 4: MLX (Apple Silicon 로컬 LLM) -->
+      <!-- 섹션 4: 외부 LLM 서버 (Ollama / OpenAI 호환 원격) -->
       <div class="bg-surface-1 rounded-xl border border-border shadow-sm overflow-hidden">
         <div class="px-6 py-4 bg-surface-2 border-b border-border">
-          <h3 class="text-sm font-semibold text-txt-primary">MLX (Apple Silicon 로컬 LLM)</h3>
-          <p class="text-xs text-txt-secondary mt-0.5">매수/매도 판단에 사용할 로컬 LLM을 설정합니다. Apple Silicon 전용.</p>
+          <h3 class="text-sm font-semibold text-txt-primary">외부 LLM 서버 (원격)</h3>
+          <p class="text-xs text-txt-secondary mt-0.5">
+            매수/매도 판단에 사용할 원격 LLM을 선택합니다. Ollama(원격) 또는 OpenAI 호환 서버를 지원합니다.
+          </p>
         </div>
         <div class="p-6 space-y-4">
 
-          <!-- MLX 연결 상태 -->
+          <!-- 활성화 토글 + 연결 상태 -->
           <div class="flex items-center justify-between">
             <label class="flex items-center gap-3 cursor-pointer">
               <div class="relative">
-                <input type="checkbox" v-model="form.mlxEnabled" class="sr-only" />
-                <div class="w-11 h-6 rounded-full transition-colors" :class="form.mlxEnabled ? 'bg-primary' : 'bg-surface-3'"></div>
-                <div class="absolute top-1 left-1 w-4 h-4 bg-white rounded-full shadow transition-transform" :class="form.mlxEnabled ? 'translate-x-5' : 'translate-x-0'"></div>
+                <input type="checkbox" v-model="form.llmEnabled" class="sr-only" />
+                <div class="w-11 h-6 rounded-full transition-colors" :class="form.llmEnabled ? 'bg-primary' : 'bg-surface-3'"></div>
+                <div class="absolute top-1 left-1 w-4 h-4 bg-white rounded-full shadow transition-transform" :class="form.llmEnabled ? 'translate-x-5' : 'translate-x-0'"></div>
               </div>
-              <span class="text-sm font-medium text-txt-primary">MLX 활성화</span>
+              <span class="text-sm font-medium text-txt-primary">LLM 활성화</span>
             </label>
             <span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium"
               :class="llmConnected ? 'bg-green-100 text-green-700' : 'bg-surface-3 text-txt-secondary'">
@@ -150,129 +152,96 @@
             </span>
           </div>
 
-          <!-- 설치 안내 (미연결 시) -->
-          <div v-if="!llmConnected" class="p-4 bg-amber-50 rounded-lg border border-amber-200">
-            <p class="text-sm font-medium text-amber-800 mb-2">MLX 서버가 실행 중이 아닙니다</p>
-            <div class="space-y-2">
-              <div>
-                <p class="text-xs text-amber-700 mb-1">Homebrew 설치 시 자동으로 구성됩니다. 개발 모드에서 수동 실행:</p>
-                <div class="flex items-center gap-2">
-                  <code class="flex-1 bg-white px-3 py-1.5 rounded border border-amber-200 text-xs font-mono text-txt-primary">python3 -m venv ~/.stock-manager/venv && ~/.stock-manager/venv/bin/pip install mlx-lm</code>
-                  <button type="button" @click="copyToClipboard('python3 -m venv ~/.stock-manager/venv && ~/.stock-manager/venv/bin/pip install mlx-lm')"
-                    class="px-2 py-1.5 bg-amber-100 text-amber-700 rounded text-xs hover:bg-amber-200 transition whitespace-nowrap">
-                    {{ copiedCmd === 'python3 -m venv ~/.stock-manager/venv && ~/.stock-manager/venv/bin/pip install mlx-lm' ? '복사됨' : '복사' }}
-                  </button>
-                </div>
-              </div>
-              <div>
-                <p class="text-xs text-amber-700 mb-1">MLX 서버 기동:</p>
-                <div class="flex items-center gap-2">
-                  <code class="flex-1 bg-white px-3 py-1.5 rounded border border-amber-200 text-xs font-mono text-txt-primary">~/.stock-manager/venv/bin/mlx_lm.server --port 8000 --model mlx-community/gemma-3n-E4B-it-4bit</code>
-                  <button type="button" @click="copyToClipboard('~/.stock-manager/venv/bin/mlx_lm.server --port 8000 --model mlx-community/gemma-3n-E4B-it-4bit')"
-                    class="px-2 py-1.5 bg-amber-100 text-amber-700 rounded text-xs hover:bg-amber-200 transition whitespace-nowrap">
-                    복사
-                  </button>
-                </div>
-              </div>
-              <div>
-                <p class="text-xs text-amber-700 mb-1">MLX 공식 문서:</p>
-                <a href="https://github.com/ml-explore/mlx-lm" target="_blank"
-                  class="inline-flex items-center gap-1 text-xs text-accent hover:underline">
-                  github.com/ml-explore/mlx-lm
-                </a>
-              </div>
-              <button type="button" @click="checkLlm"
-                class="mt-1 px-3 py-1.5 bg-amber-600 text-white rounded text-xs hover:bg-amber-700 transition">
-                연결 재확인
+          <!-- Provider 선택 (Ollama / OpenAI) -->
+          <div v-if="form.llmEnabled">
+            <label class="block text-sm font-medium text-txt-primary mb-2">제공자</label>
+            <div class="grid grid-cols-2 gap-2">
+              <button type="button" @click="selectLlmProvider('ollama')"
+                class="px-4 py-3 rounded-lg border text-sm font-medium transition"
+                :class="form.llmProvider === 'ollama'
+                  ? 'border-primary bg-primary/10 text-primary'
+                  : 'border-border bg-surface-1 text-txt-secondary hover:bg-surface-2'">
+                <div class="font-semibold">Ollama</div>
+                <div class="text-xs text-txt-tertiary mt-0.5">원격 Ollama 서버</div>
+              </button>
+              <button type="button" @click="selectLlmProvider('openai')"
+                class="px-4 py-3 rounded-lg border text-sm font-medium transition"
+                :class="form.llmProvider === 'openai'
+                  ? 'border-primary bg-primary/10 text-primary'
+                  : 'border-border bg-surface-1 text-txt-secondary hover:bg-surface-2'">
+                <div class="font-semibold">OpenAI 호환</div>
+                <div class="text-xs text-txt-tertiary mt-0.5">ai.unids.kr, OpenAI 등</div>
               </button>
             </div>
           </div>
 
-          <!-- MLX URL / 모델 설정 -->
-          <div v-if="form.mlxEnabled" class="space-y-4">
+          <!-- 연결 실패 안내 -->
+          <div v-if="!llmConnected && form.llmEnabled" class="p-4 bg-amber-50 rounded-lg border border-amber-200">
+            <p class="text-sm font-medium text-amber-800 mb-2">LLM 서버에 연결할 수 없습니다</p>
+            <ul class="text-xs text-amber-700 space-y-1 list-disc list-inside">
+              <li>URL이 /v1 을 포함한 full base URL인지 확인하세요 (예: <code>https://ai.unids.kr/v1</code>).</li>
+              <li>공개 서비스(OpenAI, ai.unids.kr 등)는 API 키가 필요합니다.</li>
+              <li>로컬 Ollama를 사용하는 경우 별도로 <code>ollama serve</code> 실행 후 <code>http://localhost:11434/v1</code> 입력.</li>
+            </ul>
+            <button type="button" @click="checkLlm"
+              class="mt-3 px-3 py-1.5 bg-amber-600 text-white rounded text-xs hover:bg-amber-700 transition">
+              연결 재확인
+            </button>
+          </div>
+
+          <!-- URL / API 키 / 모델 입력 -->
+          <div v-if="form.llmEnabled" class="space-y-4">
             <div>
-              <label class="block text-sm font-medium text-txt-primary mb-1">MLX 서버 URL</label>
-              <input v-model="form.mlxUrl" type="text" placeholder="http://localhost:8000"
+              <label class="block text-sm font-medium text-txt-primary mb-1">서버 URL</label>
+              <input v-model="form.llmUrl" type="text"
+                :placeholder="form.llmProvider === 'ollama' ? 'http://<ollama-host>:11434/v1' : 'https://ai.unids.kr/v1'"
                 class="w-full border border-border rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-accent" />
+              <p class="text-xs text-txt-tertiary mt-1">
+                <template v-if="form.llmProvider === 'ollama'">
+                  Ollama는 OpenAI 호환 엔드포인트를 <code>/v1</code> 경로로 제공합니다.
+                  예: <code>http://192.168.0.10:11434/v1</code>
+                </template>
+                <template v-else>
+                  <code>/v1</code> 을 포함한 base URL. 예: <code>https://ai.unids.kr/v1</code>,
+                  <code>https://api.openai.com/v1</code>
+                </template>
+              </p>
+            </div>
+            <div>
+              <label class="block text-sm font-medium text-txt-primary mb-1">
+                API 키
+                <span v-if="llmKeySaved" class="ml-2 text-xs font-normal text-green-600 bg-green-50 px-1.5 py-0.5 rounded">저장됨</span>
+                <span v-if="form.llmProvider === 'ollama'" class="ml-2 text-xs font-normal text-txt-tertiary">(선택사항)</span>
+              </label>
+              <input v-model="form.llmApiKey" type="password"
+                :placeholder="llmKeySaved ? '변경할 경우에만 입력' : (form.llmProvider === 'ollama' ? '필요한 경우에만 입력' : 'Bearer 토큰 입력')"
+                class="w-full border border-border rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-accent" />
+              <p class="text-xs text-txt-tertiary mt-1">
+                <template v-if="form.llmProvider === 'ollama'">
+                  Ollama는 기본적으로 인증 없이 동작합니다. 프록시/인증 설정이 있을 때만 입력하세요.
+                </template>
+                <template v-else>
+                  OpenAI 호환 공개 서버는 Bearer 토큰이 필요합니다.
+                </template>
+              </p>
             </div>
             <div>
               <label class="block text-sm font-medium text-txt-primary mb-1">사용 모델</label>
               <div class="flex gap-2">
-                <select v-if="llmModels.length > 0" v-model="form.mlxModel"
+                <select v-if="llmModels.length > 0" v-model="form.llmModel"
                   class="flex-1 border border-border rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-accent">
-                  <option v-for="m in llmModels" :key="m.name" :value="m.name">
-                    {{ m.name }}<span v-if="m.size"> ({{ formatModelSize(m.size) }})</span>
-                  </option>
+                  <option value="">(직접 입력)</option>
+                  <option v-for="m in llmModels" :key="m.name" :value="m.name">{{ m.name }}</option>
                 </select>
-                <input v-else v-model="form.mlxModel" type="text" placeholder="mlx-community/gemma-3n-E4B-it-4bit"
+                <input v-else v-model="form.llmModel" type="text"
+                  :placeholder="form.llmProvider === 'ollama' ? '예: llama3.1:8b, gemma2:9b, qwen2.5:7b' : '예: gpt-4o-mini, gemma-3n-E4B-it'"
                   class="flex-1 border border-border rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-accent" />
                 <button type="button" @click="loadLlmModels"
                   class="px-3 py-2 border border-border rounded-lg text-xs text-txt-secondary hover:bg-surface-2 transition whitespace-nowrap">
                   새로고침
                 </button>
               </div>
-            </div>
-          </div>
-
-          <!-- 모델 관리 (연결 시) -->
-          <div v-if="llmConnected" class="border-t border-border-subtle pt-4 space-y-3">
-            <div class="flex items-center justify-between">
-              <h4 class="text-sm font-medium text-txt-primary">설치된 모델</h4>
-              <button type="button" @click="loadLlmModels" class="text-xs text-accent hover:underline">새로고침</button>
-            </div>
-
-            <!-- 모델 목록 -->
-            <div v-if="llmModels.length === 0" class="text-sm text-txt-tertiary py-2">설치된 모델이 없습니다. 아래에서 다운로드하세요.</div>
-            <div v-else class="space-y-1">
-              <div v-for="m in llmModels" :key="m.name"
-                class="flex items-center justify-between px-3 py-2 rounded-lg"
-                :class="form.mlxModel === m.name ? 'bg-blue-50 border border-blue-200' : 'bg-surface-2'">
-                <div class="flex items-center gap-2">
-                  <span v-if="form.mlxModel === m.name" class="text-xs text-accent font-medium">사용 중</span>
-                  <span class="text-sm font-mono text-txt-primary">{{ m.name }}</span>
-                  <span v-if="m.size" class="text-xs text-txt-tertiary">{{ formatModelSize(m.size) }}</span>
-                </div>
-                <div class="flex gap-2">
-                  <button v-if="form.mlxModel !== m.name" type="button" @click="form.mlxModel = m.name"
-                    class="text-xs text-accent hover:underline">선택</button>
-                  <button type="button" @click="deleteModel(m.name)"
-                    class="text-xs text-red-500 hover:underline">삭제</button>
-                </div>
-              </div>
-            </div>
-
-            <!-- 모델 다운로드 -->
-            <div class="bg-surface-2 rounded-lg p-4 space-y-3">
-              <h4 class="text-sm font-medium text-txt-primary">모델 다운로드</h4>
-              <div class="flex gap-2 flex-wrap">
-                <button type="button" v-for="rec in recommendedModels" :key="rec.name"
-                  @click="pullModelName = rec.name"
-                  class="px-3 py-1.5 rounded-lg text-xs font-medium border transition"
-                  :class="pullModelName === rec.name ? 'bg-primary text-white border-primary' : 'bg-surface-1 text-txt-secondary border-border hover:bg-surface-2'">
-                  {{ rec.name }} <span class="text-txt-tertiary font-normal">({{ rec.size }})</span>
-                </button>
-              </div>
-              <div class="flex gap-2">
-                <input v-model="pullModelName" type="text" placeholder="모델명 (예: mlx-community/gemma-3n-E4B-it-4bit)"
-                  class="flex-1 border border-border rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-accent" />
-                <button type="button" @click="pullModel" :disabled="pulling || !pullModelName"
-                  class="px-4 py-2 bg-primary text-white rounded-lg text-sm font-medium hover:bg-primary-hover disabled:opacity-50 transition whitespace-nowrap">
-                  {{ pulling ? '다운로드 중...' : '다운로드' }}
-                </button>
-              </div>
-
-              <!-- 다운로드 진행 상태 -->
-              <div v-if="pullStatus" class="space-y-2">
-                <div class="flex items-center justify-between text-xs">
-                  <span class="text-txt-secondary">{{ pullStatus }}</span>
-                  <span v-if="pullProgress > 0" class="text-txt-secondary">{{ pullProgress }}%</span>
-                </div>
-                <div v-if="pullProgress > 0" class="w-full bg-surface-3 rounded-full h-2 overflow-hidden">
-                  <div class="h-full bg-primary rounded-full transition-all" :style="{ width: pullProgress + '%' }"></div>
-                </div>
-              </div>
-              <div v-if="pullError" class="text-xs text-red-600">{{ pullError }}</div>
-              <div v-if="pullSuccess" class="text-xs text-green-600">{{ pullSuccess }}</div>
+              <p class="text-xs text-txt-tertiary mt-1">서버가 제공하는 모델 ID를 선택하세요. 직접 입력도 가능합니다.</p>
             </div>
           </div>
         </div>
@@ -1119,9 +1088,11 @@ const form = ref({
   accountProductCode: '01',
   isVirtual: true,
 
-  mlxUrl: 'http://localhost:8000',
-  mlxModel: 'mlx-community/gemma-3n-E4B-it-4bit',
-  mlxEnabled: true,
+  llmProvider: 'openai' as 'ollama' | 'openai',
+  llmUrl: 'https://ai.unids.kr/v1',
+  llmModel: '',
+  llmEnabled: true,
+  llmApiKey: '',
 
   dartApiKey: '',
   dartEnabled: false,
@@ -1191,36 +1162,10 @@ function formatCurrency(value: number): string {
 
 const secretSaved = ref(false);
 
-// MLX (로컬 LLM) 관리
+// 외부 LLM 관리 (v4.13.0)
 const llmConnected = ref(false);
 const llmModels = ref<any[]>([]);
-const pullModelName = ref('');
-const pulling = ref(false);
-const pullStatus = ref('');
-const pullProgress = ref(0);
-const pullError = ref('');
-const pullSuccess = ref('');
-const copiedCmd = ref('');
-
-const recommendedModels = [
-  { name: 'mlx-community/gemma-3n-E4B-it-4bit', size: '4.4GB' },
-  { name: 'mlx-community/Qwen2.5-7B-Instruct-4bit', size: '4.0GB' },
-  { name: 'mlx-community/Llama-3.2-3B-Instruct-4bit', size: '1.8GB' },
-  { name: 'mlx-community/gemma-2-2b-it-4bit', size: '1.3GB' },
-];
-
-function formatModelSize(bytes: number): string {
-  if (!bytes) return '-';
-  const gb = bytes / (1024 * 1024 * 1024);
-  if (gb >= 1) return gb.toFixed(1) + 'GB';
-  return (bytes / (1024 * 1024)).toFixed(0) + 'MB';
-}
-
-function copyToClipboard(text: string) {
-  navigator.clipboard.writeText(text);
-  copiedCmd.value = text;
-  setTimeout(() => { copiedCmd.value = ''; }, 2000);
-}
+const llmKeySaved = ref(false);
 
 async function checkLlm() {
   try {
@@ -1232,6 +1177,24 @@ async function checkLlm() {
   }
 }
 
+/** Provider 프리셋 전환 — URL이 이전 프리셋의 기본값과 일치할 때만 자동 교체 */
+function selectLlmProvider(provider: 'ollama' | 'openai') {
+  const prev = form.value.llmProvider;
+  if (prev === provider) return;
+
+  const OLLAMA_DEFAULT = 'http://localhost:11434/v1';
+  const OPENAI_DEFAULT = 'https://ai.unids.kr/v1';
+  const presetUrls = [OLLAMA_DEFAULT, OPENAI_DEFAULT, 'https://api.openai.com/v1', ''];
+
+  form.value.llmProvider = provider;
+  // 사용자가 커스텀 URL을 입력하지 않은 경우에만 URL 프리셋 자동 교체
+  if (presetUrls.includes(form.value.llmUrl)) {
+    form.value.llmUrl = provider === 'ollama' ? OLLAMA_DEFAULT : OPENAI_DEFAULT;
+  }
+  // 모델 목록은 서버마다 다르므로 초기화
+  llmModels.value = [];
+}
+
 async function loadLlmModels() {
   try {
     const { data } = await analysisApi.getLlmModels();
@@ -1240,80 +1203,6 @@ async function loadLlmModels() {
     );
   } catch {
     llmModels.value = [];
-  }
-}
-
-async function pullModel() {
-  if (!pullModelName.value || pulling.value) return;
-
-  pulling.value = true;
-  pullStatus.value = '다운로드 준비 중...';
-  pullProgress.value = 0;
-  pullError.value = '';
-  pullSuccess.value = '';
-
-  try {
-    const response = await fetch('/api/analysis/llm/pull', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ model: pullModelName.value }),
-    });
-
-    const reader = response.body?.getReader();
-    if (!reader) throw new Error('스트림 읽기 실패');
-
-    const decoder = new TextDecoder();
-    let buffer = '';
-
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-
-      buffer += decoder.decode(value, { stream: true });
-      const lines = buffer.split('\n');
-      buffer = lines.pop() || '';
-
-      for (const line of lines) {
-        if (!line.startsWith('data: ')) continue;
-        try {
-          const parsed = JSON.parse(line.slice(6));
-          if (parsed.error) {
-            pullError.value = parsed.error;
-          } else if (parsed.status === 'success') {
-            pullSuccess.value = `${pullModelName.value} 다운로드 완료`;
-            pullStatus.value = '';
-            pullProgress.value = 100;
-          } else {
-            pullStatus.value = parsed.status || '';
-            if (parsed.total && parsed.completed) {
-              pullProgress.value = Math.round((parsed.completed / parsed.total) * 100);
-            }
-          }
-        } catch { /* skip */ }
-      }
-    }
-
-    await loadLlmModels();
-    if (!pullError.value && !pullSuccess.value) {
-      pullSuccess.value = `${pullModelName.value} 다운로드 완료`;
-    }
-  } catch (err: any) {
-    pullError.value = err.message || '다운로드 실패';
-  }
-
-  pulling.value = false;
-}
-
-async function deleteModel(name: string) {
-  if (!confirm(`${name} 모델을 삭제하시겠습니까?`)) return;
-  try {
-    await analysisApi.deleteLlmModel(name);
-    await loadLlmModels();
-    if (form.value.mlxModel === name) {
-      form.value.mlxModel = llmModels.value[0]?.name || '';
-    }
-  } catch (err: any) {
-    alert(err.response?.data?.error || '삭제 실패');
   }
 }
 
@@ -1393,9 +1282,12 @@ async function loadConfig() {
     form.value.isVirtual = saved.isVirtual ?? true;
     secretSaved.value = saved.hasSecret;
 
-    form.value.mlxUrl = saved.mlxUrl || 'http://localhost:8000';
-    form.value.mlxModel = saved.mlxModel || 'mlx-community/gemma-3n-E4B-it-4bit';
-    form.value.mlxEnabled = saved.mlxEnabled ?? true;
+    form.value.llmProvider = saved.llmProvider === 'ollama' ? 'ollama' : 'openai';
+    form.value.llmUrl = saved.llmUrl || (form.value.llmProvider === 'ollama' ? 'http://localhost:11434/v1' : 'https://ai.unids.kr/v1');
+    form.value.llmModel = saved.llmModel || '';
+    form.value.llmEnabled = saved.llmEnabled ?? true;
+    form.value.llmApiKey = ''; // 저장된 값은 서버에서 돌려주지 않음; 변경 시에만 입력
+    llmKeySaved.value = !!saved.hasLlmApiKey;
 
     form.value.dartEnabled = saved.dartEnabled ?? false;
     dartKeySaved.value = saved.hasDartKey ?? false;

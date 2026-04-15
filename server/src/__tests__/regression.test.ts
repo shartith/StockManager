@@ -66,7 +66,7 @@ describe('Settings <-> Zod schema parity', () => {
   const DEFAULT_SETTINGS_KEYS: string[] = [
     'kisAppKey', 'kisAppSecret', 'kisAccountNo', 'kisAccountProductCode',
     'kisVirtual', 'mcpEnabled',
-    'mlxUrl', 'mlxModel', 'mlxEnabled',
+    'llmUrl', 'llmModel', 'llmEnabled', 'llmApiKey',
     'dartApiKey', 'dartEnabled',
     'investmentStyle', 'debateMode', 'stopLossPercent',
     'autoTradeEnabled', 'autoTradeMaxInvestment', 'autoTradeMaxPerStock',
@@ -186,7 +186,7 @@ describe('Config form <-> config save parity', () => {
   // Fields returned by GET /config/form (from chart.ts lines 31-81)
   const CONFIG_FORM_FIELDS = [
     'appKey', 'accountNo', 'accountProductCode', 'isVirtual', 'mcpEnabled', 'hasSecret',
-    'mlxUrl', 'mlxModel', 'mlxEnabled',
+    'llmUrl', 'llmModel', 'llmEnabled', 'hasLlmApiKey',
     'dartEnabled', 'hasDartKey',
     'investmentStyle', 'debateMode', 'stopLossPercent',
     'autoTradeEnabled', 'autoTradeMaxInvestment', 'autoTradeMaxPerStock',
@@ -206,7 +206,7 @@ describe('Config form <-> config save parity', () => {
   // Note: some come from req.body directly rather than destructuring
   const CONFIG_SAVE_FIELDS = [
     'appKey', 'appSecret', 'accountNo', 'accountProductCode', 'isVirtual', 'mcpEnabled',
-    'mlxUrl', 'mlxModel', 'mlxEnabled',
+    'llmUrl', 'llmModel', 'llmEnabled', 'llmApiKey',
     'dartApiKey', 'dartEnabled',
     'investmentStyle', 'debateMode', 'stopLossPercent',
     'autoTradeEnabled', 'autoTradeMaxInvestment', 'autoTradeMaxPerStock',
@@ -223,9 +223,9 @@ describe('Config form <-> config save parity', () => {
   ];
 
   // Fields that are intentionally form-only (derived/masked) and not in save
-  const FORM_ONLY_FIELDS = new Set(['hasSecret', 'hasDartKey', 'hasNasPassword']);
+  const FORM_ONLY_FIELDS = new Set(['hasSecret', 'hasDartKey', 'hasNasPassword', 'hasLlmApiKey']);
   // Fields that are save-only (secrets sent but not shown in form)
-  const SAVE_ONLY_FIELDS = new Set(['appSecret', 'dartApiKey', 'nasPassword']);
+  const SAVE_ONLY_FIELDS = new Set(['appSecret', 'dartApiKey', 'nasPassword', 'llmApiKey']);
 
   it('BUG-R4: every saveable field appears in form response (except secrets)', () => {
     const formSet = new Set(CONFIG_FORM_FIELDS);

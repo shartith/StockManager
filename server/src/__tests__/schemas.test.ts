@@ -191,8 +191,10 @@ describe('saveConfigSchema — SSRF guards and URL validation', () => {
 
   it('applies sensible defaults', () => {
     const c = saveConfigSchema.parse(valid());
-    expect(c.mlxUrl).toBe('http://localhost:8000');
-    expect(c.mlxModel).toBe('mlx-community/gemma-3n-E4B-it-4bit');
+    expect(c.llmUrl).toBe('https://ai.unids.kr/v1');
+    expect(c.llmModel).toBe('');
+    expect(c.llmEnabled).toBe(true);
+    expect(c.llmApiKey).toBe('');
     expect(c.isVirtual).toBe(true);
     expect(c.autoTradeEnabled).toBe(false);
     expect(c.portfolioMaxHoldings).toBe(10);
@@ -202,40 +204,40 @@ describe('saveConfigSchema — SSRF guards and URL validation', () => {
     expect(() => saveConfigSchema.parse({ appKey: '' })).toThrow();
   });
 
-  it('blocks AWS metadata endpoint in mlxUrl', () => {
+  it('blocks AWS metadata endpoint in llmUrl', () => {
     expect(() => saveConfigSchema.parse({
-      ...valid(), mlxUrl: 'http://169.254.169.254/latest',
+      ...valid(), llmUrl: 'http://169.254.169.254/latest',
     })).toThrow(/유효한 http/);
   });
 
-  it('blocks Alibaba Cloud metadata endpoint in mlxUrl', () => {
+  it('blocks Alibaba Cloud metadata endpoint in llmUrl', () => {
     expect(() => saveConfigSchema.parse({
-      ...valid(), mlxUrl: 'http://100.100.100.200/',
+      ...valid(), llmUrl: 'http://100.100.100.200/',
     })).toThrow();
   });
 
-  it('blocks GCP metadata hostname in mlxUrl', () => {
+  it('blocks GCP metadata hostname in llmUrl', () => {
     expect(() => saveConfigSchema.parse({
-      ...valid(), mlxUrl: 'http://metadata.google.internal/',
+      ...valid(), llmUrl: 'http://metadata.google.internal/',
     })).toThrow();
   });
 
-  it('rejects non-http protocol in mlxUrl', () => {
+  it('rejects non-http protocol in llmUrl', () => {
     expect(() => saveConfigSchema.parse({
-      ...valid(), mlxUrl: 'file:///etc/passwd',
+      ...valid(), llmUrl: 'file:///etc/passwd',
     })).toThrow();
   });
 
-  it('rejects malformed URL in mlxUrl', () => {
+  it('rejects malformed URL in llmUrl', () => {
     expect(() => saveConfigSchema.parse({
-      ...valid(), mlxUrl: 'not a url at all',
+      ...valid(), llmUrl: 'not a url at all',
     })).toThrow();
   });
 
-  it('accepts empty mlxUrl (will use default)', () => {
-    const c = saveConfigSchema.parse({ ...valid(), mlxUrl: '' });
+  it('accepts empty llmUrl (will use default)', () => {
+    const c = saveConfigSchema.parse({ ...valid(), llmUrl: '' });
     // empty passes refine, then default kicks in
-    expect(typeof c.mlxUrl).toBe('string');
+    expect(typeof c.llmUrl).toBe('string');
   });
 
   it('rejects out-of-range autoTradeScoreThreshold', () => {

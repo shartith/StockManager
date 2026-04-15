@@ -12,9 +12,9 @@ process.env.STOCK_MANAGER_DB_PATH = ':memory:';
 
 vi.mock('../services/settings', () => ({
   getSettings: vi.fn(() => ({
-    mlxEnabled: true,
-    mlxUrl: 'http://localhost:8000',
-    mlxModel: 'qwen3:4b',
+    llmEnabled: true,
+    llmUrl: 'http://localhost:8000',
+    llmModel: 'qwen3:4b',
   })),
 }));
 

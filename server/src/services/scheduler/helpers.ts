@@ -351,7 +351,7 @@ export async function analyzeStock(stock: any, market: Market, phase: AnalysisPh
 
   const { lastId: signalId } = execute(
     'INSERT INTO trade_signals (stock_id, signal_type, source, confidence, indicators_json, llm_reasoning) VALUES (?, ?, ?, ?, ?, ?)',
-    [stock.id, decision.signal, `mlx-${phase}`, decision.confidence, JSON.stringify({
+    [stock.id, decision.signal, `llm-${phase}`, decision.confidence, JSON.stringify({
       // Top-level currentPrice for performance tracking (signal_performance 등록).
       // StockAnalysisInput.indicators 서브오브젝트에는 currentPrice가 없으므로
       // 별도로 기록해야 performanceTracker가 signalPrice를 추출할 수 있다.
