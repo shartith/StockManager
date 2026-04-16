@@ -215,6 +215,24 @@ export async function checkLlmStatus(): Promise<{ connected: boolean; models: st
   }
 }
 
+/**
+ * 모델명이 비어있으면 서버에서 사용 가능한 첫 번째 모델을 자동 감지.
+ * 마이그레이션(v4.12→v4.13) 시 모델이 빈 값으로 리셋되기 때문에 필요.
+ */
+let _resolvedModel = '';
+async function resolveModel(settings: ReturnType<typeof getSettings>): Promise<string> {
+  if (settings.llmModel) return settings.llmModel;
+  if (_resolvedModel) return _resolvedModel;
+
+  const status = await checkLlmStatus();
+  if (status.models.length > 0) {
+    _resolvedModel = status.models[0];
+    logger.info({ model: _resolvedModel }, 'LLM 모델 자동 감지 (llmModel 미설정)');
+    return _resolvedModel;
+  }
+  throw new Error('LLM 서버에 사용 가능한 모델이 없습니다. 설정에서 모델을 지정하세요.');
+}
+
 /** 정형화된 입력으로 LLM 매매 판단 요청 */
 export async function getTradeDecision(
   input: StockAnalysisInput,
@@ -226,13 +244,17 @@ export async function getTradeDecision(
     throw new Error('LLM이 비활성화되어 있습니다');
   }
 
+  // 모델 자동 감지 (빈 값일 때)
+  const model = await resolveModel(settings);
+  const effectiveSettings = settings.llmModel ? settings : { ...settings, llmModel: model };
+
   // 토론 모드: 강세/약세 분석 후 종합 판단 (3회 호출)
   if (settings.debateMode) {
-    return getTradeDecisionWithDebate(input, phase, settings);
+    return getTradeDecisionWithDebate(input, phase, effectiveSettings);
   }
 
   // 기본 모드: 단일 호출
-  return getTradeDecisionSingle(input, phase, settings);
+  return getTradeDecisionSingle(input, phase, effectiveSettings);
 }
 
 // ─── LLM call resilience ────────────────────────────────────
@@ -329,12 +351,19 @@ export async function callLlm(
   numPredict: number = 1024,
   apiKey: string = '',
 ): Promise<string> {
+  // 빈 모델명일 때 자동 감지 (v4.13 마이그레이션 대응)
+  let effectiveModel = model;
+  if (!effectiveModel) {
+    const settings = getSettings();
+    effectiveModel = await resolveModel(settings);
+  }
+
   // Serialize via module-level queue (mutex)
   const task = llmQueue.catch(() => undefined).then(async () => {
     let lastErr: unknown;
     for (let attempt = 0; attempt < LLM_RETRY_ATTEMPTS; attempt++) {
       try {
-        return await callLlmRaw(model, url, prompt, system, numPredict, apiKey);
+        return await callLlmRaw(effectiveModel, url, prompt, system, numPredict, apiKey);
       } catch (err) {
         lastErr = err;
         if (attempt === LLM_RETRY_ATTEMPTS - 1) break;
