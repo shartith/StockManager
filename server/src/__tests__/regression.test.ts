@@ -66,7 +66,7 @@ describe('Settings <-> Zod schema parity', () => {
   const DEFAULT_SETTINGS_KEYS: string[] = [
     'kisAppKey', 'kisAppSecret', 'kisAccountNo', 'kisAccountProductCode',
     'kisVirtual', 'mcpEnabled',
-    'llmUrl', 'llmModel', 'llmEnabled', 'llmApiKey',
+    'llmProvider', 'llmUrl', 'llmModel', 'llmEnabled', 'llmApiKey',
     'dartApiKey', 'dartEnabled',
     'investmentStyle', 'debateMode', 'stopLossPercent',
     'autoTradeEnabled', 'autoTradeMaxInvestment', 'autoTradeMaxPerStock',

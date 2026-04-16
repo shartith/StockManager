@@ -28,14 +28,14 @@ export interface RecommendationCleanupResult {
 }
 
 /**
- * 추천종목 ACTIVE → EXPIRED 자동 전환 (공격적 정책).
- * LLM 사용 여부와 무관. 평가가 낮아지면 즉시 제거.
+ * 추천종목 ACTIVE → EXPIRED 자동 전환 (v4.14.0: TOP 50 경쟁 구도).
+ * LLM 사용 여부와 무관. 감점으로 음수가 되면 즉시 제거.
  *
  * 규칙:
  *   1. expires_at 경과 → EXPIRED
- *   2. score < 40 → **즉시 EXPIRED** (시간 조건 없음)
+ *   2. score < 0 → **즉시 EXPIRED** (감점으로 음수 전환)
  *   3. confidence < 50 → **즉시 EXPIRED**
- *   4. 생성 3일 이상 + ACTIVE → EXPIRED (추천 수명 단축)
+ *   4. 생성 5일 이상 + ACTIVE → EXPIRED (TOP 50 경쟁 기간 확대)
  *   5. 7일+ 지난 EXPIRED/DISMISSED → 실제 DELETE (용량 정리)
  */
 export function expireStaleRecommendations(): RecommendationCleanupResult {
@@ -53,12 +53,12 @@ export function expireStaleRecommendations(): RecommendationCleanupResult {
   );
   expired += r1.changes ?? 0;
 
-  // 2. score < 40 — 즉시 만료 (평가 낮아지면 바로 제거)
+  // 2. score < 0 — 즉시 만료 (감점으로 음수 전환 시 퇴출)
   const r2 = execute(
     `UPDATE recommendations
      SET status = 'EXPIRED'
      WHERE status = 'ACTIVE'
-       AND score < 40
+       AND score < 0
        AND (deleted_at IS NULL)`,
   );
   expired += r2.changes ?? 0;
@@ -73,12 +73,12 @@ export function expireStaleRecommendations(): RecommendationCleanupResult {
   );
   expired += r3.changes ?? 0;
 
-  // 4. 생성 3일 이상 ACTIVE (기존 7일 → 3일 단축)
+  // 4. 생성 5일 이상 ACTIVE (TOP 50 경쟁 기간 확대: 3일 → 5일)
   const r4 = execute(
     `UPDATE recommendations
      SET status = 'EXPIRED'
      WHERE status = 'ACTIVE'
-       AND created_at <= datetime('now', '-3 days')
+       AND created_at <= datetime('now', '-5 days')
        AND (deleted_at IS NULL)`,
   );
   expired += r4.changes ?? 0;

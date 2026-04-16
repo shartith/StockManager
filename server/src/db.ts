@@ -473,6 +473,10 @@ export async function initializeDB(): Promise<Db> {
   try { dbRun('ALTER TABLE watchlist ADD COLUMN deleted_at DATETIME'); } catch {}
   try { dbRun('ALTER TABLE recommendations ADD COLUMN deleted_at DATETIME'); } catch {}
 
+  // --- v4.14.0: TOP 50 경쟁 구도 — 연속 HOLD/SELL 카운터 ---
+  try { dbRun('ALTER TABLE recommendations ADD COLUMN consecutive_holds INTEGER DEFAULT 0'); } catch {}
+  try { dbRun('ALTER TABLE recommendations ADD COLUMN consecutive_sells INTEGER DEFAULT 0'); } catch {}
+
   // --- v4.10.0: Paper Trading (가상매매) 테이블 ---
   // 추천 BUY 신호가 발생했지만 실매매가 안 된 종목을 자동 가상 매수/매도하여
   // 학습 데이터로 활용. transactions/auto_trades와 분리되어 실 매매 평균단가를

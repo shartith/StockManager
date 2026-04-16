@@ -223,13 +223,14 @@ async function fetchOverseasGainerRank(market: Market): Promise<{ticker: string;
 }
 
 /** 추천종목 자동 갱신 (매 1시간, 24시간 운영)
- * 1) 기존 ACTIVE 추천 재검증 — BUY 아니면 제외
+ * v4.14.0: 시장별 TOP 50 경쟁 구도
+ * 1) 기존 ACTIVE 추천 재검증 — 감점/가점 적용
  * 2) 포트폴리오 보유 종목 제외
  * 3) 빈 슬롯이 있으면 거래량 상위에서 신규 후보 탐색
- * 시장별 최대 10개
+ * 4) 50위 밖 종목 퇴출
  */
 export async function runRecommendationRefresh() {
-  const MAX_PER_MARKET = 10;
+  const MAX_PER_MARKET = 50;
   const settings = getSettings();
   if (!settings.llmEnabled) return;
 
@@ -294,25 +295,22 @@ export async function runRecommendationRefresh() {
         const input = buildAnalysisInput(rec.ticker, rec.name, market as any, candles, indicators);
         const decision = await getTradeDecision(input, 'PRE_OPEN');
 
-        if (decision.signal !== 'BUY' || decision.confidence < 60) {
-          execute("UPDATE recommendations SET status = 'EXPIRED' WHERE id = ?", [rec.id]);
-          logger.info(`[Scheduler] 추천 제거: ${rec.ticker} (${decision.signal}, ${decision.confidence}%)`);
-        } else {
-          const reason = `${decision.reasoning} [목표가: ${decision.targetPrice?.toLocaleString() ?? '-'}, 손절가: ${decision.stopLossPrice?.toLocaleString() ?? '-'}]`;
-          execute("UPDATE recommendations SET confidence = ?, reason = ? WHERE id = ?", [decision.confidence, reason, rec.id]);
+        // v4.14.0: BUY 아니어도 즉시 제거 안 함 — 스코어링으로 감점 적용
+        const reason = `${decision.reasoning} [목표가: ${decision.targetPrice?.toLocaleString() ?? '-'}, 손절가: ${decision.stopLossPrice?.toLocaleString() ?? '-'}]`;
+        execute("UPDATE recommendations SET confidence = ?, reason = ? WHERE id = ?", [decision.confidence, reason, rec.id]);
 
-          // 스코어링 평가 (호가 품질 포함)
-          let quoteBook = undefined;
-          try {
-            const { getQuoteBook } = await import('../quoteBook');
-            quoteBook = (await getQuoteBook(rec.ticker, market as any)) ?? undefined;
-          } catch (err) {
-            logger.debug({ err, ticker: rec.ticker }, 'Quote book fetch skipped for scoring');
-          }
-          const scoreResult = await evaluateAndScore(rec.ticker, market, decision, indicators, input.volumeAnalysis, undefined, quoteBook);
-          if (scoreResult.promoted) {
-            logger.info(`[Scheduler] 자동 승격: ${rec.ticker} → ${scoreResult.promotedTo} (${scoreResult.totalScore}점)`);
-          }
+        // 스코어링 평가 (BUY/SELL/HOLD 모두 — 감점/가점 반영)
+        let quoteBook = undefined;
+        try {
+          const { getQuoteBook } = await import('../quoteBook');
+          quoteBook = (await getQuoteBook(rec.ticker, market as any)) ?? undefined;
+        } catch (err) {
+          logger.debug({ err, ticker: rec.ticker }, 'Quote book fetch skipped for scoring');
+        }
+        const scoreResult = await evaluateAndScore(rec.ticker, market, decision, indicators, input.volumeAnalysis, undefined, quoteBook);
+        logger.info(`[Scheduler] 점수 갱신: ${rec.ticker} ${decision.signal} ${decision.confidence}% → ${scoreResult.totalScore}점`);
+        if (scoreResult.promoted) {
+          logger.info(`[Scheduler] 자동 승격: ${rec.ticker} → ${scoreResult.promotedTo} (${scoreResult.totalScore}점)`);
         }
       } catch (err: any) {
         logger.info(`[Scheduler] 추천 검증 오류: ${rec.ticker} — ${err.message}`);
@@ -405,7 +403,30 @@ export async function runRecommendationRefresh() {
       }
     }
 
+    // Step 3: 순위 밖 퇴출 — TOP 50 이후 종목 만료 처리
+    const pruned = pruneBottomRanks(market, MAX_PER_MARKET);
+    if (pruned > 0) {
+      logger.info(`[Scheduler] ${market} 순위 밖 퇴출: ${pruned}개`);
+    }
+
     const finalCount = queryAll("SELECT id FROM recommendations WHERE market = ? AND status = 'ACTIVE'", [market]).length;
     logger.info(`[Scheduler] 추천종목 갱신 완료: ${market} ${finalCount}/${MAX_PER_MARKET}개`);
   }
+}
+
+/** 시장별 TOP N 이후 종목을 EXPIRED 처리 */
+function pruneBottomRanks(market: string, maxPerMarket: number): number {
+  const activeRecs = queryAll(
+    "SELECT id, ticker, score FROM recommendations WHERE market = ? AND status = 'ACTIVE' AND deleted_at IS NULL ORDER BY score DESC",
+    [market]
+  );
+
+  let pruned = 0;
+  for (let i = maxPerMarket; i < activeRecs.length; i++) {
+    const rec = activeRecs[i];
+    execute("UPDATE recommendations SET status = 'EXPIRED' WHERE id = ?", [rec.id]);
+    logger.info(`[Scheduler] 순위 밖 퇴출: ${rec.ticker} (${i + 1}위, ${rec.score}점)`);
+    pruned++;
+  }
+  return pruned;
 }

@@ -70,13 +70,13 @@ router.post('/', validate(createRecommendationSchema), (req: Request, res: Respo
   res.json({ id: lastId, message: '추천 종목 추가 완료' });
 });
 
-/** 추천 종목 자동 생성 (시장별 최대 10개)
- * 1) 기존 추천 유효성 재검증 — BUY가 아니면 제외
+/** 추천 종목 자동 생성 (시장별 최대 50개 — TOP 50 경쟁 구도)
+ * 1) 기존 추천 유효성 재검증 — 감점/가점 적용
  * 2) 포트폴리오 보유 종목은 추천에서 제외
- * 3) 추천이 10개 미만이면 시장에서 유망 종목 검색하여 보충
+ * 3) 추천이 50개 미만이면 시장에서 유망 종목 검색하여 보충
  */
 router.post('/generate', asyncHandler(async (req: Request, res: Response) => {
-  const MAX_RECOMMENDATIONS = 10;
+  const MAX_RECOMMENDATIONS = 50;
   const settings = getSettings();
   if (!settings.llmEnabled) {
     return res.status(400).json({ error: 'LLM이 비활성화되어 있습니다. 설정에서 활성화하세요.' });

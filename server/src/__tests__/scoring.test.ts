@@ -111,6 +111,12 @@ describe('scoring engine', () => {
       SPREAD_TIGHT: 1.0,
       BOOK_DEPTH_STRONG: 1.0,
       SPREAD_WIDE: 1.0,
+      SELL_SIGNAL: 1.0,
+      HOLD_SIGNAL: 1.0,
+      CONSECUTIVE_HOLD: 1.0,
+      CONSECUTIVE_SELL: 1.0,
+      LOW_CONFIDENCE: 1.0,
+      RANK_DECAY: 1.0,
     });
   });
 
@@ -180,6 +186,12 @@ describe('scoring engine', () => {
       SPREAD_TIGHT: 1.0,
       BOOK_DEPTH_STRONG: 1.0,
       SPREAD_WIDE: 1.0,
+      SELL_SIGNAL: 1.0,
+      HOLD_SIGNAL: 1.0,
+      CONSECUTIVE_HOLD: 1.0,
+      CONSECUTIVE_SELL: 1.0,
+      LOW_CONFIDENCE: 1.0,
+      RANK_DECAY: 1.0,
       });
 
       const result = await evaluateAndScore('TEST', 'KRX', makeDecision());
@@ -671,6 +683,12 @@ describe('scoring engine', () => {
         SPREAD_TIGHT: 2.0,
         BOOK_DEPTH_STRONG: 2.0,
         SPREAD_WIDE: 2.0,
+        SELL_SIGNAL: 2.0,
+        HOLD_SIGNAL: 2.0,
+        CONSECUTIVE_HOLD: 2.0,
+        CONSECUTIVE_SELL: 2.0,
+        LOW_CONFIDENCE: 2.0,
+        RANK_DECAY: 2.0,
       });
 
       const result = await evaluateAndScore('TEST', 'KRX', makeDecision());

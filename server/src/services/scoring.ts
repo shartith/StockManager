@@ -1,18 +1,21 @@
 /**
- * 추천종목 스코어링 엔진
+ * 추천종목 스코어링 엔진 (v4.14.0: TOP 50 경쟁 구도)
  *
- * 가중치 기반 점수 누적:
- *   - 연속 BUY 신호: 매 연속 +10 (최대 50)
- *   - 높은 신뢰도: confidence 기반 가중치
- *   - 거래량 급증: 평균 대비 1.5배 이상 +15
- *   - 기술적 반등 신호: RSI 과매도 탈출, 볼린저 하단 반등 등
- *   - 뉴스 호재: 뉴스 존재 시 +5
- *   - MACD 골든크로스: +20
- *   - 시간 감쇠: 오래된 점수는 자연 감소
+ * 가점:
+ *   - 연속 BUY: +10/회 (최대 +50)
+ *   - 높은 신뢰도: confidence 기반 (0~+20)
+ *   - 거래량 급증/모멘텀/기술적 반등 등
  *
- * 임계값:
- *   - 80점 이상: 관심종목으로 자동 승격 + 알림
- *   - 100점 이상 + 자동매매 활성: 매수 실행
+ * 감점 (v4.14.0):
+ *   - SELL 시그널: -20, 연속 SELL: -25/회 (max -75)
+ *   - HOLD 시그널: -5, 연속 HOLD 3회+: 추가 -15
+ *   - 낮은 신뢰도 (<40%): -10
+ *   - 하위 50% 순위 감쇠: -10
+ *   - 시간 감쇠: 3일+ 된 점수 -20%
+ *
+ * 승격 (순위 기반):
+ *   - 80점 이상 + 시장 내 상위 10위: 관심종목 승격
+ *   - 100점 이상 + 상위 5위 + 자동매매 활성: 매수 실행
  */
 
 import { queryAll, queryOne, execute } from '../db';
@@ -41,7 +44,14 @@ export type ScoreType =
   | 'TIME_DECAY'        // 시간 감쇠
   | 'SPREAD_TIGHT'      // 타이트 호가 스프레드 (+10)
   | 'BOOK_DEPTH_STRONG' // 충분한 호가 깊이 (+5)
-  | 'SPREAD_WIDE';      // 넓은 스프레드 감점 (-15)
+  | 'SPREAD_WIDE'       // 넓은 스프레드 감점 (-15)
+  // v4.14.0: 적극적 감점 시스템
+  | 'SELL_SIGNAL'        // SELL 시그널 감점 (-20)
+  | 'HOLD_SIGNAL'        // HOLD 시그널 감점 (-5)
+  | 'CONSECUTIVE_HOLD'   // 연속 HOLD 3회+ 추가 감점 (-15)
+  | 'CONSECUTIVE_SELL'   // 연속 SELL 감점 (-25/회, max -75)
+  | 'LOW_CONFIDENCE'     // 낮은 신뢰도 감점 (-10)
+  | 'RANK_DECAY';        // 하위 50% 추가 감쇠 (-10)
 
 const WATCHLIST_THRESHOLD = 80;
 const AUTO_TRADE_THRESHOLD = 100;
@@ -90,12 +100,55 @@ export async function evaluateAndScore(
 
     const bonus = Math.round(Math.min(consecutive * 10, 50) * (weights.CONSECUTIVE_BUY || 1));
     details.push({ type: 'CONSECUTIVE_BUY', value: bonus, reason: `${consecutive}회 연속 BUY` });
-  } else {
-    // BUY가 아니면 연속 카운트 리셋
+  } else if (decision.signal === 'SELL') {
+    // SELL 시그널: 연속 BUY 리셋 + 연속 HOLD 리셋 + 연속 SELL 증가
     execute(
-      "UPDATE recommendations SET consecutive_buys = 0 WHERE ticker = ? AND market = ? AND status = 'ACTIVE'",
+      "UPDATE recommendations SET consecutive_buys = 0, consecutive_holds = 0 WHERE ticker = ? AND market = ? AND status = 'ACTIVE'",
       [ticker, market]
     );
+    const rec = queryOne(
+      "SELECT consecutive_sells FROM recommendations WHERE ticker = ? AND market = ? AND status = 'ACTIVE'",
+      [ticker, market]
+    );
+    const consecutiveSells = (rec?.consecutive_sells || 0) + 1;
+    execute(
+      "UPDATE recommendations SET consecutive_sells = ? WHERE ticker = ? AND market = ? AND status = 'ACTIVE'",
+      [consecutiveSells, ticker, market]
+    );
+
+    // SELL 기본 감점 -20
+    const sellPenalty = -Math.round(20 * (weights.SELL_SIGNAL || 1));
+    details.push({ type: 'SELL_SIGNAL', value: sellPenalty, reason: 'SELL 시그널 감점' });
+
+    // 연속 SELL 추가 감점 -25/회 (max -75)
+    if (consecutiveSells >= 2) {
+      const consecutivePenalty = -Math.min(consecutiveSells * 25, 75);
+      details.push({ type: 'CONSECUTIVE_SELL', value: consecutivePenalty, reason: `${consecutiveSells}회 연속 SELL` });
+    }
+  } else {
+    // HOLD: 연속 BUY 리셋 + 연속 SELL 리셋 + 연속 HOLD 증가
+    execute(
+      "UPDATE recommendations SET consecutive_buys = 0, consecutive_sells = 0 WHERE ticker = ? AND market = ? AND status = 'ACTIVE'",
+      [ticker, market]
+    );
+    const rec = queryOne(
+      "SELECT consecutive_holds FROM recommendations WHERE ticker = ? AND market = ? AND status = 'ACTIVE'",
+      [ticker, market]
+    );
+    const consecutiveHolds = (rec?.consecutive_holds || 0) + 1;
+    execute(
+      "UPDATE recommendations SET consecutive_holds = ? WHERE ticker = ? AND market = ? AND status = 'ACTIVE'",
+      [consecutiveHolds, ticker, market]
+    );
+
+    // HOLD 기본 감점 -5
+    const holdPenalty = -Math.round(5 * (weights.HOLD_SIGNAL || 1));
+    details.push({ type: 'HOLD_SIGNAL', value: holdPenalty, reason: 'HOLD 시그널 감점' });
+
+    // 연속 HOLD 3회 이상 추가 감점 -15
+    if (consecutiveHolds >= 3) {
+      details.push({ type: 'CONSECUTIVE_HOLD', value: -15, reason: `${consecutiveHolds}회 연속 HOLD` });
+    }
   }
 
   // 2. 신뢰도 기반 점수 (60~100 → 0~20)
@@ -171,7 +224,19 @@ export async function evaluateAndScore(
     details.push({ type: 'NEWS_SENTIMENT' as ScoreType, value: sentValue, reason: `뉴스 감성 ${sentLabel} (${sentimentScore > 0 ? '+' : ''}${sentimentScore})` });
   }
 
-  // 10. 호가 품질 기반 점수
+  // 10. 낮은 신뢰도 감점 (-10)
+  if (decision.confidence < 40) {
+    details.push({ type: 'LOW_CONFIDENCE', value: -10, reason: `낮은 신뢰도 ${decision.confidence}%` });
+  }
+
+  // 11. 순위 기반 감쇠 — 하위 50% 종목 추가 감점
+  const rank = getMarketRank(ticker, market);
+  const activeCount = getMarketActiveCount(market);
+  if (activeCount >= 10 && rank > Math.ceil(activeCount / 2)) {
+    details.push({ type: 'RANK_DECAY', value: -10, reason: `시장 내 하위 순위 (${rank}/${activeCount}위)` });
+  }
+
+  // 12. 호가 품질 기반 점수
   if (quoteBook) {
     if (quoteBook.quality === 'GOOD') {
       details.push({
@@ -258,10 +323,13 @@ export async function evaluateAndScore(
   const settings = getSettings();
   const autoThreshold = settings.autoTradeScoreThreshold ?? AUTO_TRADE_THRESHOLD;
 
-  if (totalScore >= autoThreshold && settings.autoTradeEnabled) {
+  // v4.14.0: 순위 기반 승격 — 점수 + 시장 내 상위 순위 조건
+  const promotionRank = getMarketRank(ticker, market);
+
+  if (totalScore >= autoThreshold && promotionRank <= 5 && settings.autoTradeEnabled) {
     promoted = await promoteToWatchlistAndTrade(ticker, market, totalScore, decision);
     if (promoted) promotedTo = 'auto_trade';
-  } else if (totalScore >= WATCHLIST_THRESHOLD) {
+  } else if (totalScore >= WATCHLIST_THRESHOLD && promotionRank <= 10) {
     promoted = promoteToWatchlist(ticker, market, totalScore);
     if (promoted) promotedTo = 'watchlist';
   }
@@ -424,6 +492,41 @@ async function promoteToWatchlistAndTrade(ticker: string, market: string, score:
 
   logger.info({ ticker, market, score }, 'Promoted to auto-trade');
   return true;
+}
+
+// ─── 시장별 순위 조회 (v4.14.0) ─────────────────────────────
+
+/** 해당 시장에서 ACTIVE 추천종목의 순위 반환 (1 = 1등) */
+export function getMarketRank(ticker: string, market: string): number {
+  const rows = queryAll(
+    "SELECT ticker FROM recommendations WHERE market = ? AND status = 'ACTIVE' AND deleted_at IS NULL ORDER BY score DESC",
+    [market]
+  );
+  const idx = rows.findIndex((r: any) => r.ticker === ticker);
+  return idx >= 0 ? idx + 1 : rows.length + 1;
+}
+
+/** 해당 시장의 ACTIVE 추천종목 수 */
+function getMarketActiveCount(market: string): number {
+  const row = queryOne(
+    "SELECT COUNT(*) as cnt FROM recommendations WHERE market = ? AND status = 'ACTIVE' AND deleted_at IS NULL",
+    [market]
+  );
+  return row?.cnt || 0;
+}
+
+/** 시장별 순위 목록 조회 */
+export function getMarketRankings(market: string): Array<{ ticker: string; name: string; score: number; rank: number }> {
+  const rows = queryAll(
+    "SELECT ticker, name, score FROM recommendations WHERE market = ? AND status = 'ACTIVE' AND deleted_at IS NULL ORDER BY score DESC",
+    [market]
+  );
+  return rows.map((r: any, i: number) => ({
+    ticker: r.ticker,
+    name: r.name,
+    score: r.score,
+    rank: i + 1,
+  }));
 }
 
 /** 추천 종목의 현재 점수 조회 */

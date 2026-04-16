@@ -28,6 +28,13 @@ const DEFAULT_WEIGHTS: Record<ScoreType, number> = {
   SPREAD_TIGHT: 1.0,
   BOOK_DEPTH_STRONG: 1.0,
   SPREAD_WIDE: 1.0,
+  // v4.14.0: 감점 가중치
+  SELL_SIGNAL: 1.0,
+  HOLD_SIGNAL: 1.0,
+  CONSECUTIVE_HOLD: 1.0,
+  CONSECUTIVE_SELL: 1.0,
+  LOW_CONFIDENCE: 1.0,
+  RANK_DECAY: 1.0,
 };
 
 const MIN_WEIGHT = 0.25;

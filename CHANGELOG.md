@@ -2,6 +2,18 @@
 
 Stock Manager 주요 릴리즈 변경사항. 자세한 노트는 [GitHub Releases](https://github.com/shartith/StockManager/releases)에서 확인.
 
+## v4.14.0 — 2026-04-16
+
+**시장별 TOP 50 경쟁 구도 도입. 적극적 감점 시스템.**
+
+- **적극적 감점**: SELL 시그널 -20, 연속 SELL -25/회(max -75), HOLD -5, 연속 HOLD 3회+ 추가 -15, 낮은 신뢰도(<40%) -10, 하위 50% 순위 감쇠 -10. 6개 새 ScoreType 추가.
+- **시장별 TOP 50**: 추천종목 슬롯을 시장당 10개 → 50개로 확대. 매 시간 순위 밖 종목 자동 퇴출 (`pruneBottomRanks`).
+- **순위 기반 승격**: 기존 80점 무조건 승격 → 80점 이상 + 시장 내 상위 10위 이내일 때만 관심종목 승격. 자동매매는 100점 + 상위 5위.
+- **경쟁 수명 확대**: 추천 만료 기간 3일 → 5일. 즉시 만료 기준 score<40 → score<0 으로 완화 (감점으로 음수 전환 시 퇴출).
+- **SELL/HOLD 스코어링**: 기존에는 BUY 아닌 시그널을 즉시 EXPIRED 처리. 이제 스코어링 엔진을 통해 감점 적용 후 경쟁에서 자연 도태.
+- **DB 마이그레이션**: `recommendations` 테이블에 `consecutive_holds`, `consecutive_sells` 컬럼 추가.
+- **테스트 커버리지**: vitest config에 coverage 설정 추가. regression test `llmProvider` 누락 수정.
+
 ## v4.13.0 — 2026-04-15
 
 **외부 OpenAI 호환 LLM 연결로 전환. MLX 번들 제거.**
