@@ -2,6 +2,20 @@
 
 Stock Manager 주요 릴리즈 변경사항. 자세한 노트는 [GitHub Releases](https://github.com/shartith/StockManager/releases)에서 확인.
 
+## v4.19.1 — 2026-04-17
+
+**테스트 커버리지 3개 핵심 파일 85%+ 달성. 테스트 +71.**
+
+- **weightOptimizer.ts**: 8.95% → **98.50%** (+89.55p). 20 테스트. 조기 종료 분기(샘플 부족/개별 타입 미충족), MIN/MAX 클램프, 양·음 상관에 따른 조정, loadWeights/saveWeights/resetWeights 전체 커버.
+- **backtester.ts**: 59.45% → **97.97%** (+38.52p). 29 테스트. runBacktest 시뮬레이션 분기(60캔들 미만, 상승/평탄/하락 추세, weights override, maxPerTrade), runABCompare, saveBacktestResult, getLatestBacktest, isBacktestFresh, collectBacktestCandidates.
+- **tradingRules.ts**: 74.27% → **98.54%** (+24.27p). 22 테스트. 기존 미커버였던 Rule 15~21: SECTOR_HEADWIND, BREADTH_DIVERGENCE, SECTOR_TAILWIND, NARROW_LEADERSHIP, POOR_QUOTE_QUALITY(+strictMode), SIGNAL_COOLDOWN, RECENT_LOSS_PENALTY 전체 분기.
+- **전체**: 676 → **747 tests pass** (+71). services 전체 55.32% → 60.09%.
+
+### 제외 영역 (통합 테스트 필요)
+- routes/* (15 files): Express 핸들러, supertest 기반 통합 테스트 별도 세션
+- scheduler/* (대부분): cron + 외부 API 의존, mock server 아키텍처 필요
+- services/{calculator, dartApi, exchangeRate, exportImport, heatmapData, investorFlow, newsCollector, orderManager, sectorMomentum, websocket}: 외부 API/WebSocket 의존
+
 ## v4.19.0 — 2026-04-17
 
 **USE_CASES 남은 gap 3건 보완 — 양방향 NAS sync MVP + weightOptimizer 텔레메트리 + 백테스트 유의성 임계값 설정 가능.**
