@@ -53,6 +53,13 @@ export interface AppSettings {
   llmEnabled: boolean;
   llmApiKey: string;        // Bearer 토큰 (OpenAI 호환 공개 API용). Ollama는 빈 값.
 
+  // v4.18.0: LLM provider 자동 스위치 — primary 3회 retry 실패 시 fallback 1회 시도.
+  // 예: primary=ai.unids.kr (외부), fallback=http://localhost:11434/v1 (로컬 Ollama)
+  // undefined이면 fallback 미사용 (기존 동작 유지).
+  llmFallbackUrl?: string;
+  llmFallbackModel?: string;
+  llmFallbackApiKey?: string;
+
   // DART (금융감독원 공시)
   dartApiKey: string;
   dartEnabled: boolean;

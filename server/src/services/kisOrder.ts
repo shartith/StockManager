@@ -34,6 +34,37 @@ export interface OrderResult {
   fee: number;
 }
 
+// v4.18.0: 구조화된 실패 사유 (auto_trades.failure_reason 컬럼에 기록)
+// 기존 error_message 문자열 키워드 매칭 의존을 제거하고 enum-like 분류로 대체.
+export type FailureReason =
+  | 'SUSPENDED'          // 거래정지·상장폐지·정리매매 (APBK0066 등)
+  | 'INSUFFICIENT_FUNDS' // 주문가능 금액 부족
+  | 'WIDE_SPREAD'        // 호가 스프레드 과대
+  | 'LOW_LIQUIDITY'      // 호가 깊이 부족
+  | 'POSITION_LIMIT'     // 포지션 사이징 규칙 위반
+  | 'QUOTE_FETCH_FAIL'   // 현재가 조회 실패
+  | 'PROTECTION_BLOCKED' // Protection 차단
+  | 'NETWORK'            // 타임아웃/네트워크
+  | 'API_ERROR'          // KIS 응답 에러 (위 구조화 대상 외)
+  | 'UNKNOWN';           // 분류 불가
+
+/** KIS 에러 메시지를 FailureReason enum으로 분류.
+ *  기존 레코드(failure_reason='' 또는 NULL)를 해석할 때 폴백으로 사용. */
+export function classifyFailure(errorMessage: string): FailureReason {
+  if (!errorMessage) return 'UNKNOWN';
+  const m = errorMessage;
+  if (/APBK0066|거래정지|매매정지|상장폐지|정리매매/.test(m)) return 'SUSPENDED';
+  if (/주문가능|잔고부족|현금부족|INSUFFICIENT/i.test(m)) return 'INSUFFICIENT_FUNDS';
+  if (/스프레드/.test(m)) return 'WIDE_SPREAD';
+  if (/호가 깊이|liquidity/i.test(m)) return 'LOW_LIQUIDITY';
+  if (/포지션|position/i.test(m)) return 'POSITION_LIMIT';
+  if (/현재가 조회 실패/.test(m)) return 'QUOTE_FETCH_FAIL';
+  if (/Protection|차단/.test(m)) return 'PROTECTION_BLOCKED';
+  if (/timeout|network|ECONNREFUSED/i.test(m)) return 'NETWORK';
+  if (/^APBK|^msg_cd/.test(m)) return 'API_ERROR';
+  return 'UNKNOWN';
+}
+
 // ─── 현재가 조회 ──────────────────────────────────────
 
 /** 국내주식 현재가 조회 */
@@ -337,20 +368,21 @@ async function submitOverseasOrder(
 
 // ─── 통합 주문 실행 ───────────────────────────────────
 
-/** 당일 거래정지/매매불가 이력 체크 — 오늘 자 auto_trades에서 해당 종목이
- *  거래정지성 에러(APBK0066 등)로 실패했으면 추가 주문 차단.
- *  키워드: '거래정지', '매매정지', '상장폐지', '정리매매' 등 영구성 에러 메시지.
+/** 당일 거래정지/매매불가 이력 체크.
+ *  v4.18.0: 구조화된 failure_reason='SUSPENDED' 우선 조회.
+ *  기존 레코드(failure_reason='')는 error_message 키워드 매칭으로 폴백.
  *
  *  export 이유: UC-07 단위 테스트를 위한 공개.
  */
 export function isSuspendedToday(stockId: number): { suspended: boolean; reason?: string } {
   const row = queryOne(
-    `SELECT error_message FROM auto_trades
+    `SELECT error_message, failure_reason FROM auto_trades
      WHERE stock_id = ?
        AND status = 'FAILED'
        AND date(created_at) = date('now')
        AND (
-         error_message LIKE '%APBK0066%'
+         failure_reason = 'SUSPENDED'
+         OR error_message LIKE '%APBK0066%'
          OR error_message LIKE '%거래정지%'
          OR error_message LIKE '%매매정지%'
          OR error_message LIKE '%상장폐지%'
@@ -588,13 +620,14 @@ export async function executeOrder(req: OrderRequest): Promise<OrderResult> {
         fee,
       };
     } else {
-      // 주문 실패
+      // 주문 실패 — v4.18.0: failure_reason 구조화 기록
+      const failureReason = classifyFailure(result.message);
       execute(
-        "UPDATE auto_trades SET status = 'FAILED', error_message = ? WHERE id = ?",
-        [result.message, tradeId]
+        "UPDATE auto_trades SET status = 'FAILED', error_message = ?, failure_reason = ? WHERE id = ?",
+        [result.message, failureReason, tradeId]
       );
 
-      logger.error({ orderType: req.orderType, ticker: req.ticker, message: result.message }, 'KIS order failed');
+      logger.error({ orderType: req.orderType, ticker: req.ticker, message: result.message, failureReason }, 'KIS order failed');
 
       return {
         success: false,
@@ -606,9 +639,11 @@ export async function executeOrder(req: OrderRequest): Promise<OrderResult> {
       };
     }
   } catch (err: any) {
+    // 네트워크/예외 경로 — 대부분 NETWORK 또는 UNKNOWN
+    const failureReason = classifyFailure(err.message || '');
     execute(
-      "UPDATE auto_trades SET status = 'FAILED', error_message = ? WHERE id = ?",
-      [err.message, tradeId]
+      "UPDATE auto_trades SET status = 'FAILED', error_message = ?, failure_reason = ? WHERE id = ?",
+      [err.message, failureReason, tradeId]
     );
 
     return {

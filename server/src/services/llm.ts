@@ -373,6 +373,29 @@ export async function callLlm(
         await sleep(delay);
       }
     }
+
+    // v4.18.0: primary retry 모두 실패 → fallback provider 1회 시도.
+    // 예: ai.unids.kr (외부) 장애 시 localhost:11434 (로컬 Ollama)로 자동 전환.
+    // 이 경로 실패 시 상위의 UC-06 기술적 분석 fallback이 처리.
+    const settings = getSettings();
+    const fallbackUrl = (settings as any).llmFallbackUrl;
+    if (fallbackUrl && fallbackUrl !== url) {
+      const fallbackModel = (settings as any).llmFallbackModel || effectiveModel;
+      const fallbackApiKey = (settings as any).llmFallbackApiKey || '';
+      logger.warn(
+        { primary: url, fallback: fallbackUrl, primaryErr: (lastErr as Error)?.message },
+        'LLM primary 전체 실패 → fallback provider 1회 시도'
+      );
+      try {
+        return await callLlmRaw(fallbackModel, fallbackUrl, prompt, system, numPredict, fallbackApiKey);
+      } catch (fallbackErr) {
+        logger.error(
+          { err: (fallbackErr as Error).message },
+          'LLM fallback provider도 실패 — 기술적 분석 fallback 경로로 이동'
+        );
+      }
+    }
+
     throw lastErr instanceof Error ? lastErr : new Error('LLM 호출 실패');
   });
 

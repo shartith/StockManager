@@ -12,7 +12,7 @@ import { describe, it, expect, beforeAll, beforeEach } from 'vitest';
 process.env.STOCK_MANAGER_DB_PATH = ':memory:';
 
 import { initializeDB, execute } from '../db';
-import { isSuspendedToday } from '../services/kisOrder';
+import { isSuspendedToday, classifyFailure } from '../services/kisOrder';
 
 /** 특정 에러 메시지로 FAILED auto_trades 레코드 삽입 헬퍼 */
 function insertFailedTrade(stockId: number, errorMessage: string, ageHours: number = 0): void {
@@ -145,5 +145,107 @@ describe('isSuspendedToday (UC-07: 거래정지 당일 차단)', () => {
       expect(r.suspended).toBe(true);
       expect(r.reason).toContain('최근 메시지');
     });
+  });
+
+  // v4.18.0: 구조화된 failure_reason='SUSPENDED' 우선 매칭
+  describe('failure_reason 구조화 컬럼 (v4.18.0)', () => {
+    it('failure_reason=SUSPENDED 이면 error_message 키워드 없어도 차단', () => {
+      execute(
+        `INSERT INTO auto_trades (stock_id, order_type, quantity, price, fee, status, error_message, failure_reason, created_at)
+         VALUES (700, 'SELL', 3, 100, 0, 'FAILED', 'Generic error text', 'SUSPENDED', datetime('now'))`
+      );
+      const r = isSuspendedToday(700);
+      expect(r.suspended).toBe(true);
+    });
+
+    it('failure_reason=NETWORK 이면 차단 안 함', () => {
+      execute(
+        `INSERT INTO auto_trades (stock_id, order_type, quantity, price, fee, status, error_message, failure_reason, created_at)
+         VALUES (701, 'SELL', 3, 100, 0, 'FAILED', 'Timeout', 'NETWORK', datetime('now'))`
+      );
+      const r = isSuspendedToday(701);
+      expect(r.suspended).toBe(false);
+    });
+
+    it('failure_reason 빈 값이지만 error_message에 APBK0066 있으면 backward compat로 차단', () => {
+      execute(
+        `INSERT INTO auto_trades (stock_id, order_type, quantity, price, fee, status, error_message, failure_reason, created_at)
+         VALUES (702, 'SELL', 3, 100, 0, 'FAILED', 'APBK0066: 거래정지', '', datetime('now'))`
+      );
+      const r = isSuspendedToday(702);
+      expect(r.suspended).toBe(true);
+    });
+  });
+});
+
+// ─── classifyFailure (v4.18.0) ────────────────────────────
+
+describe('classifyFailure (v4.18.0: 에러 메시지 → FailureReason enum)', () => {
+  it('APBK0066 → SUSPENDED', () => {
+    expect(classifyFailure('APBK0066: 거래정지종목은 취소주문만 가능')).toBe('SUSPENDED');
+  });
+
+  it('"거래정지" 한글 키워드 → SUSPENDED', () => {
+    expect(classifyFailure('거래정지 기간')).toBe('SUSPENDED');
+  });
+
+  it('"매매정지" → SUSPENDED', () => {
+    expect(classifyFailure('매매정지 처분')).toBe('SUSPENDED');
+  });
+
+  it('"상장폐지" → SUSPENDED', () => {
+    expect(classifyFailure('상장폐지 예정')).toBe('SUSPENDED');
+  });
+
+  it('"정리매매" → SUSPENDED', () => {
+    expect(classifyFailure('정리매매 기간 중')).toBe('SUSPENDED');
+  });
+
+  it('"주문가능" → INSUFFICIENT_FUNDS', () => {
+    expect(classifyFailure('주문가능 금액 부족')).toBe('INSUFFICIENT_FUNDS');
+  });
+
+  it('"잔고부족" → INSUFFICIENT_FUNDS', () => {
+    expect(classifyFailure('잔고부족으로 주문 불가')).toBe('INSUFFICIENT_FUNDS');
+  });
+
+  it('"스프레드" → WIDE_SPREAD', () => {
+    expect(classifyFailure('스프레드 과대 — 주문 취소')).toBe('WIDE_SPREAD');
+  });
+
+  it('"호가 깊이" → LOW_LIQUIDITY', () => {
+    expect(classifyFailure('호가 깊이 부족')).toBe('LOW_LIQUIDITY');
+  });
+
+  it('"포지션 규칙" → POSITION_LIMIT', () => {
+    expect(classifyFailure('포지션 규칙: 종목당 20% 초과')).toBe('POSITION_LIMIT');
+  });
+
+  it('"현재가 조회 실패" → QUOTE_FETCH_FAIL', () => {
+    expect(classifyFailure('현재가 조회 실패')).toBe('QUOTE_FETCH_FAIL');
+  });
+
+  it('"Protection" → PROTECTION_BLOCKED', () => {
+    expect(classifyFailure('StoplossGuard: 전체 매수 차단')).toBe('PROTECTION_BLOCKED');
+  });
+
+  it('"timeout" → NETWORK', () => {
+    expect(classifyFailure('Request timeout')).toBe('NETWORK');
+  });
+
+  it('"ECONNREFUSED" → NETWORK', () => {
+    expect(classifyFailure('connect ECONNREFUSED 127.0.0.1')).toBe('NETWORK');
+  });
+
+  it('기타 APBK 에러 코드 → API_ERROR', () => {
+    expect(classifyFailure('APBK9999: 기타 에러')).toBe('API_ERROR');
+  });
+
+  it('빈 문자열 → UNKNOWN', () => {
+    expect(classifyFailure('')).toBe('UNKNOWN');
+  });
+
+  it('분류 불가 메시지 → UNKNOWN', () => {
+    expect(classifyFailure('알 수 없는 에러')).toBe('UNKNOWN');
   });
 });

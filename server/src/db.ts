@@ -239,6 +239,12 @@ export async function initializeDB(): Promise<Db> {
   // auto_trades에 분할 매수 단계
   try { dbRun('ALTER TABLE auto_trades ADD COLUMN split_stage INTEGER DEFAULT 0'); } catch {}
 
+  // v4.18.0: auto_trades failure_reason 구조화 컬럼 (enum-like)
+  // 기존 error_message(문자열)의 LIKE 키워드 매칭 의존을 제거.
+  // 값: SUSPENDED, INSUFFICIENT_FUNDS, WIDE_SPREAD, LOW_LIQUIDITY,
+  //     POSITION_LIMIT, QUOTE_FETCH_FAIL, NETWORK, API_ERROR, UNKNOWN, ''(성공)
+  try { dbRun("ALTER TABLE auto_trades ADD COLUMN failure_reason TEXT DEFAULT ''"); } catch {}
+
   // stocks에 DART 고유번호
   try { dbRun('ALTER TABLE stocks ADD COLUMN dart_code TEXT'); } catch {}
 

@@ -2,6 +2,16 @@
 
 Stock Manager 주요 릴리즈 변경사항. 자세한 노트는 [GitHub Releases](https://github.com/shartith/StockManager/releases)에서 확인.
 
+## v4.18.0 — 2026-04-17
+
+**USE_CASES 구조 보완 3건: failure_reason 구조화 + LLM provider 자동 스위치 + weekendLearning smoke 테스트.**
+
+- **`auto_trades.failure_reason` 구조화 컬럼**: 기존 `error_message` 문자열 LIKE 키워드 매칭 의존 제거. enum-like `FailureReason` (SUSPENDED/INSUFFICIENT_FUNDS/WIDE_SPREAD/LOW_LIQUIDITY/POSITION_LIMIT/QUOTE_FETCH_FAIL/PROTECTION_BLOCKED/NETWORK/API_ERROR/UNKNOWN) 도입. `classifyFailure()` 헬퍼로 KIS/일반 에러 메시지 자동 분류. DB 마이그레이션 idempotent ALTER. 기존 레코드는 backward compat (`failure_reason=''`이면 keyword matching fallback).
+- **`isSuspendedToday` 구조화 우선**: 쿼리에 `failure_reason = 'SUSPENDED'` 체크 추가 (OR 결합), 새 레코드부터 구조화 필드 우선. 기존 키워드 매칭은 호환 유지.
+- **LLM provider 자동 스위치** (UC-06 3단계 확장): primary URL retry 3회 전부 실패 → `llmFallbackUrl` 1회 시도 → 그마저 실패해야 기술적 분석 fallback. 예: ai.unids.kr 외부 → localhost:11434 로컬 Ollama. `settings.llmFallbackUrl/llmFallbackModel/llmFallbackApiKey` 신규 필드 (optional, undefined이면 기존 동작). primary URL과 동일하면 fallback skip.
+- **weekendLearning 통합 smoke 테스트**: 외부 API(fetchCandleData) + LLM 호출 mock하여 전체 파이프라인 오케스트레이션 검증. 후보 종목 0개·캔들 부족·API 실패 각각의 resilience 확인.
+- **테스트 +32건**: classifyFailure 17 + isSuspendedToday 구조화 3 + weekendLearning smoke 6 + llm-fallback 6. 631 → **663 pass**.
+
 ## v4.17.1 — 2026-04-17
 
 **USE_CASES gap 보강: 테스트 51건 신규 + watchlistCleanup 버그 1건 fix.**
