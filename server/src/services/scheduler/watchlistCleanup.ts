@@ -197,7 +197,10 @@ export function cleanupWatchlist(): WatchlistCleanupResult {
   for (const item of lowScoreItems) {
     if (removedIds.has(item.id)) continue;
     if (isHoldingReal(item.stock_id)) continue;
-    const score = Number(item.latestScore ?? 0);
+    // v4.17.1: 추천이 없는 종목(수동 관심 등록)은 이 규칙 대상 아님.
+    // 기존은 null→0점으로 저점수 취급 → 수동 관심종목도 3일 후 전부 삭제되는 버그.
+    if (item.latestScore == null) continue;
+    const score = Number(item.latestScore);
     if (score >= 40) continue;
     execute("UPDATE watchlist SET deleted_at = datetime('now') WHERE id = ?", [item.id]);
     removedIds.add(item.id);

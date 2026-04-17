@@ -340,8 +340,10 @@ async function submitOverseasOrder(
 /** 당일 거래정지/매매불가 이력 체크 — 오늘 자 auto_trades에서 해당 종목이
  *  거래정지성 에러(APBK0066 등)로 실패했으면 추가 주문 차단.
  *  키워드: '거래정지', '매매정지', '상장폐지', '정리매매' 등 영구성 에러 메시지.
+ *
+ *  export 이유: UC-07 단위 테스트를 위한 공개.
  */
-function isSuspendedToday(stockId: number): { suspended: boolean; reason?: string } {
+export function isSuspendedToday(stockId: number): { suspended: boolean; reason?: string } {
   const row = queryOne(
     `SELECT error_message FROM auto_trades
      WHERE stock_id = ?

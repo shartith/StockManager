@@ -2,6 +2,16 @@
 
 Stock Manager 주요 릴리즈 변경사항. 자세한 노트는 [GitHub Releases](https://github.com/shartith/StockManager/releases)에서 확인.
 
+## v4.17.1 — 2026-04-17
+
+**USE_CASES gap 보강: 테스트 51건 신규 + watchlistCleanup 버그 1건 fix.**
+
+- **UC-07 테스트 (kisOrder isSuspendedToday)**: 함수를 `export`로 공개하고 `kisOrder-isSuspended.test.ts` 신규 15건. APBK0066/거래정지/매매정지/상장폐지/정리매매 키워드 매칭, 날짜 경계(자정 자동 해제), status 필터(FILLED/PENDING 제외), stock_id 격리, 최신 이력 선택 검증.
+- **UC-12 테스트 (watchlistCleanup)**: `watchlistCleanup.test.ts` 신규 20건. 5가지 정리 규칙 + 4가지 만료 규칙 + 실보유 종목 보호 + BUY 신호 있음/없음 경계 검증. `expireStaleRecommendations`의 score<0, confidence<50, 5일+ 만료, 7일+ 물리삭제 모두 커버.
+- **UC-12 버그 fix (v4.17.1)**: watchlistCleanup 규칙 3(저점수) 에서 추천이 없는 종목(`latestScore=null`)을 0점으로 간주해 삭제하던 문제. 수동 관심종목(추천 시스템 미사용)이 3일 후 전부 삭제되는 버그. `latestScore == null` 시 skip으로 수정.
+- **UC-11 테스트 (scoring BACKTEST_*)**: `scoring-backtest.test.ts` 신규 16건. PF≥1.5 가점(+15), PF<1.0 감점(-20), 중립 구간(1.0~1.49), freshness/significance 가드, 예외 안전성 검증.
+- **전체**: 580 → **631 tests pass** (+51).
+
 ## v4.17.0 — 2026-04-17
 
 **백테스트 파이프라인 통합 — 실시간 결정이 아닌 "구조적 종목 필터"로 활용.**
