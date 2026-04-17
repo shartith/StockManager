@@ -2,6 +2,25 @@
 
 Stock Manager 주요 릴리즈 변경사항. 자세한 노트는 [GitHub Releases](https://github.com/shartith/StockManager/releases)에서 확인.
 
+## v4.19.0 — 2026-04-17
+
+**USE_CASES 남은 gap 3건 보완 — 양방향 NAS sync MVP + weightOptimizer 텔레메트리 + 백테스트 유의성 임계값 설정 가능.**
+
+- **양방향 NAS sync MVP** (UC-08 확장): `services/nasImport.ts` 신규. 다른 디바이스가 올린 jsonl을 내 DB로 import. **append-only 테이블 8종**만 지원 (transactions, auto_trades, trade_signals, system_events, audit_log, weekly_reports, backtest_results, weight_optimization_log). 상태 테이블(recommendations/watchlist/stocks)은 충돌 해결 미구현으로 제외. **id 컬럼 제외 INSERT**로 디바이스 간 PK 충돌 회피. `last_import.json`에 디바이스별 마지막 import 시점 저장하여 중복 방지. 자기 디바이스 폴더(`device-{hostname}`) 자동 제외. **opt-in**: `settings.nasImportEnabled=true` 필요 (기본 false). NAS sync cron 직후 자동 실행.
+- **weightOptimizer 조기 종료 텔레메트리** (UC-10 보완): 샘플 부족/개별 타입 최소 미충족 시 `system_events`에 `WEIGHT_OPTIMIZER_SKIP` INFO 이벤트 기록. `totalSamples`·`perTypeCounts` 반환값 추가. signal_performance 축적 전까지 왜 최적화가 안 되는지 가시성 확보.
+- **백테스트 유의성 임계값 설정 가능**: `settings.backtestMinTradesForSave` 신규 (optional, 기본 5). 기존 하드코딩 5거래 기준을 사용자 오버라이드 가능하게. 데이터 축적 시 30 등으로 상향 권장.
+- **테스트 +13**: nasImport 13건 (opt-in 3 + import 5 + 중복방지 3 + 에러처리 2). 663 → **676 pass**.
+
+### NAS import 설정 예시
+\`\`\`json
+{
+  "nasSyncEnabled": true,
+  "nasSyncPath": "/Volumes/stock-manager",
+  "nasImportEnabled": true,
+  "backtestMinTradesForSave": 5
+}
+\`\`\`
+
 ## v4.18.0 — 2026-04-17
 
 **USE_CASES 구조 보완 3건: failure_reason 구조화 + LLM provider 자동 스위치 + weekendLearning smoke 테스트.**

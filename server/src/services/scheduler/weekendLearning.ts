@@ -15,6 +15,7 @@ import { fetchCandleData } from './helpers';
 /** 주말 학습: 성과 평가 + 가중치 최적화 + 리포트 생성 */
 export async function runWeekendLearning() {
   logger.info('[Scheduler] 주말 학습 시작');
+  const settings = getSettings(); // v4.19.0: 백테스트 블록과 LLM 리포트 모두 사용
 
   // 1. 미평가 신호 성과 평가
   try { await evaluatePendingPerformance(); } catch (err) { logger.error({ err }, 'Weekend evaluatePendingPerformance failed'); }
@@ -38,6 +39,10 @@ export async function runWeekendLearning() {
     const candidates = collectBacktestCandidates(30);
     logger.info(`[Scheduler] 주말 백테스트 대상: ${candidates.length}종목`);
 
+    // v4.19.0: 통계 유의성 임계값을 settings로 override 가능.
+    // 기본 5 (v4.17.0 유지). 데이터 축적 시 사용자가 30 등으로 상향 권장.
+    const minTradesForSave = (settings as any).backtestMinTradesForSave ?? 5;
+
     const btResults: string[] = [];
     for (const t of candidates) {
       try {
@@ -53,8 +58,8 @@ export async function runWeekendLearning() {
         };
         const result = runBacktest(config);
 
-        // 거래 5건 이상일 때만 저장 (통계적 유의성 최소 요건)
-        if (result.totalTrades >= 5) {
+        // 통계적 유의성 최소 거래 수 충족 시만 저장
+        if (result.totalTrades >= minTradesForSave) {
           saveBacktestResult(config, result);
           backtestStats.evaluated++;
           if ((result.profitFactor ?? 0) >= 1.0) backtestStats.profitable++;
@@ -104,7 +109,6 @@ export async function runWeekendLearning() {
   };
 
   // 4. LLM으로 학습 리포트 생성 (callLlm 헬퍼 사용 — 통일된 mutex/retry/timeout 공유)
-  const settings = getSettings();
   let report = `주간 요약: 신호 ${weekStats.totalSignals}건 (BUY ${weekStats.buySignals}/SELL ${weekStats.sellSignals}), 체결 ${weekStats.tradesExecuted}건, 평균신뢰도 ${Math.round(weekStats.avgConfidence)}%`;
 
   if (settings.llmEnabled) {

@@ -87,6 +87,15 @@ export interface AppSettings {
   nasSyncEnabled: boolean;
   nasSyncPath: string;          // 로컬 마운트 경로 (예: /Volumes/stock-manager)
   nasSyncTime: string;          // cron 시간
+
+  // v4.19.0: 양방향 NAS sync — 다른 디바이스의 jsonl을 내 DB로 import.
+  // MVP: append-only 테이블 8종만. 상태 테이블은 제외. 기본 false (opt-in).
+  nasImportEnabled?: boolean;
+
+  // v4.19.0: 주말 백테스트 저장 최소 거래 수 (통계적 유의성 하한).
+  // 기본 5 (v4.17.0 유지). signal_performance·backtest_results 충분히 쌓이면
+  // 30으로 상향 권장. undefined이면 5.
+  backtestMinTradesForSave?: number;
   deviceId: string;
   nasHost: string;              // NAS 주소 (예: shartith.iptime.org)
   nasShare: string;             // 공유폴더명 (예: stock-manager)

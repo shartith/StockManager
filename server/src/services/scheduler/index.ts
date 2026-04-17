@@ -17,6 +17,7 @@ import { runWeekendLearning } from './weekendLearning';
 import { cleanupWatchlist, expireStaleRecommendations } from './watchlistCleanup';
 import { checkDartDisclosures } from './dartMonitor';
 import { runNasSync } from '../nasSync';
+import { runNasImport } from '../nasImport';
 import { generateRebalanceSignals } from '../portfolioManager';
 
 // Re-export types for external consumers
@@ -131,8 +132,20 @@ export function startScheduler() {
   // ── NAS 데이터 동기화 ──
   if (settings.nasSyncEnabled && settings.nasSyncPath) {
     const syncTime = settings.nasSyncTime || '0 20 * * *';
-    schedulerState.activeTasks.push(cron.schedule(syncTime, () => {
-      runNasSync().catch(err => logger.error({ err }, 'NAS sync failed'));
+    schedulerState.activeTasks.push(cron.schedule(syncTime, async () => {
+      try {
+        await runNasSync();
+      } catch (err) {
+        logger.error({ err }, 'NAS sync failed');
+      }
+      // v4.19.0: export 직후 양방향 import (opt-in: nasImportEnabled=true)
+      if ((settings as any).nasImportEnabled) {
+        try {
+          await runNasImport();
+        } catch (err) {
+          logger.error({ err }, 'NAS import failed');
+        }
+      }
     }, { timezone: 'Asia/Seoul' }));
     logger.info(`[Scheduler] NAS 동기화 스케줄 등록 (${syncTime})`);
   }

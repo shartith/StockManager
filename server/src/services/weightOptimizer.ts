@@ -63,10 +63,14 @@ export function saveWeights(weights: Record<ScoreType, number>) {
   fs.writeFileSync(WEIGHTS_PATH, JSON.stringify(weights, null, 2), 'utf-8');
 }
 
-/** 가중치 최적화 실행 */
+/** 가중치 최적화 실행.
+ *  v4.19.0: 조기 종료 사유를 system_events에 INFO로 기록하여 가시성 확보.
+ *  signal_performance 100건+ 축적 전까지는 매주 "샘플 부족" 이벤트가 기록됨. */
 export function optimizeWeights(): {
   adjusted: { scoreType: string; oldWeight: number; newWeight: number; correlation: number }[];
   skipped: string;
+  totalSamples?: number;
+  perTypeCounts?: Record<string, number>;
 } {
   const correlations = getScoreTypeCorrelations();
   const currentWeights = loadWeights();
@@ -74,11 +78,22 @@ export function optimizeWeights(): {
 
   // 샘플 수 체크
   const totalSamples = correlations.reduce((sum, c) => sum + c.count, 0);
+  const perTypeCounts: Record<string, number> = {};
+  for (const c of correlations) perTypeCounts[c.scoreType] = c.count;
+
   if (totalSamples < MIN_SAMPLE_SIZE) {
-    return {
-      adjusted: [],
-      skipped: `샘플 부족 (${totalSamples}/${MIN_SAMPLE_SIZE}건)`,
-    };
+    const skipped = `샘플 부족 (${totalSamples}/${MIN_SAMPLE_SIZE}건)`;
+    // v4.19.0: 가시성 — 왜 최적화가 안 되는지 system_events로 노출
+    logEarlyExit(skipped, totalSamples, perTypeCounts);
+    return { adjusted: [], skipped, totalSamples, perTypeCounts };
+  }
+
+  // 개별 타입 최소 샘플 충족하는 타입이 하나도 없으면 조기 종료
+  const eligibleTypes = correlations.filter(c => c.count >= 10);
+  if (eligibleTypes.length === 0) {
+    const skipped = `개별 타입 최소 샘플(10건) 충족 없음 — 총 ${totalSamples}건`;
+    logEarlyExit(skipped, totalSamples, perTypeCounts);
+    return { adjusted: [], skipped, totalSamples, perTypeCounts };
   }
 
   for (const { scoreType, correlation, count } of correlations) {
@@ -142,4 +157,14 @@ export function optimizeWeights(): {
 export function resetWeights(): Record<ScoreType, number> {
   saveWeights(DEFAULT_WEIGHTS);
   return { ...DEFAULT_WEIGHTS };
+}
+
+/** v4.19.0: optimizeWeights 조기 종료 시 system_events에 텔레메트리 기록. */
+function logEarlyExit(reason: string, totalSamples: number, perTypeCounts: Record<string, number>): void {
+  logger.info({ reason, totalSamples, perTypeCounts }, 'WeightOptimizer: early exit');
+  // 동기 호출을 유지하기 위해 dynamic import + fire-and-forget
+  import('./systemEvent').then(({ logSystemEvent }) => {
+    const detail = `총 샘플 ${totalSamples}건\n타입별: ${JSON.stringify(perTypeCounts)}\n사유: ${reason}`;
+    logSystemEvent('INFO', 'WEIGHT_OPTIMIZER_SKIP', `가중치 최적화 skip: ${reason}`, detail).catch(() => {});
+  }).catch(() => {});
 }
