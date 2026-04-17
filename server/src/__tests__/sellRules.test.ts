@@ -221,4 +221,99 @@ describe('sellRules', () => {
       expect(result!.toISOString()).toContain('2026-04-14');
     });
   });
+
+  // ─── v4.16.0: ROI Table ─────────────────────────────
+  describe('ROI Table', () => {
+    const insertBuyAt = (stockId: number, minutesAgo: number) => {
+      const ts = new Date(Date.now() - minutesAgo * 60_000).toISOString();
+      execute(
+        "INSERT INTO auto_trades (stock_id, order_type, status, quantity, price, created_at) VALUES (?, 'BUY', 'FILLED', 10, 100, ?)",
+        [stockId, ts],
+      );
+    };
+
+    const withRoi = (roiTable: Array<[number, number]>, otherOverrides: any = {}) => {
+      vi.mocked(getSettings).mockReturnValue({
+        sellRulesEnabled: true,
+        targetProfitRate: 3.0,
+        hardStopLossRate: 2.0,
+        trailingStopRate: 1.5,
+        maxHoldMinutes: 60,
+        roiTable,
+        ...otherOverrides,
+      } as any);
+    };
+
+    it('t=0분일 때 첫 단계 threshold(3%)를 사용', () => {
+      withRoi([[0, 3.0], [30, 2.0], [60, 1.0]]);
+      insertBuyAt(11, 1); // 1분 전 매수
+      const r = evaluateSellRules({ ...base, stockId: 11, unrealizedPnLPercent: 3.1 });
+      expect(r.shouldSell).toBe(true);
+      expect(r.rule).toBe('TARGET_PROFIT');
+      expect(r.reason).toContain('ROI Table');
+    });
+
+    it('t=35분 (30분 구간)일 때 2% 수익으로 익절', () => {
+      withRoi([[0, 3.0], [30, 2.0], [60, 1.0]]);
+      insertBuyAt(12, 35);
+      const r = evaluateSellRules({ ...base, stockId: 12, unrealizedPnLPercent: 2.1 });
+      expect(r.shouldSell).toBe(true);
+      expect(r.rule).toBe('TARGET_PROFIT');
+    });
+
+    it('t=35분에 1.9%는 익절 안 함', () => {
+      withRoi([[0, 3.0], [30, 2.0], [60, 1.0]]);
+      insertBuyAt(13, 35);
+      const r = evaluateSellRules({ ...base, stockId: 13, unrealizedPnLPercent: 1.9 });
+      expect(r.shouldSell).toBe(false);
+    });
+
+    it('t=65분(60분 구간)일 때 1% 수익으로 익절', () => {
+      withRoi([[0, 3.0], [30, 2.0], [60, 1.0]]);
+      insertBuyAt(14, 65);
+      const r = evaluateSellRules({ ...base, stockId: 14, unrealizedPnLPercent: 1.1 });
+      expect(r.shouldSell).toBe(true);
+      expect(r.rule).toBe('TARGET_PROFIT');
+    });
+
+    it('마지막 항목이 0%면 손익무관 강매도 역할', () => {
+      withRoi([[0, 3.0], [60, 0]]);
+      insertBuyAt(15, 65);
+      const r = evaluateSellRules({ ...base, stockId: 15, unrealizedPnLPercent: 0.01 });
+      expect(r.shouldSell).toBe(true);
+      expect(r.rule).toBe('TARGET_PROFIT');
+    });
+
+    it('ROI Table 있으면 HOLDING_TIME 규칙 비활성화', () => {
+      // maxHoldMinutes=60이지만 ROI table이 있으므로 적용 안 됨
+      withRoi([[0, 10.0]], { maxHoldMinutes: 60 });
+      insertBuyAt(16, 120); // 2시간 경과
+      const r = evaluateSellRules({ ...base, stockId: 16, unrealizedPnLPercent: 5 });
+      // ROI threshold 10% 미달이고, STOP_LOSS/TRAILING도 해당 없음 → HOLD
+      expect(r.shouldSell).toBe(false);
+    });
+
+    it('roiTable 없으면 기존 targetProfitRate 방식 유지 (후방 호환)', () => {
+      vi.mocked(getSettings).mockReturnValue({
+        sellRulesEnabled: true,
+        targetProfitRate: 3.0,
+        hardStopLossRate: 2.0,
+        trailingStopRate: 1.5,
+        maxHoldMinutes: 60,
+        // roiTable: undefined
+      } as any);
+      const r = evaluateSellRules({ ...base, unrealizedPnLPercent: 3.0 });
+      expect(r.shouldSell).toBe(true);
+      expect(r.rule).toBe('TARGET_PROFIT');
+      expect(r.reason).not.toContain('ROI Table');
+    });
+
+    it('STOP_LOSS는 ROI Table과 무관하게 동작', () => {
+      withRoi([[0, 10.0], [60, 0]]);
+      insertBuyAt(17, 5);
+      const r = evaluateSellRules({ ...base, stockId: 17, unrealizedPnLPercent: -2.5 });
+      expect(r.shouldSell).toBe(true);
+      expect(r.rule).toBe('STOP_LOSS');
+    });
+  });
 });

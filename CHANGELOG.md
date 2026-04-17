@@ -2,6 +2,16 @@
 
 Stock Manager 주요 릴리즈 변경사항. 자세한 노트는 [GitHub Releases](https://github.com/shartith/StockManager/releases)에서 확인.
 
+## v4.16.0 — 2026-04-17
+
+**freqtrade 영감 적용: Protection 시스템 + ROI Table.**
+
+- **Protection 시스템**: 전략 수준 circuit breaker 3종 신규 추가 — `StoplossGuard`(최근 6h 내 손절 3건 초과 시 전체 BUY 차단), `CooldownPeriod`(종목 거래 후 30분 재진입 금지), `LowProfitPairs`(종목 최근 5거래 평균 수익률 < -5%면 해당 종목 BUY 차단). `executeOrder` 시작부에서 평가, 차단 시 `PROTECTION_BLOCKED` 이벤트 기록. 4/17 stock_id=289 SELL 28회 반복 같은 사건 재발 방지 + 전략 자체가 망가지는 상황 조기 감지.
+- **ROI Table**: `sellRules`에 시간 경과별 목표 수익률 감쇠 테이블 도입. 형식 `[[minutes, profitPct], ...]` (예: `[[0, 3.0], [30, 2.0], [60, 1.0], [120, 0]]`). 기존 `targetProfitRate` 고정값 + `maxHoldMinutes` 단일 강매도의 이분법을 **시간축 risk-tiered exit**으로 대체. 미설정 시 기존 동작 유지 (후방 호환). 전략 프리셋 4종 모두 `roiTable` 포함으로 업데이트.
+- **프리셋 ROI 테이블**: scalping `[0:3%, 20:2%, 40:1%, 60:0%]`, intraday `[0:5%, 60:3%, 180:1.5%, 360:0%]`, swing `[0:10%, 1d:8%, 2d:6%, 4d:4%, 7d:0%]`, position `[0:25%, 7d:20%, 14d:15%, 30d:10%]`.
+- **테스트**: `sellRules.test.ts`에 ROI Table 8건 추가 (경계값, 시간 구간, 후방호환, STOP_LOSS 독립성 검증). 총 559/559 pass.
+- **backtester 조사**: 기존 `backtester.ts`·`backtest_results` 테이블 존재 확인. 수동 실행 3건만 기록. 자동화·주기적 실행·weightOptimizer 연동은 후속 작업 예정.
+
 ## v4.15.0 — 2026-04-17
 
 **장애 복원력 강화 + 스코어링 엔진 구조 개선. 애널리스트 관점 진단 반영.**

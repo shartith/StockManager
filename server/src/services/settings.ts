@@ -104,10 +104,17 @@ export interface AppSettings {
 
   // 매도 규칙 (hard rules — LLM 불필요)
   sellRulesEnabled: boolean;
-  targetProfitRate: number;      // +N% → 전량 매도
+  targetProfitRate: number;      // +N% → 전량 매도 (ROI table fallback)
   hardStopLossRate: number;      // -N% → 전량 매도
   trailingStopRate: number;      // 고점 대비 -N% → 전량 매도
-  maxHoldMinutes: number;        // N분 초과 → 전량 매도
+  maxHoldMinutes: number;        // N분 초과 → 전량 매도 (ROI table이 있으면 tail로 사용)
+
+  // v4.16.0: ROI Table (freqtrade 영감) — 시간 경과에 따른 목표 수익률 감쇠.
+  // 형식: [[minutes, profitPct], ...] — 경과 시간별 익절 임계값.
+  // 예: [[0, 3.0], [30, 2.0], [60, 1.0], [120, 0]]
+  //     매수 직후 3% 익절, 30분 후 2%, 60분 후 1%, 120분 후 손익무관 청산.
+  // 미설정(undefined)이면 기존 targetProfitRate + maxHoldMinutes 방식 유지 (후방 호환).
+  roiTable?: Array<[number, number]>;
 
   // 포지션 사이징
   positionMaxRatio: number;      // 전체 예산의 N%
@@ -122,6 +129,14 @@ export interface AppSettings {
   // v4.10.0: 가상매매(Paper Trading)
   paperTradingEnabled: boolean;     // 추천 BUY 신호 → 실매매 안 된 종목 자동 가상매수
   paperTradeAmount: number;         // 가상매수 종목당 금액 (KRW, 해외도 환산)
+
+  // v4.16.0: Protection 시스템 (freqtrade 영감) — 전략 수준 circuit breaker.
+  // 지정되지 않으면 DEFAULT_PROTECTION_CONFIG 사용.
+  protections?: {
+    stoplossGuard?: { enabled?: boolean; lookbackHours?: number; stopLossLimit?: number };
+    cooldownPeriod?: { enabled?: boolean; cooldownMinutes?: number };
+    lowProfitPairs?: { enabled?: boolean; lookbackTrades?: number; requiredProfitPercent?: number };
+  };
 }
 
 const DEFAULT_SETTINGS: AppSettings = {
@@ -212,6 +227,8 @@ export interface TradingPreset {
   trailingStopRate: number;
   maxHoldMinutes: number;
   investmentStyle: AppSettings['investmentStyle'];
+  // v4.16.0: freqtrade 스타일 ROI 테이블. 시간 경과별 목표 수익률 감쇠.
+  roiTable: Array<[number, number]>;
 }
 
 export const TRADING_PRESETS: Record<TradingPresetName, TradingPreset> = {
@@ -224,6 +241,8 @@ export const TRADING_PRESETS: Record<TradingPresetName, TradingPreset> = {
     trailingStopRate: 1.5,
     maxHoldMinutes: 60,
     investmentStyle: 'momentum',
+    // 초기 3% 익절, 20분 후엔 2%, 40분 후엔 1%, 60분엔 손익 무관 청산
+    roiTable: [[0, 3.0], [20, 2.0], [40, 1.0], [60, 0]],
   },
   intraday: {
     name: 'intraday',
@@ -234,6 +253,7 @@ export const TRADING_PRESETS: Record<TradingPresetName, TradingPreset> = {
     trailingStopRate: 2.0,
     maxHoldMinutes: 360, // 6시간
     investmentStyle: 'momentum',
+    roiTable: [[0, 5.0], [60, 3.0], [180, 1.5], [360, 0]],
   },
   swing: {
     name: 'swing',
@@ -244,6 +264,8 @@ export const TRADING_PRESETS: Record<TradingPresetName, TradingPreset> = {
     trailingStopRate: 3.5,
     maxHoldMinutes: 60 * 24 * 7, // 1주
     investmentStyle: 'balanced',
+    // 하루 내 8%+ 이면 즉시 익절, 2일 후 6%, 4일 후 4%, 1주 후 손익무관
+    roiTable: [[0, 10.0], [60 * 24, 8.0], [60 * 24 * 2, 6.0], [60 * 24 * 4, 4.0], [60 * 24 * 7, 0]],
   },
   position: {
     name: 'position',
@@ -254,6 +276,8 @@ export const TRADING_PRESETS: Record<TradingPresetName, TradingPreset> = {
     trailingStopRate: 6.0,
     maxHoldMinutes: 60 * 24 * 30, // 1달
     investmentStyle: 'value',
+    // 1주 내 25%+ 이면 익절, 2주 후 20%, 1달 후 10%, 1달 경과 시 청산
+    roiTable: [[0, 25.0], [60 * 24 * 7, 20.0], [60 * 24 * 14, 15.0], [60 * 24 * 30, 10.0]],
   },
 };
 
@@ -266,6 +290,7 @@ export function getPresetPatch(name: TradingPresetName): Partial<AppSettings> {
     trailingStopRate: p.trailingStopRate,
     maxHoldMinutes: p.maxHoldMinutes,
     investmentStyle: p.investmentStyle,
+    roiTable: p.roiTable,
   };
 }
 

@@ -87,8 +87,36 @@ export function getBuyTimestamp(stockId: number): Date | null {
 // ── 핵심 평가 함수 ──
 
 /**
- * 매도 규칙 4개를 우선순위 순으로 평가.
+ * ROI Table 평가 — 경과 시간 t에 대해 "해당 시점의 목표 수익률 임계값"을 반환.
+ * 테이블은 [[minutes, profitPct], ...] 형태. minutes 오름차순 정렬 가정.
+ * 가장 최근에 통과한 단계의 profitPct를 사용 (step function, not interpolated).
+ *
+ * 예: [[0, 3], [30, 2], [60, 1], [120, 0]]
+ *   - t=0~29분:   threshold = 3%
+ *   - t=30~59분:  threshold = 2%
+ *   - t=60~119분: threshold = 1%
+ *   - t≥120분:    threshold = 0% (손익무관 청산)
+ *
+ * 반환값이 null이면 해당 시점에 ROI 규칙 적용 불가 (테이블 미설정).
+ */
+function getRoiThresholdAt(minutes: number, table?: Array<[number, number]>): number | null {
+  if (!table || table.length === 0) return null;
+  const sorted = [...table].sort((a, b) => a[0] - b[0]);
+  let threshold: number | null = null;
+  for (const [t, pct] of sorted) {
+    if (minutes >= t) threshold = pct;
+    else break;
+  }
+  return threshold;
+}
+
+/**
+ * 매도 규칙을 우선순위 순으로 평가.
  * 첫 번째 매칭되는 규칙에서 즉시 반환 (선착순).
+ *
+ * v4.16.0: ROI Table 지원. settings.roiTable이 있으면 Rule 1+4가 통합되어
+ *   시간 경과에 따라 감쇠하는 익절 임계값으로 작동 (freqtrade 스타일).
+ *   테이블 없으면 기존 Rule 1(고정 targetProfitRate) + Rule 4(maxHoldMinutes) 유지.
  */
 export function evaluateSellRules(ctx: HoldingContext): SellRuleResult {
   const settings = getSettings();
@@ -97,8 +125,20 @@ export function evaluateSellRules(ctx: HoldingContext): SellRuleResult {
     return { shouldSell: false };
   }
 
-  // Rule 1: 목표 수익률 달성 매도
-  if (ctx.unrealizedPnLPercent >= settings.targetProfitRate) {
+  const buyTs = getBuyTimestamp(ctx.stockId);
+  const holdingMinutes = buyTs ? (Date.now() - buyTs.getTime()) / 60_000 : 0;
+
+  // Rule 1: ROI Table 또는 고정 targetProfitRate로 익절 판정
+  if (settings.roiTable && settings.roiTable.length > 0) {
+    const threshold = getRoiThresholdAt(holdingMinutes, settings.roiTable);
+    if (threshold !== null && ctx.unrealizedPnLPercent >= threshold) {
+      return {
+        shouldSell: true,
+        rule: 'TARGET_PROFIT',
+        reason: `ROI Table (t=${Math.round(holdingMinutes)}분, ${ctx.unrealizedPnLPercent.toFixed(1)}% ≥ ${threshold}%)`,
+      };
+    }
+  } else if (ctx.unrealizedPnLPercent >= settings.targetProfitRate) {
     return {
       shouldSell: true,
       rule: 'TARGET_PROFIT',
@@ -128,10 +168,9 @@ export function evaluateSellRules(ctx: HoldingContext): SellRuleResult {
     }
   }
 
-  // Rule 4: 보유 시간 초과 매도
-  const buyTs = getBuyTimestamp(ctx.stockId);
-  if (buyTs) {
-    const holdingMinutes = (Date.now() - buyTs.getTime()) / 60_000;
+  // Rule 4: 보유 시간 초과 매도 — ROI Table이 없을 때만 단독 적용.
+  // ROI Table이 있으면 table의 마지막 항목이 "시간 초과 강매도" 역할을 이미 수행.
+  if (!settings.roiTable && buyTs) {
     if (holdingMinutes >= settings.maxHoldMinutes) {
       return {
         shouldSell: true,

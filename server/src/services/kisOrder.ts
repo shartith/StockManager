@@ -365,7 +365,33 @@ function isSuspendedToday(stockId: number): { suspended: boolean; reason?: strin
 export async function executeOrder(req: OrderRequest): Promise<OrderResult> {
   const settings = getSettings();
 
-  // 0. 당일 거래정지 이력 차단 — 같은 종목에 대한 동일 에러 반복을 방지
+  // 0-a. Protection 시스템 (v4.16.0) — StoplossGuard/CooldownPeriod/LowProfitPairs
+  // 전략 수준 circuit breaker. 개별 주문 차단보다 먼저 평가해 전략 실패 조기 감지.
+  try {
+    const { checkProtections, logProtectionBlock } = await import('./protections');
+    const protectionResult = checkProtections({
+      stockId: req.stockId,
+      ticker: req.ticker,
+      orderType: req.orderType,
+    });
+    if (!protectionResult.allowed) {
+      await logProtectionBlock(
+        { stockId: req.stockId, ticker: req.ticker, orderType: req.orderType },
+        protectionResult
+      );
+      return {
+        success: false,
+        message: protectionResult.reason ?? 'Protection 차단',
+        quantity: 0,
+        price: 0,
+        fee: 0,
+      };
+    }
+  } catch (err) {
+    logger.error({ err, ticker: req.ticker }, 'Protection check failed — proceeding with order');
+  }
+
+  // 0-b. 당일 거래정지 이력 차단 — 같은 종목에 대한 동일 에러 반복을 방지
   const suspended = isSuspendedToday(req.stockId);
   if (suspended.suspended) {
     try {
