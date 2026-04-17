@@ -4,7 +4,7 @@
  * 전략 변경 전 성과를 예측한다.
  */
 
-import { queryOne, execute } from '../db';
+import { queryOne, queryAll, execute } from '../db';
 import { analyzeTechnical, CandleData } from './technicalAnalysis';
 import { loadWeights } from './weightOptimizer';
 import { ScoreType } from './scoring';
@@ -229,6 +229,117 @@ function emptyResult(): BacktestResult {
     sharpeRatio: null, avgWin: 0, avgLoss: 0, profitFactor: null,
     totalTrades: 0, winningTrades: 0, losingTrades: 0,
   };
+}
+
+// ─── v4.17.0: 종목별 최신 백테스트 결과 조회 헬퍼 ───────────
+
+export interface LatestBacktest {
+  profitFactor: number | null;
+  winRate: number;
+  totalReturn: number;
+  totalTrades: number;
+  maxDrawdown: number;
+  sharpeRatio: number | null;
+  createdAt: string;
+  ageHours: number;
+}
+
+/**
+ * 특정 종목의 최신 백테스트 결과를 조회.
+ * 주말 학습 루프가 저장한 결과를 Protection/scoring에서 참조하기 위함.
+ *
+ * @returns 백테스트 결과 또는 null (결과 없음/오래됨).
+ *
+ * 주의: 너무 오래된 백테스트(예: 30일+)는 regime change로 무효할 수 있으므로
+ *   호출자가 ageHours로 유효성 판단.
+ */
+export function getLatestBacktest(ticker: string, market: string): LatestBacktest | null {
+  const row = queryOne(
+    `SELECT profit_factor, win_rate, total_return, total_trades,
+            max_drawdown, sharpe_ratio, created_at
+     FROM backtest_results
+     WHERE ticker = ? AND market = ?
+     ORDER BY created_at DESC
+     LIMIT 1`,
+    [ticker, market]
+  );
+  if (!row) return null;
+
+  const createdAt = new Date(row.created_at);
+  const ageHours = (Date.now() - createdAt.getTime()) / (3600 * 1000);
+
+  return {
+    profitFactor: row.profit_factor != null ? Number(row.profit_factor) : null,
+    winRate: Number(row.win_rate ?? 0),
+    totalReturn: Number(row.total_return ?? 0),
+    totalTrades: Number(row.total_trades ?? 0),
+    maxDrawdown: Number(row.max_drawdown ?? 0),
+    sharpeRatio: row.sharpe_ratio != null ? Number(row.sharpe_ratio) : null,
+    createdAt: row.created_at,
+    ageHours,
+  };
+}
+
+/**
+ * 최신 백테스트가 "신뢰할 수 있는지" 판정.
+ *
+ * 기준:
+ *   - 백테스트 결과 존재
+ *   - 나이 <= maxAgeHours (기본 7일 = 168h)
+ *   - 총 거래 횟수 >= minTrades (기본 5회) — 통계적 유의성 최소 요건
+ */
+export function isBacktestFresh(
+  bt: LatestBacktest | null,
+  opts: { maxAgeHours?: number; minTrades?: number } = {}
+): boolean {
+  if (!bt) return false;
+  const maxAgeHours = opts.maxAgeHours ?? 168;
+  const minTrades = opts.minTrades ?? 5;
+  return bt.ageHours <= maxAgeHours && bt.totalTrades >= minTrades;
+}
+
+/**
+ * 주말 학습 루프가 사용: 후보 종목 목록(관심/활성 추천/최근 체결)을 병합 반환.
+ * 중복 제거는 (ticker, market) 기준.
+ */
+export function collectBacktestCandidates(limit: number = 30): Array<{ ticker: string; market: string }> {
+  const seen = new Set<string>();
+  const result: Array<{ ticker: string; market: string }> = [];
+
+  const add = (ticker: string, market: string) => {
+    const key = `${market}:${ticker}`;
+    if (!seen.has(key) && ticker && market) {
+      seen.add(key);
+      result.push({ ticker, market });
+    }
+  };
+
+  // 1순위: 최근 7일 체결 종목 (실제 매매 종목의 전략 검증)
+  const recentTrades = queryAll(
+    `SELECT DISTINCT s.ticker, s.market FROM auto_trades at
+     JOIN stocks s ON s.id = at.stock_id
+     WHERE at.status = 'FILLED' AND at.created_at >= datetime('now', '-7 days')
+       AND s.deleted_at IS NULL`
+  );
+  for (const r of recentTrades) add(r.ticker, r.market);
+
+  // 2순위: 관심종목 (실제 매수 후보)
+  const watchlist = queryAll(
+    `SELECT s.ticker, s.market FROM watchlist w
+     JOIN stocks s ON s.id = w.stock_id
+     WHERE w.deleted_at IS NULL AND s.deleted_at IS NULL`
+  );
+  for (const r of watchlist) add(r.ticker, r.market);
+
+  // 3순위: 활성 추천 상위 (점수 순)
+  const recs = queryAll(
+    `SELECT ticker, market FROM recommendations
+     WHERE status = 'ACTIVE' AND deleted_at IS NULL
+     ORDER BY score DESC LIMIT 20`
+  );
+  for (const r of recs) add(r.ticker, r.market);
+
+  return result.slice(0, limit);
 }
 
 // ─── A/B 전략 비교 백테스트 ─────────────────────────────

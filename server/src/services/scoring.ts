@@ -51,7 +51,10 @@ export type ScoreType =
   | 'CONSECUTIVE_HOLD'   // 연속 HOLD 3회+ 추가 감점 (-15)
   | 'CONSECUTIVE_SELL'   // 연속 SELL 감점 (-25/회, max -75)
   | 'LOW_CONFIDENCE'     // 낮은 신뢰도 감점 (-10)
-  | 'RANK_DECAY';        // 하위 50% 추가 감쇠 (-10)
+  | 'RANK_DECAY'         // 하위 50% 추가 감쇠 (-10)
+  // v4.17.0: 백테스트 기반 구조적 필터
+  | 'BACKTEST_PROFITABLE'   // 백테스트 PF>=1.5 → +15 (통계적 신뢰 추가 가점)
+  | 'BACKTEST_UNPROFITABLE'; // 백테스트 PF<1.0 → -20 (전략 미작동 종목)
 
 const WATCHLIST_THRESHOLD = 80;
 const AUTO_TRADE_THRESHOLD = 100;
@@ -311,6 +314,32 @@ export async function evaluateAndScore(
         }
       }
     }
+  }
+
+  // 13. v4.17.0: 백테스트 기반 가점/감점 — "이 종목에 현재 전략이 통하는가"의 구조적 필터.
+  //    실시간 매수 결정 근거로 쓰지 않고, 점수에 스며들어 순위 경쟁의 일부로 작동.
+  //    fresh한 백테스트(7일 이내, 5거래+)만 사용. 없으면 중립(±0).
+  try {
+    const { getLatestBacktest, isBacktestFresh } = await import('./backtester');
+    const bt = getLatestBacktest(ticker, market);
+    if (isBacktestFresh(bt, { maxAgeHours: 168, minTrades: 5 })) {
+      const pf = bt!.profitFactor ?? 0;
+      if (pf >= 1.5) {
+        details.push({
+          type: 'BACKTEST_PROFITABLE',
+          value: 15,
+          reason: `백테스트 PF ${pf.toFixed(2)} (${bt!.totalTrades}거래, 승률 ${bt!.winRate}%)`,
+        });
+      } else if (pf < 1.0) {
+        details.push({
+          type: 'BACKTEST_UNPROFITABLE',
+          value: -20,
+          reason: `백테스트 PF ${pf.toFixed(2)} (${bt!.totalTrades}거래, 전략 미작동)`,
+        });
+      }
+    }
+  } catch (err) {
+    logger.debug({ err, ticker }, 'Backtest scoring lookup skipped');
   }
 
   // 이번 라운드 점수 합산

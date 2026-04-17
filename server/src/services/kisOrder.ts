@@ -369,16 +369,15 @@ export async function executeOrder(req: OrderRequest): Promise<OrderResult> {
   // 전략 수준 circuit breaker. 개별 주문 차단보다 먼저 평가해 전략 실패 조기 감지.
   try {
     const { checkProtections, logProtectionBlock } = await import('./protections');
-    const protectionResult = checkProtections({
+    const protectionCtx = {
       stockId: req.stockId,
       ticker: req.ticker,
+      market: req.market,
       orderType: req.orderType,
-    });
+    };
+    const protectionResult = checkProtections(protectionCtx);
     if (!protectionResult.allowed) {
-      await logProtectionBlock(
-        { stockId: req.stockId, ticker: req.ticker, orderType: req.orderType },
-        protectionResult
-      );
+      await logProtectionBlock(protectionCtx, protectionResult);
       return {
         success: false,
         message: protectionResult.reason ?? 'Protection 차단',

@@ -16,11 +16,13 @@
 
 import { queryOne, queryAll } from '../db';
 import { getSettings } from './settings';
+import { getLatestBacktest, isBacktestFresh } from './backtester';
 import logger from '../logger';
 
 export interface ProtectionContext {
   stockId: number;
   ticker: string;
+  market?: string;
   orderType: 'BUY' | 'SELL';
 }
 
@@ -38,6 +40,13 @@ export interface ProtectionConfig {
     enabled: boolean;
     lookbackTrades: number;  // 최근 K거래 참조
     requiredProfitPercent: number; // 이 % 미만이면 차단
+  };
+  // v4.17.0: 백테스트 profit_factor 기반 차단
+  backtestReject: {
+    enabled: boolean;
+    minProfitFactor: number;  // PF가 이 값 미만이면 차단 (기본 0.8)
+    maxAgeHours: number;      // 백테스트 나이 제한
+    minTrades: number;        // 통계적 유의성 최소 거래 수
   };
 }
 
@@ -57,6 +66,12 @@ export const DEFAULT_PROTECTION_CONFIG: ProtectionConfig = {
     lookbackTrades: 5, // 최근 5거래
     requiredProfitPercent: -5.0, // 누적 수익률 <-5%면 차단
   },
+  backtestReject: {
+    enabled: true,
+    minProfitFactor: 0.8,  // PF<0.8 = 거래비용 제외 시 손실. 매수 금지
+    maxAgeHours: 168,      // 7일 이내 백테스트만 유효
+    minTrades: 5,          // 5거래 미만은 통계적 유의성 부족
+  },
 };
 
 export function getProtectionConfig(): ProtectionConfig {
@@ -74,6 +89,10 @@ export function getProtectionConfig(): ProtectionConfig {
     lowProfitPairs: {
       ...DEFAULT_PROTECTION_CONFIG.lowProfitPairs,
       ...(user.lowProfitPairs || {}),
+    },
+    backtestReject: {
+      ...DEFAULT_PROTECTION_CONFIG.backtestReject,
+      ...(user.backtestReject || {}),
     },
   };
 }
@@ -175,6 +194,29 @@ function checkLowProfitPairs(
   return null;
 }
 
+/** 4. BacktestReject — 종목의 최신 백테스트 profit_factor가 임계값 미만이면 BUY 차단.
+ *  "실시간 매수 결정"이 아닌 "전략이 이 종목에 통하지 않는다"는 구조적 필터.
+ *  신선도(ageHours) + 통계 유의성(minTrades) 체크 포함. 백테스트 없으면 통과. */
+function checkBacktestReject(
+  ctx: ProtectionContext,
+  cfg: ProtectionConfig['backtestReject']
+): string | null {
+  if (!cfg.enabled) return null;
+  if (ctx.orderType !== 'BUY') return null; // SELL은 통과
+  if (!ctx.market) return null;              // market 정보 없으면 스킵
+
+  const bt = getLatestBacktest(ctx.ticker, ctx.market);
+  if (!isBacktestFresh(bt, { maxAgeHours: cfg.maxAgeHours, minTrades: cfg.minTrades })) {
+    return null; // 백테스트 없거나 오래됨/소표본 → 판단 보류 (통과)
+  }
+
+  const pf = bt!.profitFactor ?? 0;
+  if (pf < cfg.minProfitFactor) {
+    return `BacktestReject: ${ctx.ticker} 백테스트 PF ${pf.toFixed(2)} < ${cfg.minProfitFactor} (거래 ${bt!.totalTrades}건, 수익률 ${bt!.totalReturn.toFixed(1)}%, 승률 ${bt!.winRate}%)`;
+  }
+  return null;
+}
+
 // ─── 통합 체크 ────────────────────────────────────────
 
 export interface ProtectionResult {
@@ -200,6 +242,11 @@ export function checkProtections(ctx: ProtectionContext): ProtectionResult {
   const lowProfitReason = checkLowProfitPairs(ctx, cfg.lowProfitPairs);
   if (lowProfitReason) {
     return { allowed: false, reason: lowProfitReason, protectionName: 'LowProfitPairs' };
+  }
+
+  const backtestReason = checkBacktestReject(ctx, cfg.backtestReject);
+  if (backtestReason) {
+    return { allowed: false, reason: backtestReason, protectionName: 'BacktestReject' };
   }
 
   return { allowed: true };

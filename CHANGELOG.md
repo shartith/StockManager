@@ -2,6 +2,16 @@
 
 Stock Manager 주요 릴리즈 변경사항. 자세한 노트는 [GitHub Releases](https://github.com/shartith/StockManager/releases)에서 확인.
 
+## v4.17.0 — 2026-04-17
+
+**백테스트 파이프라인 통합 — 실시간 결정이 아닌 "구조적 종목 필터"로 활용.**
+
+- **주말 자동 백테스트 루프**: `weekendLearning.ts` 확장. 대상을 기존 "최근 체결 5종목"에서 **최근 체결 + 관심종목 + 활성 추천 상위** 최대 30종목으로 확대. 결과를 `backtest_results` DB에 저장 (거래 5건 이상 통계 유의성 확보 시). `collectBacktestCandidates()` 헬퍼 신규.
+- **Protection `BacktestReject`** (4번째): 종목 최신 백테스트 `profit_factor < 0.8` 이면 매수 차단. 7일 이내 + 5거래 이상 조건(fresh + significant) 충족 시에만 발동. 백테스트 없거나 오래되면 판단 보류 (통과). "실시간 매수 결정"이 아닌 "전략이 이 종목에 통하지 않는다"는 구조적 필터.
+- **스코어링 백테스트 반영** (신규 2종 ScoreType): `BACKTEST_PROFITABLE` (PF≥1.5 → +15), `BACKTEST_UNPROFITABLE` (PF<1.0 → -20). 점수 경쟁에 스며들어 순위 결정에 기여.
+- **`getLatestBacktest()` / `isBacktestFresh()`** 조회 헬퍼 신규. 백테스트 결과의 신선도·통계 유의성 판정 일원화.
+- **테스트**: `protections.test.ts` 신규 21건 (StoplossGuard 4, CooldownPeriod 4, LowProfitPairs 3, BacktestReject 7, config 2, override 1). 기존 scoring 테스트 1건 async 누락 수정. 총 580/580 pass.
+
 ## v4.16.0 — 2026-04-17
 
 **freqtrade 영감 적용: Protection 시스템 + ROI Table.**

@@ -6,7 +6,7 @@ import { queryAll, queryOne, execute } from '../../db';
 import { getSettings } from '../settings';
 import { evaluatePendingPerformance } from '../performanceTracker';
 import { optimizeWeights, loadWeights } from '../weightOptimizer';
-import { runBacktest, runABCompare } from '../backtester';
+import { runBacktest, runABCompare, saveBacktestResult, collectBacktestCandidates } from '../backtester';
 import { createNotification } from '../notification';
 import { getLoraDataCount, generateLoraDataset } from '../exportImport';
 import logger from '../../logger';
@@ -28,35 +28,65 @@ export async function runWeekendLearning() {
     }
   } catch (err) { logger.error({ err }, 'Weekend optimizeWeights failed'); }
 
-  // 2.5 이번 주 매매 종목 백테스트
+  // 2.5 백테스트 루프 (v4.17.0) — 대상 확대 + DB 저장.
+  //   이전: 최근 7일 체결 종목 5개, 결과 텍스트만
+  //   현재: 체결 + 관심종목 + 활성 추천 상위 → 최대 30종목, DB 저장
+  //   저장된 결과는 Protection(BacktestReject)·scoring 가점에서 참조.
   let backtestSummary = '';
+  let backtestStats = { evaluated: 0, profitable: 0, unprofitable: 0 };
   try {
-    const tradedTickers = queryAll(
-      "SELECT DISTINCT s.ticker, s.market FROM auto_trades at JOIN stocks s ON s.id = at.stock_id WHERE at.status = 'FILLED' AND at.created_at >= datetime('now', '-7 days')"
-    );
+    const candidates = collectBacktestCandidates(30);
+    logger.info(`[Scheduler] 주말 백테스트 대상: ${candidates.length}종목`);
+
     const btResults: string[] = [];
-    for (const t of tradedTickers.slice(0, 5)) {
+    for (const t of candidates) {
       try {
         const candles = await fetchCandleData(t.ticker, t.market === 'KRX' ? 'KRX' : 'NYSE');
-        if (candles && candles.length >= 60) {
-          const result = runBacktest({ name: `auto-${t.ticker}`, ticker: t.ticker, candles, initialCapital: 2000000 });
-          btResults.push(`${t.ticker}: 승률 ${(result.winRate * 100).toFixed(0)}%, 수익률 ${result.totalReturn.toFixed(1)}%`);
+        if (!candles || candles.length < 60) continue;
+
+        const config = {
+          name: `weekly-${t.ticker}-${new Date().toISOString().slice(0, 10)}`,
+          ticker: t.ticker,
+          market: t.market as 'KRX' | 'NYSE' | 'NASDAQ',
+          candles,
+          initialCapital: 2_000_000,
+        };
+        const result = runBacktest(config);
+
+        // 거래 5건 이상일 때만 저장 (통계적 유의성 최소 요건)
+        if (result.totalTrades >= 5) {
+          saveBacktestResult(config, result);
+          backtestStats.evaluated++;
+          if ((result.profitFactor ?? 0) >= 1.0) backtestStats.profitable++;
+          else backtestStats.unprofitable++;
+        }
+
+        // 상위 5개만 리포트에 포함
+        if (btResults.length < 5) {
+          btResults.push(`${t.ticker}: PF ${result.profitFactor?.toFixed(2) ?? 'n/a'}, 승률 ${result.winRate}%, 수익 ${result.totalReturn.toFixed(1)}%`);
         }
       } catch (err) { logger.error({ err, ticker: t.ticker }, 'Weekend backtest failed for ticker'); }
     }
-    if (btResults.length > 0) backtestSummary = btResults.join(' | ');
+    backtestSummary = `백테스트 ${backtestStats.evaluated}건 저장 (수익 ${backtestStats.profitable} / 손실 ${backtestStats.unprofitable})`;
+    if (btResults.length > 0) backtestSummary += ` — ${btResults.join(' | ')}`;
 
-    // A/B 전략 비교 (현재 가중치 vs 균등 가중치)
-    if (tradedTickers.length > 0) {
+    // A/B 전략 비교 (현재 가중치 vs 균등 가중치) — 최근 체결 종목 중 첫 번째로 샘플
+    const tradedFirst = queryOne(
+      `SELECT s.ticker, s.market FROM auto_trades at
+       JOIN stocks s ON s.id = at.stock_id
+       WHERE at.status = 'FILLED' AND at.created_at >= datetime('now', '-7 days')
+         AND s.deleted_at IS NULL
+       LIMIT 1`
+    );
+    if (tradedFirst) {
       const currentWeights = loadWeights();
       const equalWeights: any = {};
       for (const key of Object.keys(currentWeights)) equalWeights[key] = 1.0;
 
-      const firstTicker = tradedTickers[0];
-      const candles = await fetchCandleData(firstTicker.ticker, firstTicker.market === 'KRX' ? 'KRX' : 'NYSE');
+      const candles = await fetchCandleData(tradedFirst.ticker, tradedFirst.market === 'KRX' ? 'KRX' : 'NYSE');
       if (candles && candles.length >= 60) {
-        const abResult = runABCompare(candles, firstTicker.ticker, currentWeights, equalWeights, '최적화 전략', '기본 전략');
-        backtestSummary += ` | A/B비교(${firstTicker.ticker}): ${abResult.winner === 'A' ? '최적화 승' : abResult.winner === 'B' ? '기본 승' : '무승부'}`;
+        const abResult = runABCompare(candles, tradedFirst.ticker, currentWeights, equalWeights, '최적화 전략', '기본 전략');
+        backtestSummary += ` | A/B(${tradedFirst.ticker}): ${abResult.winner === 'A' ? '최적화 승' : abResult.winner === 'B' ? '기본 승' : '무승부'}`;
         logger.info(`[Scheduler] A/B 백테스트: ${abResult.summary}`);
       }
     }

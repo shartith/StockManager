@@ -136,6 +136,8 @@ export interface AppSettings {
     stoplossGuard?: { enabled?: boolean; lookbackHours?: number; stopLossLimit?: number };
     cooldownPeriod?: { enabled?: boolean; cooldownMinutes?: number };
     lowProfitPairs?: { enabled?: boolean; lookbackTrades?: number; requiredProfitPercent?: number };
+    // v4.17.0: 백테스트 기반 차단
+    backtestReject?: { enabled?: boolean; minProfitFactor?: number; maxAgeHours?: number; minTrades?: number };
   };
 }
 

@@ -35,6 +35,9 @@ const DEFAULT_WEIGHTS: Record<ScoreType, number> = {
   CONSECUTIVE_SELL: 1.0,
   LOW_CONFIDENCE: 1.0,
   RANK_DECAY: 1.0,
+  // v4.17.0: 백테스트 기반
+  BACKTEST_PROFITABLE: 1.0,
+  BACKTEST_UNPROFITABLE: 1.0,
 };
 
 const MIN_WEIGHT = 0.25;

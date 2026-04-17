@@ -117,6 +117,8 @@ describe('scoring engine', () => {
       CONSECUTIVE_SELL: 1.0,
       LOW_CONFIDENCE: 1.0,
       RANK_DECAY: 1.0,
+      BACKTEST_PROFITABLE: 1.0,
+      BACKTEST_UNPROFITABLE: 1.0,
     });
   });
 
@@ -192,6 +194,8 @@ describe('scoring engine', () => {
       CONSECUTIVE_SELL: 1.0,
       LOW_CONFIDENCE: 1.0,
       RANK_DECAY: 1.0,
+      BACKTEST_PROFITABLE: 1.0,
+      BACKTEST_UNPROFITABLE: 1.0,
       });
 
       const result = await evaluateAndScore('TEST', 'KRX', makeDecision());
@@ -509,7 +513,7 @@ describe('scoring engine', () => {
     });
 
     it('updates recommendations table score', async () => {
-      evaluateAndScore('TEST', 'KRX', makeDecision());
+      await evaluateAndScore('TEST', 'KRX', makeDecision());
       const updateCalls = vi.mocked(execute).mock.calls.filter(
         c => typeof c[0] === 'string' && c[0].includes('UPDATE recommendations SET score'),
       );
@@ -689,6 +693,8 @@ describe('scoring engine', () => {
         CONSECUTIVE_SELL: 2.0,
         LOW_CONFIDENCE: 2.0,
         RANK_DECAY: 2.0,
+        BACKTEST_PROFITABLE: 2.0,
+        BACKTEST_UNPROFITABLE: 2.0,
       });
 
       const result = await evaluateAndScore('TEST', 'KRX', makeDecision());
