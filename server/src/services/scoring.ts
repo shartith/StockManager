@@ -78,10 +78,21 @@ export async function evaluateAndScore(
   const details: { type: ScoreType; value: number; reason: string }[] = [];
   const weights = loadWeights();
 
-  // 기존 누적 점수 가져오기 (최근 7일)
+  // 기존 누적 점수 (v4.15.0: (score_type, 날짜) 그룹당 최신 1건만 합산).
+  // 기존은 7일치 전체를 단순 합산 → 같은 MACD 골든크로스가 하루 4회 × 7일 = 28번
+  // 중복 가산되어 "점수가 머무름의 함수"가 되는 문제가 있었다.
+  // 새 방식: 하루에 같은 지표가 여러 번 기록돼도 그 날의 마지막 1건만 유효.
+  // 지속되는 시그널은 하루당 정확히 1번씩, 최대 7일분 → 훨씬 합리적인 가중.
   const existingScores = queryAll(
-    `SELECT SUM(score_value) as total FROM recommendation_scores
-     WHERE ticker = ? AND market = ? AND created_at > datetime('now', '-7 days')`,
+    `SELECT SUM(score_value) as total FROM recommendation_scores r
+     WHERE r.ticker = ? AND r.market = ?
+       AND r.created_at > datetime('now', '-7 days')
+       AND r.id = (
+         SELECT MAX(r2.id) FROM recommendation_scores r2
+         WHERE r2.ticker = r.ticker AND r2.market = r.market
+           AND r2.score_type = r.score_type
+           AND DATE(r2.created_at) = DATE(r.created_at)
+       )`,
     [ticker, market]
   );
   let baseScore = existingScores[0]?.total || 0;
@@ -206,15 +217,20 @@ export async function evaluateAndScore(
     }
   }
 
-  // 8. 시간 감쇠 — 7일 이상 점수는 감쇠
+  // 8. 시간 감쇠 — 3일 이상 지난 점수의 20%를 상쇄.
+  // v4.15.0: 양/음 대칭 감쇠. 기존은 양수만 감쇠 → SELL/HOLD 페널티가 영구 누적되어
+  // 한번 꺾인 종목은 회복 불가 (자기 확증 편향). 과거 페널티도 시간이 지나면 완화되도록.
   const oldScores = queryOne(
     `SELECT SUM(score_value) as old_total FROM recommendation_scores
      WHERE ticker = ? AND market = ? AND created_at <= datetime('now', '-3 days')`,
     [ticker, market]
   );
-  if (oldScores?.old_total > 0) {
-    const decay = -Math.round(oldScores.old_total * 0.2);
-    details.push({ type: 'TIME_DECAY', value: decay, reason: '시간 감쇠' });
+  const oldTotal = Number(oldScores?.old_total ?? 0);
+  if (oldTotal !== 0) {
+    // 양수면 감점, 음수면 가점 (둘 다 "원래 점수의 20%만큼 상쇄")
+    const decay = -Math.round(oldTotal * 0.2);
+    const label = oldTotal > 0 ? '시간 감쇠 (누적 양수 완화)' : '시간 감쇠 (누적 페널티 회복)';
+    details.push({ type: 'TIME_DECAY', value: decay, reason: label });
   }
 
   // 9. 뉴스 감성 점수 (긍정 +10, 부정 -10)
@@ -324,12 +340,30 @@ export async function evaluateAndScore(
   const autoThreshold = settings.autoTradeScoreThreshold ?? AUTO_TRADE_THRESHOLD;
 
   // v4.14.0: 순위 기반 승격 — 점수 + 시장 내 상위 순위 조건
+  // v4.15.0: 모집단 가드 — 경쟁 검증 없이 승격되는 것을 방지.
+  //   - 모집단 ≥ 20: 원래 설계대로 점수 + 상위 5/10위 경쟁
+  //   - 모집단 < 20: 경쟁 검증 불가 → 점수 임계값을 20% 상향해 보수적으로 승격
+  //     (예: auto 100→120점, watchlist 80→96점)
   const promotionRank = getMarketRank(ticker, market);
+  const marketActiveCount = getMarketActiveCount(market);
+  const MIN_COMPETITIVE_POOL = 20;
+  const SMALL_POOL_MULTIPLIER = 1.2;
+  const rankConditionActive = marketActiveCount >= MIN_COMPETITIVE_POOL;
 
-  if (totalScore >= autoThreshold && promotionRank <= 5 && settings.autoTradeEnabled) {
+  const effectiveAutoThreshold = rankConditionActive
+    ? autoThreshold
+    : autoThreshold * SMALL_POOL_MULTIPLIER;
+  const effectiveWatchlistThreshold = rankConditionActive
+    ? WATCHLIST_THRESHOLD
+    : WATCHLIST_THRESHOLD * SMALL_POOL_MULTIPLIER;
+
+  const passAutoRank = !rankConditionActive || promotionRank <= 5;
+  const passWatchlistRank = !rankConditionActive || promotionRank <= 10;
+
+  if (totalScore >= effectiveAutoThreshold && passAutoRank && settings.autoTradeEnabled) {
     promoted = await promoteToWatchlistAndTrade(ticker, market, totalScore, decision);
     if (promoted) promotedTo = 'auto_trade';
-  } else if (totalScore >= WATCHLIST_THRESHOLD && promotionRank <= 10) {
+  } else if (totalScore >= effectiveWatchlistThreshold && passWatchlistRank) {
     promoted = promoteToWatchlist(ticker, market, totalScore);
     if (promoted) promotedTo = 'watchlist';
   }

@@ -122,13 +122,13 @@ export function cleanupWatchlist(): WatchlistCleanupResult {
     logger.error({ err }, 'expireStaleRecommendations failed');
   }
 
-  // 규칙 1: 3일간 BUY 신호 없음 (이전 14일 → 3일, 공격적 즉시 정리)
+  // 규칙 1: 7일간 BUY 신호 없음 (v4.15.0: 3일→7일 — 시장 약세·LLM 장애 resilience)
   const noBuyItems = queryAll(`
     SELECT w.id, w.stock_id, s.ticker, s.name
     FROM watchlist w
     JOIN stocks s ON s.id = w.stock_id
     WHERE w.deleted_at IS NULL
-      AND w.added_at <= datetime('now', '-3 days')
+      AND w.added_at <= datetime('now', '-7 days')
       AND EXISTS (
         SELECT 1 FROM trade_signals ts WHERE ts.stock_id = w.stock_id
       )
@@ -136,7 +136,7 @@ export function cleanupWatchlist(): WatchlistCleanupResult {
         SELECT 1 FROM trade_signals ts
         WHERE ts.stock_id = w.stock_id
           AND ts.signal_type = 'BUY'
-          AND ts.created_at >= datetime('now', '-3 days')
+          AND ts.created_at >= datetime('now', '-7 days')
       )
   `);
 
@@ -145,7 +145,7 @@ export function cleanupWatchlist(): WatchlistCleanupResult {
     if (isHoldingReal(item.stock_id)) continue;
     execute("UPDATE watchlist SET deleted_at = datetime('now') WHERE id = ?", [item.id]);
     removedIds.add(item.id);
-    const reason = '3일간 매수 신호 없음';
+    const reason = '7일간 매수 신호 없음';
     reasons.push({ ticker: item.ticker, reason });
     createNotification({
       type: 'WATCHLIST', title: '관심종목 자동 제거',
@@ -182,7 +182,7 @@ export function cleanupWatchlist(): WatchlistCleanupResult {
     }
   }
 
-  // 규칙 3: 추천 저점수 (1일 유예 + score < 40 — 공격적)
+  // 규칙 3: 추천 저점수 (v4.15.0: 1일→3일 유예 + score < 40)
   const lowScoreItems = queryAll(`
     SELECT w.id, w.stock_id, s.ticker, s.name,
       (SELECT MAX(r.score) FROM recommendations r
@@ -191,7 +191,7 @@ export function cleanupWatchlist(): WatchlistCleanupResult {
     FROM watchlist w
     JOIN stocks s ON s.id = w.stock_id
     WHERE w.deleted_at IS NULL
-      AND w.added_at <= datetime('now', '-1 days')
+      AND w.added_at <= datetime('now', '-3 days')
   `);
 
   for (const item of lowScoreItems) {
@@ -211,13 +211,13 @@ export function cleanupWatchlist(): WatchlistCleanupResult {
     removed++;
   }
 
-  // 규칙 4: 최근 5개 신호 평균 신뢰도 < 40% + 1일 유예 → 즉시 삭제
+  // 규칙 4: 최근 5개 신호 평균 신뢰도 < 40% + 3일 유예 → 즉시 삭제 (v4.15.0: 1→3일)
   const lowConfidenceItems = queryAll(`
     SELECT w.id, w.stock_id, s.ticker, s.name
     FROM watchlist w
     JOIN stocks s ON s.id = w.stock_id
     WHERE w.deleted_at IS NULL
-      AND w.added_at <= datetime('now', '-1 days')
+      AND w.added_at <= datetime('now', '-3 days')
   `);
 
   for (const item of lowConfidenceItems) {
@@ -242,13 +242,13 @@ export function cleanupWatchlist(): WatchlistCleanupResult {
     removed++;
   }
 
-  // 규칙 5 (신규): 최근 3개 신호가 모두 SELL/HOLD (BUY 없음) + 1일 유예 → 즉시 삭제
+  // 규칙 5: 최근 3개 신호가 모두 SELL/HOLD (BUY 없음) + 3일 유예 → 즉시 삭제 (v4.15.0: 1→3일)
   const noBuySignalItems = queryAll(`
     SELECT w.id, w.stock_id, s.ticker, s.name
     FROM watchlist w
     JOIN stocks s ON s.id = w.stock_id
     WHERE w.deleted_at IS NULL
-      AND w.added_at <= datetime('now', '-1 days')
+      AND w.added_at <= datetime('now', '-3 days')
   `);
   for (const item of noBuySignalItems) {
     if (removedIds.has(item.id)) continue;

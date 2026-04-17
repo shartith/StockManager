@@ -197,6 +197,78 @@ const DEFAULT_SETTINGS: AppSettings = {
   paperTradeAmount: 1_000_000,
 };
 
+// ─── v4.15.0: 전략 프리셋 ───────────────────────────────────
+// 사용자가 선택한 파라미터 (maxHoldMinutes=60, targetProfit=3% 등)는
+// 스캘핑 전용. 애널리스트 관점에서 스윙/포지션 스타일도 선택 가능하도록
+// 프리셋 상수를 제공한다. 설정은 자동 변경되지 않음 — 사용자가 적용 API 호출 시.
+export type TradingPresetName = 'scalping' | 'intraday' | 'swing' | 'position';
+
+export interface TradingPreset {
+  name: TradingPresetName;
+  label: string;
+  description: string;
+  targetProfitRate: number;
+  hardStopLossRate: number;
+  trailingStopRate: number;
+  maxHoldMinutes: number;
+  investmentStyle: AppSettings['investmentStyle'];
+}
+
+export const TRADING_PRESETS: Record<TradingPresetName, TradingPreset> = {
+  scalping: {
+    name: 'scalping',
+    label: '스캘핑 (1시간 내)',
+    description: '1시간 내 ±2~3% 타겟. 초단타, 회전율 극대화. 거래비용 부담 큼.',
+    targetProfitRate: 3.0,
+    hardStopLossRate: 2.0,
+    trailingStopRate: 1.5,
+    maxHoldMinutes: 60,
+    investmentStyle: 'momentum',
+  },
+  intraday: {
+    name: 'intraday',
+    label: '데이트레이딩 (당일 청산)',
+    description: '당일 내 청산. 타겟 ±3~5%. 오버나잇 리스크 회피.',
+    targetProfitRate: 4.0,
+    hardStopLossRate: 2.5,
+    trailingStopRate: 2.0,
+    maxHoldMinutes: 360, // 6시간
+    investmentStyle: 'momentum',
+  },
+  swing: {
+    name: 'swing',
+    label: '스윙 (며칠~2주)',
+    description: '며칠 ~ 2주 보유. 타겟 ±7~10%. 시장 잡음 필터링.',
+    targetProfitRate: 8.0,
+    hardStopLossRate: 4.0,
+    trailingStopRate: 3.5,
+    maxHoldMinutes: 60 * 24 * 7, // 1주
+    investmentStyle: 'balanced',
+  },
+  position: {
+    name: 'position',
+    label: '포지션 (장기 가치)',
+    description: '수주~수개월 보유. 타겟 ±20%+. 일중 변동 무시.',
+    targetProfitRate: 20.0,
+    hardStopLossRate: 8.0,
+    trailingStopRate: 6.0,
+    maxHoldMinutes: 60 * 24 * 30, // 1달
+    investmentStyle: 'value',
+  },
+};
+
+/** 프리셋을 부분 설정 오브젝트로 반환. 사용자가 적용 시 이 값으로 merge. */
+export function getPresetPatch(name: TradingPresetName): Partial<AppSettings> {
+  const p = TRADING_PRESETS[name];
+  return {
+    targetProfitRate: p.targetProfitRate,
+    hardStopLossRate: p.hardStopLossRate,
+    trailingStopRate: p.trailingStopRate,
+    maxHoldMinutes: p.maxHoldMinutes,
+    investmentStyle: p.investmentStyle,
+  };
+}
+
 let _cache: AppSettings | null = null;
 
 /**

@@ -337,9 +337,55 @@ async function submitOverseasOrder(
 
 // ─── 통합 주문 실행 ───────────────────────────────────
 
+/** 당일 거래정지/매매불가 이력 체크 — 오늘 자 auto_trades에서 해당 종목이
+ *  거래정지성 에러(APBK0066 등)로 실패했으면 추가 주문 차단.
+ *  키워드: '거래정지', '매매정지', '상장폐지', '정리매매' 등 영구성 에러 메시지.
+ */
+function isSuspendedToday(stockId: number): { suspended: boolean; reason?: string } {
+  const row = queryOne(
+    `SELECT error_message FROM auto_trades
+     WHERE stock_id = ?
+       AND status = 'FAILED'
+       AND date(created_at) = date('now')
+       AND (
+         error_message LIKE '%APBK0066%'
+         OR error_message LIKE '%거래정지%'
+         OR error_message LIKE '%매매정지%'
+         OR error_message LIKE '%상장폐지%'
+         OR error_message LIKE '%정리매매%'
+       )
+     ORDER BY created_at DESC LIMIT 1`,
+    [stockId]
+  );
+  if (row) return { suspended: true, reason: row.error_message };
+  return { suspended: false };
+}
+
 /** 주문 실행 (리스크 체크 → 현재가 조회 → 수량 계산 → 주문 제출 → DB 기록) */
 export async function executeOrder(req: OrderRequest): Promise<OrderResult> {
   const settings = getSettings();
+
+  // 0. 당일 거래정지 이력 차단 — 같은 종목에 대한 동일 에러 반복을 방지
+  const suspended = isSuspendedToday(req.stockId);
+  if (suspended.suspended) {
+    try {
+      const { logSystemEvent } = await import('./systemEvent');
+      await logSystemEvent(
+        'INFO',
+        'TRADE_BLOCKED',
+        `주문 차단 (당일 거래정지 종목): ${req.ticker}`,
+        `오늘 동일 종목에서 거래정지성 실패 이력 발견 — 재시도 차단\n사유: ${suspended.reason ?? ''}`,
+        req.ticker
+      );
+    } catch {}
+    return {
+      success: false,
+      message: `거래정지 종목 — 당일 재시도 차단 (${suspended.reason ?? ''})`,
+      quantity: 0,
+      price: 0,
+      fee: 0,
+    };
+  }
 
   // 1. 현재가 조회 + 스마트 가격 결정
   const currentPrice = await getCurrentPrice(req.ticker, req.market);

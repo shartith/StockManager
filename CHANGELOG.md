@@ -2,6 +2,19 @@
 
 Stock Manager 주요 릴리즈 변경사항. 자세한 노트는 [GitHub Releases](https://github.com/shartith/StockManager/releases)에서 확인.
 
+## v4.15.0 — 2026-04-17
+
+**장애 복원력 강화 + 스코어링 엔진 구조 개선. 애널리스트 관점 진단 반영.**
+
+- **거래정지 종목 당일 차단**: `executeOrder` 시작부에 `isSuspendedToday()` 게이트 추가. 오늘 자 `auto_trades`에서 `APBK0066`/`거래정지`/`매매정지`/`상장폐지`/`정리매매` 키워드로 FAILED 이력이 있으면 즉시 차단. `TRADE_BLOCKED` 이벤트 기록. 자정 경과 시 자동 해제. 4/17 stock_id=289 SELL 28회 전부 실패 같은 무한 재시도 방지.
+- **LLM fallback confidence 동적화**: 고정 50(BUY/SELL) → 기술 지표 합의 개수에 비례 (reasons 1~2: 45, 3~4: 60, 5+: 70). 기존 고정 50은 추천 등록 임계값 60을 절대 통과하지 못해 LLM 장애 시 추천이 사라지는 문제 해결.
+- **전략 프리셋 4종 도입**: `scalping`(1h)/`intraday`(6h)/`swing`(1w)/`position`(1m). `TRADING_PRESETS` 상수 + `getPresetPatch()` 유틸. 기존 설정은 변경하지 않고 사용자가 선택 시 `targetProfitRate`/`hardStopLossRate`/`trailingStopRate`/`maxHoldMinutes`/`investmentStyle`을 일괄 적용 가능.
+- **watchlistCleanup 조건 완화**: 규칙 1 (BUY 신호 없음) 3일→7일, 규칙 3·4·5 유예기간 1일→3일. 시장 약세·LLM 장애·휴장 구간에서 무고한 종목 대량 삭제 방지. 4/16 watchlist 25건 일괄 삭제 같은 사건 재발 차단.
+- **승격 순위 모집단 가드**: ACTIVE 추천이 20개 미만이면 순위 조건(상위 5/10위)을 skip 하는 대신 **점수 임계값을 1.2× 상향** (auto 100→120, watchlist 80→96). 소모집단에서 경쟁 검증 없이 점수만으로 승격되는 것을 방지.
+- **TIME_DECAY 양/음 대칭 감쇠**: 기존은 양수만 20% 감쇠 → SELL/HOLD 페널티가 영구 누적되어 한번 꺾인 종목은 회복 불가 (자기 확증 편향). 이제 음수도 같이 상쇄 — "누적 페널티 회복" 레이블로 기록.
+- **baseScore (score_type × 날짜) 디듀플리케이션**: 기존은 7일치 전체 점수를 단순 합산 → 같은 MACD 골든크로스가 하루 4회 × 7일 = 28번 중복 가산. 이제 `(score_type, DATE(created_at))` 그룹당 최신 1건(`MAX(id)`)만 유효 → 점수가 "머무름의 함수"가 되는 것 방지.
+- **스케줄러 기동 백필**: 서버 시작 5초 후 `backfillUntrackedSignals()` + `evaluatePendingPerformance()` 즉시 1회 실행. 18:00 KST 평일 1회 스케줄만 의존하던 기존 방식은 디바이스 간 이행·장기 오프라인 후 복귀 시 공백 발생.
+
 ## v4.14.0 — 2026-04-16
 
 **시장별 TOP 50 경쟁 구도 도입. 적극적 감점 시스템.**

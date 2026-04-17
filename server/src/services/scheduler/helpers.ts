@@ -337,12 +337,26 @@ export async function analyzeStock(stock: any, market: Market, phase: AnalysisPh
       llmErr.message, stock.ticker);
 
     const techSignal = input.indicators.technicalSignal;
+    // v4.14.1: fallback confidence를 기술 지표 합의 강도에 비례하게 산출.
+    // 고정 50은 추천 임계값(≥60)을 절대 통과하지 못해 LLM 장애 시 추천이 사라졌다.
+    // reasons 1~2: 45, 3~4: 60, 5+: 70 (HOLD는 30 유지)
+    const reasonsCount = input.indicators.technicalReasons.length;
+    let fallbackConfidence: number;
+    if (techSignal === 'HOLD') {
+      fallbackConfidence = 30;
+    } else if (reasonsCount >= 5) {
+      fallbackConfidence = 70;
+    } else if (reasonsCount >= 3) {
+      fallbackConfidence = 60;
+    } else {
+      fallbackConfidence = 45;
+    }
     decision = {
       signal: techSignal,
-      confidence: techSignal === 'HOLD' ? 30 : 50,
+      confidence: fallbackConfidence,
       targetPrice: null, stopLossPrice: null, entryPrice: null,
       suggestedRatio: 30, urgency: 'NO_RUSH' as const,
-      reasoning: `[LLM 미연결 fallback] 기술적 분석 기반: ${input.indicators.technicalReasons.join(', ')}`,
+      reasoning: `[LLM 미연결 fallback, 기술 합의 ${reasonsCount}개] ${input.indicators.technicalReasons.join(', ')}`,
       keyFactors: input.indicators.technicalReasons,
       risks: ['LLM 미연결로 인한 제한적 분석'],
       holdingPeriod: 'SHORT_TERM' as const,

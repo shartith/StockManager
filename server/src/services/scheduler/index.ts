@@ -6,7 +6,7 @@
 
 import cron from 'node-cron';
 import { getSettings } from '../settings';
-import { evaluatePendingPerformance } from '../performanceTracker';
+import { evaluatePendingPerformance, backfillUntrackedSignals } from '../performanceTracker';
 import logger from '../../logger';
 import { ScheduleLog, schedulerState } from './types';
 import { runMarketOpen } from './marketOpen';
@@ -142,6 +142,23 @@ export function startScheduler() {
   } else {
     logger.info('[Scheduler] 활성화된 스케줄 없음');
   }
+
+  // v4.15.0: 기동 즉시 성과 추적 백필 + 평가 1회 실행.
+  // 하루 1회 18:00 KST만 기다리지 않고 기동 즉시 갱신 — 디바이스 간 데이터 이행
+  // (jsonl → DB import 후 최초 기동) 시나리오나 장시간 오프라인 이후 복귀 시 회복.
+  setTimeout(() => {
+    try {
+      const result = backfillUntrackedSignals();
+      if (result.registered > 0) {
+        logger.info({ ...result }, '[Scheduler] 기동 백필: 미등록 신호 → signal_performance 복구');
+      }
+    } catch (err) {
+      logger.error({ err }, '[Scheduler] 기동 백필 실패');
+    }
+    evaluatePendingPerformance().catch(err =>
+      logger.error({ err }, '[Scheduler] 기동 성과 평가 실패')
+    );
+  }, 5_000); // 5초 지연 — 서버 부팅 완료 후
 }
 
 /** 스케줄러 중지 */

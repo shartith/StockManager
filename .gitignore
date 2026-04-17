@@ -16,6 +16,7 @@ client/coverage/
 data/*.db
 data/*.db-wal
 data/*.db-shm
+data/*.db.bak*
 data/settings.json
 
 # NAS sync local backups (user data, never tracked)
