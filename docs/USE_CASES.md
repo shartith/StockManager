@@ -47,11 +47,12 @@
 1. [cron 등록] `scheduler/index.ts:83` → `runRecommendationRefresh()`
 2. [시장별 루프] KRX/NYSE/NASDAQ 3개 시장
 3. [Step 1 — 기존 ACTIVE 추천 재검증] `recommendations.ts:273`
-   - 보유 종목 → `DISMISSED`, 관심종목 → `EXECUTED`
+   - 보유 종목 → `DISMISSED`, 관심종목(active) → `EXECUTED`
    - 캔들 부족 → `EXPIRED`, LLM decision 재계산 → 점수 갱신
 4. [Step 2 — 빈 슬롯 채우기] `recommendations.ts:321-404`
    - `fetchDomesticVolumeRank` + `fetchDomesticFluctuationRank` (KRX) 병합
    - 뉴스 수집 + 기술 지표 + LLM decision
+   - 후보 exclusion: 보유 / ACTIVE 추천 / **active watchlist (deleted_at IS NULL)**
    - BUY && confidence ≥ 60 → `recommendations` INSERT
 5. [Step 3 — TOP 50 밖 퇴출] `pruneBottomRanks(market, 50)` → `EXPIRED` 처리
 
@@ -84,7 +85,7 @@
 1. [점수 평가] `scoring.ts:evaluateAndScore` 말미 승격 조건 판정
 2. [포트폴리오 규칙 체크] `portfolioManager.ts:checkPromotionEligibility`
    - 최대 보유 종목 수, 섹터 집중도, 최소 현금 비율
-3. [DB 변경] `watchlist INSERT` + `recommendations UPDATE status='EXECUTED'`
+3. [DB 변경] `watchlist INSERT` (또는 soft-deleted row 부활) + `recommendations UPDATE status='EXECUTED'`
 4. [알림] `createNotification({ type: 'PROMOTION' })`
 
 **대안 흐름**:

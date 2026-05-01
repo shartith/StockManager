@@ -2,6 +2,16 @@
 
 Stock Manager 주요 릴리즈 변경사항. 자세한 노트는 [GitHub Releases](https://github.com/shartith/StockManager/releases)에서 확인.
 
+## v4.19.2 — 2026-05-02
+
+**추천 갱신 흐름의 watchlist 가드 누락 fix — 13일간 추천종목 INSERT 0건 회귀 해결.**
+
+- **Bug**: `runRecommendationRefresh`(`scheduler/recommendations.ts`) 와 `routes/recommendations.ts` 의 `/generate` / `POST /:id/watch` 가 watchlist 쿼리에서 `deleted_at IS NULL` 가드를 누락. `watchlistCleanup` 이 soft-delete 만 수행하므로 cleanup 된 row 까지 추천 후보 차단 셋에 영구 잔류 → KIS rank 후보(시장당 30~46개)가 누적된 watchlist(시장당 100~191건)와 거의 100% 겹치며 INSERT 가 0으로 수렴.
+- **Fix**: 두 watchlistTickers SELECT 에 `AND w.deleted_at IS NULL` 추가. `POST /:id/watch` 는 `watchlist.stock_id` UNIQUE 제약을 고려해 soft-deleted row 가 있으면 `deleted_at = NULL` 부활, 없으면 새 INSERT.
+- **테스트 +5건**: `recommendations-watchlist-guard.test.ts` 신규. 스케줄러 SQL 가드 3건 + 라우트 부활 동작 2건. 752 → **752 + 5 = 757 pass**.
+- **USE_CASES.md**: UC-01 / UC-02 에 active watchlist 한정 exclusion + 부활 전략 명시.
+- **버전 정합성**: server / client `package.json` 버전이 root 와 mismatch (4.12.2 vs 4.19.1) 였던 것을 4.19.2 로 동기화.
+
 ## v4.19.1 — 2026-04-17
 
 **테스트 커버리지 3개 핵심 파일 85%+ 달성. 테스트 +71.**

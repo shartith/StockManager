@@ -256,12 +256,12 @@ export async function runRecommendationRefresh() {
       `, [market]).map((r: any) => r.ticker)
     );
 
-    // 관심종목 티커 (추천에서 제외 대상)
+    // 관심종목 티커 (추천에서 제외 대상) — soft-delete 된 항목은 제외
     const watchlistTickers = new Set(
       queryAll(`
         SELECT s.ticker FROM watchlist w
         JOIN stocks s ON s.id = w.stock_id
-        WHERE w.market = ?
+        WHERE w.market = ? AND w.deleted_at IS NULL
       `, [market]).map((r: any) => r.ticker)
     );
 

@@ -101,12 +101,12 @@ router.post('/generate', asyncHandler(async (req: Request, res: Response) => {
     `, [market]).map((r: any) => r.ticker)
   );
 
-  // ── 관심종목 티커 (제외 대상) ──
+  // ── 관심종목 티커 (제외 대상) — soft-delete 된 항목은 제외 ──
   const watchlistTickers = new Set(
     queryAll(`
       SELECT s.ticker FROM watchlist w
       JOIN stocks s ON s.id = w.stock_id
-      WHERE w.market = ?
+      WHERE w.market = ? AND w.deleted_at IS NULL
     `, [market]).map((r: any) => r.ticker)
   );
 
@@ -366,11 +366,15 @@ router.post('/:id/watch', (req: Request, res: Response) => {
     stock = queryOne('SELECT id FROM stocks WHERE ticker = ?', [rec.ticker]);
   }
 
-  // 관심종목에 추가 (중복 무시)
-  const existing = queryOne('SELECT id FROM watchlist WHERE stock_id = ?', [stock.id]);
+  // 관심종목에 추가
+  // (watchlist.stock_id 는 UNIQUE — soft-delete 된 row 가 있으면 부활, 없으면 INSERT)
+  const existing = queryOne('SELECT id, deleted_at FROM watchlist WHERE stock_id = ?', [stock.id]);
   if (!existing) {
     execute('INSERT INTO watchlist (stock_id, market, notes) VALUES (?, ?, ?)',
       [stock.id, rec.market, `추천: ${rec.reason}`]);
+  } else if (existing.deleted_at) {
+    execute('UPDATE watchlist SET deleted_at = NULL, market = ?, notes = ? WHERE id = ?',
+      [rec.market, `추천: ${rec.reason}`, existing.id]);
   }
 
   // 추천 상태를 EXECUTED로 변경
