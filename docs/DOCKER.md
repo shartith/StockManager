@@ -71,7 +71,35 @@ docker compose down         # 중지 (볼륨 보존)
 
 ---
 
-## 4. 첫 실행 후 설정
+## 4. 외부 접속 / 리버스 프록시 뒤 배포
+
+NAS · 사내망 · 공용 도메인 등에서 LAN IP 또는 외부 호스트로 붙는 시나리오는
+v5.2.1 부터 기본 지원합니다. 별도 설정 없이도 LAN IP 직접 접속이 동작합니다.
+
+리버스 프록시(Nginx/Caddy/Traefik) 뒤에 둘 때 권장 환경변수:
+
+| Env | 기본값 | 설명 |
+|------|--------|------|
+| `TRUST_PROXY` | `loopback, linklocal, uniquelocal` | `X-Forwarded-*` 신뢰 범위. 프록시가 사설망이면 그대로 OK. 외부에서 직접 박힌다면 `true` 또는 프록시 IP/CIDR. |
+| `CORS_ORIGINS` | (모두 허용 — origin reflect) | 잠그려면 `https://a.example.com,https://b.example.com` 처럼 콤마로 구분. |
+| `PORT` | `3001` | 컨테이너 내부 포트. |
+
+예: Caddy 뒤 HTTPS 종단 + 도메인 락
+```bash
+docker run -d --name stock-manager \
+  -p 127.0.0.1:3001:3001 \
+  -v stock-manager-data:/data \
+  -e TRUST_PROXY=true \
+  -e CORS_ORIGINS=https://stock.example.com \
+  shartith0106/stock-manager:latest
+```
+
+> HTTPS 가 필요하면 컨테이너 앞에 리버스 프록시를 두고 거기서 종단하세요.
+> 컨테이너 자체는 HTTP-only 로 유지해야 LAN/내부망 직접 접속 호환성을 잃지 않습니다.
+
+---
+
+## 5. 첫 실행 후 설정
 
 KIS API 키, LLM URL 같은 민감 정보는 **이미지에 굽지 않습니다**. 컨테이너 기동 후
 브라우저로 접속해 **설정** 화면에서 입력하세요. 입력값은 `/data/settings.json` 및
@@ -79,7 +107,7 @@ KIS API 키, LLM URL 같은 민감 정보는 **이미지에 굽지 않습니다*
 
 ---
 
-## 5. 이미지 빌드 & 푸시 (개발자용)
+## 6. 이미지 빌드 & 푸시 (개발자용)
 
 멀티아키 빌드는 `docker buildx` 가 필요합니다 (Docker Desktop에 기본 포함).
 
@@ -103,7 +131,7 @@ docker login                              # Docker Hub 로그인 (1회)
 
 ---
 
-## 6. 트러블슈팅
+## 7. 트러블슈팅
 
 | 증상 | 원인 / 해결 |
 |------|------|
@@ -115,7 +143,7 @@ docker login                              # Docker Hub 로그인 (1회)
 
 ---
 
-## 7. 보안 메모
+## 8. 보안 메모
 
 - 이미지에는 **민감 정보가 없습니다** (API 키 / 토큰은 모두 `/data` 볼륨에서 읽음).
 - 컨테이너는 non-root(`app`) 사용자로 실행됩니다.

@@ -29,28 +29,56 @@ import { getRecentEvents, getUnresolvedEvents, getEventCounts, resolveEvent, del
 const app = express();
 const PORT = process.env.PORT || 3001;
 
+// ── Reverse proxy 신뢰 (외부 접속 / NAS 프록시 뒤 배포 지원) ──
+// X-Forwarded-For/Proto 를 신뢰해 rate-limit · req.ip 가 실제 클라이언트를 가리키도록.
+// 기본값: 사설망 프록시만 신뢰. TRUST_PROXY=true 또는 IP/CIDR 로 override 가능.
+app.set('trust proxy', process.env.TRUST_PROXY ?? 'loopback, linklocal, uniquelocal');
+
 // ── Security: Helmet ──
+// 자가호스팅(NAS/사내망) 환경에서 HTTP+LAN IP 접속을 지원하도록 조정:
+//  - hsts/COOP off: HTTPS 강제 시 비-localhost 접속에서 자산 로드 실패
+//  - useDefaults:false → upgrade-insecure-requests 자동 추가 방지
+//  - connect-src 는 ws:/wss: 스킴으로 허용해 어느 호스트에서도 WS 동작
 app.use(helmet({
   contentSecurityPolicy: {
+    useDefaults: false,
     directives: {
       defaultSrc: ["'self'"],
       scriptSrc: ["'self'", "'unsafe-inline'"],
-      styleSrc: ["'self'", "'unsafe-inline'"],
+      styleSrc: [
+        "'self'",
+        "'unsafe-inline'",
+        'https://cdn.jsdelivr.net',
+        'https://fonts.googleapis.com',
+      ],
       imgSrc: ["'self'", 'data:', 'https:'],
-      connectSrc: ["'self'", `ws://localhost:${PORT}`, `wss://localhost:${PORT}`, 'ws://localhost:5173', 'wss://localhost:5173'],
-      fontSrc: ["'self'", 'data:'],
+      connectSrc: ["'self'", 'ws:', 'wss:'],
+      fontSrc: [
+        "'self'",
+        'data:',
+        'https://cdn.jsdelivr.net',
+        'https://fonts.gstatic.com',
+      ],
       objectSrc: ["'none'"],
       frameAncestors: ["'none'"],
+      baseUri: ["'self'"],
+      formAction: ["'self'"],
+      scriptSrcAttr: ["'none'"],
     },
   },
+  hsts: false,
+  crossOriginOpenerPolicy: false,
 }));
 
-// ── Security: CORS restricted to localhost ──
+// ── Security: CORS ──
+// 자가호스팅 + 외부 접속 지원: 기본은 모든 origin 반사 허용 (frontend·API 동일 origin이라
+// 실질 영향 거의 없음). 도메인을 잠그려면 CORS_ORIGINS=https://a.com,https://b.com
+const corsOriginsEnv = process.env.CORS_ORIGINS;
+const corsOrigin: cors.CorsOptions['origin'] = corsOriginsEnv
+  ? corsOriginsEnv.split(',').map((s) => s.trim()).filter(Boolean)
+  : true;
 app.use(cors({
-  origin: [
-    `http://localhost:${PORT}`,
-    'http://localhost:5173',
-  ],
+  origin: corsOrigin,
   credentials: true,
 }));
 
