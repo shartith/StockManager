@@ -8,7 +8,7 @@ import logger from '../../logger';
 type CronTask = ReturnType<typeof cron.schedule>;
 
 export type SchedulePhase = 'PRE_OPEN' | 'POST_OPEN' | 'PRE_CLOSE_1H' | 'PRE_CLOSE_30M' | 'MARKET_OPEN' | 'INTRADAY' | 'PROFIT_TAKING';
-export type Market = 'KRX' | 'NYSE' | 'NASDAQ';
+export type Market = 'KRX';
 
 export interface ScheduleLog {
   market: Market;

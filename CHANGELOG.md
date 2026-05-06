@@ -2,6 +2,125 @@
 
 Stock Manager 주요 릴리즈 변경사항. 자세한 노트는 [GitHub Releases](https://github.com/shartith/StockManager/releases)에서 확인.
 
+## v5.1.0 — 2026-05-06
+
+**12-Rule 매매 엔진 강화 + UI 슬림화. v5.0의 동작을 유지하면서 사고 방지 보강.**
+
+### 매매 로직 강화 (사용자 피드백 반영)
+- **동적 종목당 한도 (Rule 4)**: `autoTradeMaxInvestment ÷ positionMaxPositions` 자동 분할 (±5% 허용). 100만원 / 5종목 = 20만원 ±1만.
+- **매수창 09:05~09:55**: 09:00 시초가 노이즈 회피.
+- **시초가 baseline 명확화 (Rule 5)**: 09:00 open 가격 기준 `+entryGainPercent` 이상 상승 → 매수 트리거.
+- **트레일링 sticky 활성**: `+trailingActivatePercent` 도달 후에만 활성, 한 번 활성되면 비활성 안 됨.
+- **STAGNANT_TIME 룰**: 사용자 안 "+3% 미달 + 1시간 → 매도". v5.0의 SIDEWAYS_PROFIT 단순화.
+- **EOD 시각**: 15:00 익절 (≥ +3%), 15:20 당일 매수분 강제 정리 (동시호가 직전), 15:50 KIS reconcile + 일일 리포트.
+
+### 추가 안전 보강 (HIGH)
+- **🚨 시장 브레이크 (`marketBrake.ts`)**: KOSPI ≤ -2% 또는 VIX ≥ 30이면 신규 매수 일괄 차단.
+- **갭상승 제외 (`autoListBuilder`)**: 자동목록에서 전일 대비 ≥ 3% 갭상승 종목 제외.
+- **거래량 검증**: 매수 직전 5일 평균 대비 거래량 ≥ 0.8× 검증.
+- **호가 품질 게이트**: 매수 직전 `quoteBook.quality === 'POOR'` 차단.
+- **VI(변동성 완화장치) 발동 종목 차단**: KIS `vi_stnd_prc` 필드 체크.
+- **In-memory state DB 영구화 (`intradayState.ts` + `intraday_state` 테이블)**: peakPrice / openingPrice / boughtToday / trailingActive / lastSellAt — 서버 재시작에도 보존, day-rollover 자동.
+- **EOD KIS reconcile**: 15:50에 KIS 잔고 자동 동기화 (수동 매매 차이 자동 보정).
+
+### 추가 안전 보강 (MEDIUM)
+- **동일 섹터 집중 제한**: 한 섹터 최대 2종목까지만.
+- **재진입 cooldown**: 매도 후 30분 내 같은 종목 재매수 차단.
+- **부분 체결 처리**: KIS 체결 응답에서 실제 수량/가격 사용 (가능 시).
+- **EOD 일일 리포트**: 15:50에 매수/매도/실패/brake/순현금흐름 요약 → `system_events`.
+
+### 추가 안전 보강 (LOW)
+- **수익 정의 임계 (`profitThresholdPercent`)**: 0.5% 미만은 손익무관 처리 (수수료 보전).
+
+### 시스템 슬림화
+- **삭제**: `views/Heatmap.vue`, `components/HeatmapTreemap.vue`, `components/PortfolioHistoryChart.vue`, `routes/heatmap.ts`. 내부 `heatmapData`/`sectorMomentum` 서비스는 자동목록 빌드용으로 유지.
+- **App.vue 사이드바**: 시장 히트맵 메뉴 제거 (감시대상/예약주문/차트/포트폴리오/거래내역만).
+- **Settings 슬림화**: `positionMaxRatio`, `positionMinCashRatio`, `sidewaysRangePercent` 제거. 매수 게이트 + 매도 규칙 + 시장 brake로 명확히 그룹화.
+
+### 신규 파일
+- `services/intradayState.ts` — DB-backed peak/opening/cooldown 상태
+- `services/marketBrake.ts` — KOSPI/VIX 폭락 감지
+- `services/balanceSync.ts` — KIS 잔고 ↔ DB reconcile (chart.ts에서 추출)
+
+### 변경된 파일
+- `services/dailyStrategy.ts` — 모든 보강 통합 (~500 LOC)
+- `services/sellRules.ts` — sticky trailing + STAGNANT_TIME 룰
+- `services/autoListBuilder.ts` — 갭상승 필터
+- `services/stockPrice.ts` — `getKisStockSnapshot()` (가격+VI+거래량+시초가 1회 조회)
+- `services/portfolioManager.ts` — 단순 분할 사이징
+- `services/scheduler/index.ts` — 새 cron (08:50, 09-14:55 5min, 15:00, 15:20, 15:50)
+- `services/settings.ts` — 12개 신규 필드, 3개 legacy 제거
+- `routes/chart.ts` — `/balance/import`를 balanceSync 서비스로 위임
+
+### 검증
+- 서버: typecheck clean, **182/182 tests pass**, build OK
+- 클라이언트: vue-tsc clean, build OK (Settings 21KB, Dashboard 22KB로 슬림화)
+
+## v5.0.0 — 2026-05-06
+
+**전면 재설계 — "비대해진 시스템에서 작지만 확실한 수익을 내는 단순 매매 엔진으로".**
+
+### 매매 전략 (12-Rule)
+1. KRX 섹터 로테이션 → 상승 카테고리 자동 선택
+2. 카테고리 내 상위 거래량/모멘텀 종목 수집 (KRX_TOP_STOCKS universe)
+3. 09:00~10:00 5분 간격 모니터링 (`*/5 9 * * 1-5`)
+4. 1주 매수 가능 종목만 필터 (포지션 사이징 게이트)
+5. 시초가 대비 +1% 이상 상승 종목 매수
+6. 손절선 (`hardStopLossRate`) 이탈 시 매도
+7. 목표 수익 도달 또는 트레일링 스탑 → 전량 매도
+8. 1시간 횡보 + 수익 상태 → 익절 청산 (`SIDEWAYS_PROFIT`)
+9. 1시간 손실 유지 → 강제 손절 (`LOSS_TIME`)
+10. 15:30 + 1% 수익 → 익절 매도 (EOD)
+11. 15:45 당일 매수분 강제 정리 (`EOD_FORCE_CLOSE`)
+12. 저평가 장기 횡보 후보를 LLM에게 추천받아 자동목록에 추가 (`findLowPositionBreakouts`)
+
+### 신규 기능
+- **감시대상 (`watch_targets`)**: 추천종목 + 관심종목 → 자동/수동 통합 단일 테이블
+- **예약 주문 (`reserved_orders`)**: 지정가 도달 시 자동 매수/매도 (BUY+BELOW, SELL+ABOVE 등 자유 조합)
+
+### 삭제 (대규모 슬림화)
+- **서비스**: scoring, tradingRules, protections, signalAnalyzer, stockScreener, weightOptimizer, performanceTracker, backtester, paperTrading, orderManager, exportImport (~3,000 LOC)
+- **스케줄러**: weekendLearning, watchlistCleanup, scheduler/recommendations, legacy, profitTaking, marketOpen, continuousMonitor, dartMonitor, helpers (학습 인프라 폐기)
+- **DB 테이블**: paper_trades, signal_performance, trade_signals, recommendation_scores, recommendations, watchlist, weight_optimization_log, weekly_reports, backtest_results, trading_rules, dividends
+- **라우트**: recommendations, tradingRules, feedback, paperTrading, watchlist, alerts, dividends
+- **클라이언트 뷰**: Recommendations, Watchlist, Feedback, Dividends, Alerts (대체: WatchTargets, ReservedOrders)
+- **설정 필드 30+개**: investmentStyle, debateMode, stopLossPercent, autoTradeScoreThreshold, priceChangeThreshold, portfolioMaxHoldings, portfolioMaxPerStockPercent, portfolioMaxSectorPercent, portfolioRebalanceEnabled, portfolioMinCashPercent, tradingRulesEnabled, tradingRulesStrictMode, gapThresholdPercent, volumeSurgeRatio, lowVolumeRatio, sidewaysAtrPercent, maxHoldMinutes, dynamicScreeningEnabled, screeningVolumeRatioMin, screeningMinMarketCap, paperTradingEnabled, paperTradeAmount, backtestMinTradesForSave, roiTable, protections, presets
+
+### LLM 축소
+- llm.ts: 961줄 → 200줄. `getTradeDecision` / `buildAnalysisInput` / 거대 시스템 프롬프트 모두 제거. `callLlm` + `checkLlmStatus` + 신규 `findLowPositionBreakouts` 만 유지.
+
+### 신규 핵심 모듈
+- `services/watchTargets.ts` — auto/manual 통합 CRUD
+- `services/reservedOrders.ts` — 지정가 대기 트리거
+- `services/autoListBuilder.ts` — 섹터 로테이션 → 카테고리 → 상위 종목 + Rule 12 LLM
+- `services/dailyStrategy.ts` — 12-Rule intraday 엔진
+- `routes/watchTargets.ts`, `routes/reservedOrders.ts`
+- 클라이언트: `WatchTargets.vue`, `ReservedOrders.vue`
+
+### 마이그레이션
+- DB 마이그레이션이 `watchlist` → `watch_targets(manual)` 자동 이관
+- 학습 테이블 일괄 DROP
+- 설정 legacy 필드 자동 strip
+
+### 검증
+- 서버 typecheck clean, 16 test files / 182 tests pass, build success
+- 클라이언트 vue-tsc clean, build success (170 modules)
+
+## v4.20.0 — 2026-05-06
+
+**미국 주식 기능 완전 제거. KRX 단일 시장 시스템으로 전환.**
+
+- **Server**: `marketStocks.ts`의 `US_SECTOR_ETFS`/`US_TOP_STOCKS` 삭제, `getSectors()` KRX 단일. `exchangeRate.ts` 서비스 전체 삭제 (USD/KRW 환율 조회). `marketNormalizer.ts` KRX 단일로 단순화 (NYSE/NASDAQ/AMEX alias 제거).
+- **Services**: `kisOrder.ts` `submitOverseasOrder`/`getOverseasPrice` 제거, `OrderRequest.market: 'KRX'`로 좁힘. `stockPrice.ts` `getKisOverseasPrice`/`overseasMarkets` 분기 제거, `MarketContextData` USD/KRW/S&P500/Dow 필드 제거. `calculator.ts`/`portfolioManager.ts`/`paperTrading.ts` USD→KRW 환산 로직 제거. `quoteBook.ts`/`backtester.ts`/`portfolioReconcile.ts` `Market` 타입 KRX-only.
+- **Routes**: `chart.ts` `/candle/:ticker`/`/balance`/`/balance/import`에서 해외 분기 + `fetchOverseasBalance`/`fetchOverseasDeposit` 헬퍼 삭제. `recommendations.ts`/`analysis.ts` 해외 시장 분기 제거. `heatmap.ts` KRX 단일.
+- **Scheduler**: `scheduleNyse` cron + `runMarketOpen('NYSE')`/`runContinuousMonitor('NYSE')`/`runProfitTaking('NYSE')` 제거. `recommendations.ts` `fetchOverseasVolumeRank`/`fetchOverseasGainerRank` 제거. `helpers.ts`의 `fetchOverseasCandles` 제거.
+- **LLM**: 환율 전략 시스템 프롬프트 블록 제거 (USD/KRW 1380↑/1320↓ 분기). `StockAnalysisInput.market` KRX-only.
+- **Settings**: `scheduleNyse` AppSettings/saveConfigSchema/`data/settings.json`에서 제거. `exportImport.ts` 백업 페이로드에서 제외.
+- **DB**: 마이그레이션 — 잔여 NYSE/NASDAQ/AMEX 종목 자동 삭제. v4.10.0 normalize 로직 단순화 (KOSPI/KOSDAQ → KRX만).
+- **Client**: `Heatmap.vue` S&P 500 / US 섹터 로테이션 탭 제거. `api/index.ts` `heatmapApi.getMarket/getRotation` 시그니처 단순화. `types/index.ts` `OverseasBalanceHolding`/`overseasHoldings`/`MarketContext.usdKrw`/`sp500`/`dow` 제거. `Dashboard.vue` 해외 보유 섹션 + 환율/S&P/DOW 마켓 스트립 제거. `Watchlist.vue`/`Recommendations.vue`/`Feedback.vue` 시장 셀렉트박스 KRX-only. `Settings.vue` NYSE 스케줄 패널 제거.
+- **Tests**: 728 server tests pass. `portfolioManager-fx.test.ts` 삭제, `marketNormalizer.test.ts`/`stockPrice-extra.test.ts`/`paperTrading.test.ts`/`quoteBook.test.ts`/`regression.test.ts` US 케이스 정리.
+- **Docs**: README/CHANGELOG/USE_CASES/KIS_API_GUIDE에서 미국 시장 / 해외 KIS API 섹션 제거.
+
 ## v4.19.2 — 2026-05-02
 
 **추천 갱신 흐름의 watchlist 가드 누락 fix — 13일간 추천종목 INSERT 0건 회귀 해결.**
@@ -11,6 +130,7 @@ Stock Manager 주요 릴리즈 변경사항. 자세한 노트는 [GitHub Release
 - **테스트 +5건**: `recommendations-watchlist-guard.test.ts` 신규. 스케줄러 SQL 가드 3건 + 라우트 부활 동작 2건. 752 → **752 + 5 = 757 pass**.
 - **USE_CASES.md**: UC-01 / UC-02 에 active watchlist 한정 exclusion + 부활 전략 명시.
 - **버전 정합성**: server / client `package.json` 버전이 root 와 mismatch (4.12.2 vs 4.19.1) 였던 것을 4.19.2 로 동기화.
+
 
 ## v4.19.1 — 2026-04-17
 

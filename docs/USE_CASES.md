@@ -45,7 +45,7 @@
 
 **주 흐름**:
 1. [cron 등록] `scheduler/index.ts:83` → `runRecommendationRefresh()`
-2. [시장별 루프] KRX/NYSE/NASDAQ 3개 시장
+2. [시장 루프] KRX
 3. [Step 1 — 기존 ACTIVE 추천 재검증] `recommendations.ts:273`
    - 보유 종목 → `DISMISSED`, 관심종목(active) → `EXECUTED`
    - 캔들 부족 → `EXPIRED`, LLM decision 재계산 → 점수 갱신
@@ -143,7 +143,7 @@
 ## UC-04: 보유 종목 연속 모니터링 + 매도 규칙
 
 **Actor**: 스케줄러, KIS API
-**Trigger**: 장중 10분 간격 — KRX `*/10 9-14 * * 1-5`, NYSE `*/10 9-15 * * 1-5`
+**Trigger**: 장중 10분 간격 — KRX `*/10 9-14 * * 1-5`
 
 **사전조건**: 보유 포지션 존재 (`transactions` 기반 순 수량 > 0)
 

@@ -17,18 +17,12 @@ import { API_RATE_LIMIT_WINDOW_MS, API_RATE_LIMIT_MAX, WS_TOKEN_TTL_MS } from '.
 import stocksRouter from './routes/stocks';
 import transactionsRouter from './routes/transactions';
 import portfolioRouter from './routes/portfolio';
-import dividendsRouter from './routes/dividends';
-import alertsRouter from './routes/alerts';
 import chartRouter from './routes/chart';
 import analysisRouter from './routes/analysis';
-import recommendationsRouter from './routes/recommendations';
-import watchlistRouter from './routes/watchlist';
 import notificationsRouter from './routes/notifications';
-import feedbackRouter from './routes/feedback';
-import tradingRulesRouter from './routes/tradingRules';
 import nasSyncRouter from './routes/nasSync';
-import heatmapRouter from './routes/heatmap';
-import paperTradingRouter from './routes/paperTrading';
+import watchTargetsRouter from './routes/watchTargets';
+import reservedOrdersRouter from './routes/reservedOrders';
 import { getSettings } from './services/settings';
 import { startScheduler, stopScheduler, getSchedulerStatus } from './services/scheduler';
 import { getRecentEvents, getUnresolvedEvents, getEventCounts, resolveEvent, deleteEvent, deleteAllEvents } from './services/systemEvent';
@@ -93,18 +87,12 @@ function cleanExpiredTokens() {
 app.use('/api/stocks', stocksRouter);
 app.use('/api/transactions', transactionsRouter);
 app.use('/api/portfolio', portfolioRouter);
-app.use('/api/dividends', dividendsRouter);
-app.use('/api/alerts', alertsRouter);
 app.use('/api/chart', chartRouter);
 app.use('/api/analysis', analysisRouter);
-app.use('/api/recommendations', recommendationsRouter);
-app.use('/api/watchlist', watchlistRouter);
 app.use('/api/notifications', notificationsRouter);
-app.use('/api/feedback', feedbackRouter);
-app.use('/api/trading-rules', tradingRulesRouter);
 app.use('/api/nas-sync', nasSyncRouter);
-app.use('/api/heatmap', heatmapRouter);
-app.use('/api/paper-trading', paperTradingRouter);
+app.use('/api/watch-targets', watchTargetsRouter);
+app.use('/api/reserved-orders', reservedOrdersRouter);
 
 // ── WS token endpoint ──
 app.get('/api/ws-token', (_req, res) => {
@@ -264,33 +252,6 @@ app.post('/api/update', (req, res) => {
 // ── Scheduler status ──
 app.get('/api/scheduler/status', (_req, res) => {
   res.json(getSchedulerStatus());
-});
-
-// ── 체결률 지표 (v4.11.0) — 신호 대비 실제 체결 비율 ──
-app.get('/api/scheduler/fill-rate', (req, res) => {
-  const days = Math.max(1, Math.min(30, Number(req.query.days) || 7));
-  const { queryOne } = require('./db');
-  const row = queryOne(
-    `SELECT
-       (SELECT COUNT(*) FROM trade_signals WHERE signal_type = 'BUY' AND created_at >= datetime('now', '-' || ? || ' days')) AS buy_signals,
-       (SELECT COUNT(*) FROM auto_trades WHERE order_type = 'BUY' AND status = 'FILLED' AND created_at >= datetime('now', '-' || ? || ' days')) AS real_fills,
-       (SELECT COUNT(*) FROM paper_trades WHERE order_type = 'BUY' AND created_at >= datetime('now', '-' || ? || ' days')) AS paper_fills,
-       (SELECT COUNT(*) FROM system_events WHERE category = 'TRADE_BLOCKED' AND created_at >= datetime('now', '-' || ? || ' days')) AS blocked`,
-    [days, days, days, days],
-  );
-  const signals = Number(row?.buy_signals ?? 0);
-  const real = Number(row?.real_fills ?? 0);
-  const paper = Number(row?.paper_fills ?? 0);
-  const blocked = Number(row?.blocked ?? 0);
-  res.json({
-    days,
-    signals,
-    realFills: real,
-    paperFills: paper,
-    blocked,
-    realFillRate: signals > 0 ? Math.round((real / signals) * 100) : 0,
-    combinedFillRate: signals > 0 ? Math.round(((real + paper) / signals) * 100) : 0,
-  });
 });
 
 // ── System events ──

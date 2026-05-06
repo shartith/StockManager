@@ -105,19 +105,19 @@ function computeMarketBreadth(heatmapData: HeatmapData): MarketBreadth {
 
 // ── Public API ──
 
-export async function getSectorRotationContext(market: 'KRX' | 'US'): Promise<SectorRotationContext> {
-  const cacheKey = `rotation:${market}`;
+export async function getSectorRotationContext(): Promise<SectorRotationContext> {
+  const cacheKey = 'rotation:KRX';
   const cached = ctxCache.get(cacheKey);
   if (cached && Date.now() - cached.fetchedAt < CACHE_TTL) {
     return cached.data;
   }
 
-  const heatmapData = await getMarketHeatmap(market);
+  const heatmapData = await getMarketHeatmap();
   const sectors = computeSectorMomentum(heatmapData);
   const breadth = computeMarketBreadth(heatmapData);
 
   const ctx: SectorRotationContext = {
-    market,
+    market: 'KRX',
     sectors,
     breadth,
     strongSectors: sectors.filter(s => s.rotationSignal === 'IN').map(s => s.sector),

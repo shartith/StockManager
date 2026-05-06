@@ -91,41 +91,7 @@ API를 호출하기 위해서는 발급받은 Key를 이용해 **접근 토큰(A
 
 ---
 
-## 🌎 4. 해외주식 주요 API 상세 (Request / Response)
-
-### ① 해외주식 일봉/차트 데이터 조회
-*   **Endpoint**: `/uapi/overseas-price/v1/quotations/dailyprice`
-*   **Method**: `GET`
-*   **Header (`tr_id`)**: `HHDFS76240000` (모의투자: `VHHDFS76240000`)
-
-### ② 해외주식 주문 (매수/매도)
-*   **Endpoint**: `/uapi/overseas-stock/v1/trading/order`
-*   **Method**: `POST`
-*   **Header (`tr_id`)**: 
-    *   매수: `JTTT1002U` (모의투자: `VTTT1002U`)
-    *   매도: `JTTT1006U` (모의투자: `VTTT1001U`)
-
-### ③ 해외 계좌 잔고 조회 (보유 종목)
-*   **Endpoint**: `/uapi/overseas-stock/v1/trading/inquire-balance`
-*   **Method**: `GET`
-*   **Header (`tr_id`)**: `TTTS3012R` (모의투자: `CTRP6504R`)
-*   **Request Query Params**:
-    *   `CANO` / `ACNT_PRDT_CD`
-    *   `OVRS_EXCG_CD`: 해외 거래소 코드 (`NASD`, `NYSE`, `AMEX`)
-    *   `TR_CRCY_CD`: `'USD'`
-*   **Response (`output1`)**: 보유 종목 배열 (`ovrs_pdno` 심볼, `ovrs_item_name` 종목명, `ovrs_cblc_qty` 잔고수량, `pchs_avg_pric` 매입평균가 등)
-> **연속조회 주의:** 해외 주식 잔고는 응답 헤더의 `tr_cont` 값이 "M" 또는 "F"일 때 페이징용 Key(`CTX_AREA_FK200`)를 받아 반복적으로 호출해야 전체 보유 목록을 확인할 수 있습니다.
-
-### ④ 해외 예수금 및 가주문 가능금액 조회
-*   **Endpoint**: `/uapi/overseas-stock/v1/trading/inquire-psamount`
-*   **Method**: `GET`
-*   **Header (`tr_id`)**: `TTTS3007R` (모의투자: `VTTS3007R`)
-*   **Request Query Params**: `CANO`, `ACNT_PRDT_CD`, `OVRS_EXCG_CD`: `'NASD'`, `OVRS_ORD_UNPR`: `'0'`, `ITEM_CD`: `''`
-*   **Response (`output.frcr_ord_psbl_amt1`)**: 외화(USD) 주식 매수 가능 금액
-
----
-
-## 🚫 5. 주요 에러 코드 예시
+## 🚫 4. 주요 에러 코드 예시
 
 *   **`EGW00123` / `EGW00201`** : Request 파라미터 또는 헤더 포맷 누락 오류
 *   **`EGW00121`** : 토큰이 만료되었거나 유효하지 않은 Authorization 헤더 (재발급 필요)

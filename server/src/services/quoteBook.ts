@@ -16,7 +16,7 @@ import logger from '../logger';
 
 // ── Types ──
 
-export type Market = 'KRX' | 'NYSE' | 'NASDAQ' | 'AMEX' | 'NASD';
+export type Market = 'KRX';
 
 export interface BidAskLevel {
   price: number;
@@ -205,12 +205,6 @@ export async function getQuoteBook(ticker: string, market: Market): Promise<Quot
   const cacheKey = getCacheKey(ticker, market);
   const cached = getCached(cacheKey);
   if (cached) return cached;
-
-  // 해외 주식은 KIS 호가 엔드포인트 미지원 — 현재는 null 반환
-  // (향후 Yahoo Finance bid/ask 필드로 확장 가능)
-  if (market !== 'KRX') {
-    return null;
-  }
 
   const qb = await fetchKrxQuoteBook(ticker);
   if (qb) {

@@ -98,11 +98,6 @@ describe('getQuoteBook', () => {
     vi.unstubAllGlobals();
   });
 
-  it('returns null for non-KRX markets', async () => {
-    expect(await getQuoteBook('AAPL', 'NASDAQ')).toBeNull();
-    expect(await getQuoteBook('AAPL', 'NYSE')).toBeNull();
-  });
-
   it('fetches and parses a valid KRX quote book', async () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
       ok: true,

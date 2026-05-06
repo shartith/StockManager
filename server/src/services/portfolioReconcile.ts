@@ -18,7 +18,7 @@
 export interface KisHoldingSnapshot {
   ticker: string;
   name: string;
-  market: 'KRX' | 'NASDAQ' | 'NYSE' | 'AMEX';
+  market: 'KRX';
   quantity: number;
   avgPrice: number;
 }

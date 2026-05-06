@@ -171,7 +171,7 @@
 
 <script setup lang="ts">
 import { ref, computed, onMounted, watch } from 'vue';
-import { stocksApi, transactionsApi, paperTradingApi } from '@/api';
+import { stocksApi, transactionsApi } from '@/api';
 import { usePagination } from '@/composables/usePagination';
 import PaginationBar from '@/components/PaginationBar.vue';
 
@@ -226,28 +226,13 @@ const stats = computed(() => {
 });
 
 async function loadData() {
-  const [stockRes, txRes, paperRes] = await Promise.all([
+  const [stockRes, txRes] = await Promise.all([
     stocksApi.getAll(),
     transactionsApi.getAll(),
-    paperTradingApi.getHistory().catch(() => ({ data: [] })),
   ]);
   stocks.value = stockRes.data;
-  // 실 transactions + 가상 paper_trades를 병합 — 날짜 desc 정렬
   const realTx = (txRes.data.transactions || []).map((t: any) => ({ ...t, is_paper: false }));
-  const paperTx = (paperRes.data || []).map((p: any) => ({
-    id: `paper-${p.id}`,
-    is_paper: true,
-    stock_id: p.stock_id,
-    ticker: p.ticker,
-    stock_name: p.name,
-    type: p.order_type,
-    quantity: p.quantity,
-    price: p.price,
-    fee: p.fee,
-    date: (p.created_at || '').slice(0, 10),
-    memo: `🧪 가상매매${p.reason ? ` (${p.reason})` : ''}${p.pnl != null ? ` · 손익 ${Math.round(p.pnl).toLocaleString()}원` : ''}`,
-  }));
-  transactions.value = [...realTx, ...paperTx].sort((a, b) => (b.date || '').localeCompare(a.date || ''));
+  transactions.value = realTx.sort((a: any, b: any) => (b.date || '').localeCompare(a.date || ''));
 }
 
 async function addTransaction() {

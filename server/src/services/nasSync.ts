@@ -51,16 +51,11 @@ export function ensureNasMounted(): { mounted: boolean; message: string } {
   }
 }
 
-// Tables to sync with their created_at column
+// Tables to sync with their created_at column (v5.0.0: 학습 테이블 제거 후 4종만)
 const SYNC_TABLES = [
-  'trade_signals',
   'auto_trades',
   'transactions',
-  'signal_performance',
   'system_events',
-  'backtest_results',
-  'weight_optimization_log',
-  'weekly_reports',
   'audit_log',
 ] as const;
 

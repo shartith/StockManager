@@ -32,16 +32,12 @@ import { execute } from '../db';
 import { getSettings } from './settings';
 import { logSystemEvent } from './systemEvent';
 
-/** Import 대상 테이블 목록. id 컬럼 제외 + created_at 기준 필터. */
+/** Import 대상 테이블 목록. v5.0.0: 학습 테이블 제거 후 4종만. */
 const IMPORT_TABLES = [
   'transactions',
   'auto_trades',
-  'trade_signals',
   'system_events',
   'audit_log',
-  'weekly_reports',
-  'backtest_results',
-  'weight_optimization_log',
 ] as const;
 
 type ImportTable = typeof IMPORT_TABLES[number];

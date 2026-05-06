@@ -320,15 +320,11 @@ let pollTimer: ReturnType<typeof setInterval> | null = null;
 
 const menuItems = [
   { path: '/', label: '대시보드', icon: IconDashboard },
-  { path: '/heatmap', label: '시장 히트맵', icon: IconHeatmap },
-  { path: '/recommendations', label: '추천 종목', icon: IconSearch },
-  { path: '/watchlist', label: '관심 종목', icon: IconStar },
+  { path: '/watch-targets', label: '감시대상', icon: IconStar },
+  { path: '/reserved-orders', label: '예약 주문', icon: IconBell },
   { path: '/chart', label: '주식 차트', icon: IconChart },
-  { path: '/transactions', label: '거래 내역', icon: IconList },
   { path: '/portfolio', label: '포트폴리오', icon: IconBriefcase },
-  { path: '/feedback', label: '성과 분석', icon: IconTrending },
-  { path: '/dividends', label: '배당금', icon: IconCoin },
-  { path: '/alerts', label: '알림 설정', icon: IconBell },
+  { path: '/transactions', label: '거래 내역', icon: IconList },
 ];
 
 // Toast

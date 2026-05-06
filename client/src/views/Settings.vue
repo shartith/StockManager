@@ -1,1374 +1,440 @@
 <template>
-  <div class="max-w-2xl">
-    <h2 class="text-2xl font-bold text-txt-primary mb-2">설정</h2>
-    <p class="text-txt-secondary text-sm mb-8">한국투자증권 API 연동 및 앱 설정을 관리합니다.</p>
-
-    <!-- 현재 상태 배지 -->
-    <div class="flex items-center gap-2 mb-6">
-      <span class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium"
-        :class="configStatus.configured ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'">
-        <span class="w-1.5 h-1.5 rounded-full" :class="configStatus.configured ? 'bg-green-500' : 'bg-red-500'"></span>
-        {{ configStatus.configured ? 'API 연결됨' : 'API 미설정' }}
-      </span>
-      <span v-if="configStatus.configured" class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium"
-        :class="configStatus.isVirtual ? 'bg-amber-100 text-amber-700' : 'bg-blue-100 text-blue-700'">
-        {{ configStatus.isVirtual ? '모의투자 계좌' : '실계좌' }}
-      </span>
+  <div class="space-y-6">
+    <div>
+      <h2 class="text-2xl font-bold text-txt-primary">설정</h2>
+      <p class="text-sm text-txt-tertiary mt-0.5">v5.0.0 — 12-Rule 심플 매매 전략</p>
     </div>
 
-    <form @submit.prevent="saveConfig" class="space-y-6">
+    <!-- 데이터 새로고침 -->
+    <div class="solid-card p-5">
+      <h3 class="text-sm font-semibold text-txt-primary mb-3">데이터 새로고침</h3>
+      <select v-model.number="refreshInterval" @change="onRefreshIntervalChange"
+        class="w-full md:w-64 border border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-accent">
+        <option v-for="opt in refreshOptions" :key="opt.value" :value="opt.value">{{ opt.label }}</option>
+      </select>
+    </div>
 
-      <!-- 섹션 1: API 인증 -->
-      <div class="bg-surface-1 rounded-xl border border-border shadow-sm overflow-hidden">
-        <div class="px-6 py-4 bg-surface-2 border-b border-border">
-          <h3 class="text-sm font-semibold text-txt-primary">API 인증 정보</h3>
-          <p class="text-xs text-txt-secondary mt-0.5">
-            <a href="https://apiportal.koreainvestment.com" target="_blank" class="text-accent hover:underline">KIS Developers 포털</a>에서 앱을 등록하고 발급받은 키를 입력하세요.
-          </p>
-        </div>
-        <div class="p-6 space-y-4">
-          <div>
-            <label class="block text-sm font-medium text-txt-primary mb-1">
-              App Key <span class="text-red-500">*</span>
-            </label>
-            <input
-              v-model="form.appKey"
-              type="password"
-              placeholder="P-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
-              class="w-full border border-border rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-accent"
-              required
-            />
-            <p class="text-xs text-txt-tertiary mt-1">KIS Developers에서 앱 등록 후 발급받은 App Key</p>
-          </div>
-          <div>
-            <label class="block text-sm font-medium text-txt-primary mb-1">
-              App Secret <span class="text-red-500">*</span>
-              <span v-if="secretSaved" class="ml-2 text-xs font-normal text-green-600 bg-green-50 px-1.5 py-0.5 rounded">저장됨</span>
-            </label>
-            <input
-              v-model="form.appSecret"
-              type="password"
-              :placeholder="secretSaved ? '변경할 경우에만 입력 (비워두면 기존 값 유지)' : 'xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx'"
-              class="w-full border border-border rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-accent"
-              :required="!secretSaved"
-            />
-            <p class="text-xs text-txt-tertiary mt-1">App Key에 대응하는 App Secret</p>
-          </div>
-        </div>
-      </div>
-
-      <!-- 섹션 2: 계좌 정보 -->
-      <div class="bg-surface-1 rounded-xl border border-border shadow-sm overflow-hidden">
-        <div class="px-6 py-4 bg-surface-2 border-b border-border">
-          <h3 class="text-sm font-semibold text-txt-primary">계좌 정보</h3>
-          <p class="text-xs text-txt-secondary mt-0.5">주문 기능을 사용하려면 계좌번호가 필요합니다. 시세 조회만 사용하는 경우 생략 가능합니다.</p>
-        </div>
-        <div class="p-6 space-y-4">
-          <div class="grid grid-cols-3 gap-4">
-            <div class="col-span-2">
-              <label class="block text-sm font-medium text-txt-primary mb-1">계좌번호</label>
-              <input
-                v-model="form.accountNo"
-                type="text"
-                placeholder="12345678"
-                maxlength="8"
-                class="w-full border border-border rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-accent"
-              />
-              <p class="text-xs text-txt-tertiary mt-1">계좌번호 8자리 (숫자만)</p>
-            </div>
-            <div>
-              <label class="block text-sm font-medium text-txt-primary mb-1">상품코드</label>
-              <input
-                v-model="form.accountProductCode"
-                type="text"
-                placeholder="01"
-                maxlength="2"
-                class="w-full border border-border rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-accent"
-              />
-              <p class="text-xs text-txt-tertiary mt-1">보통 01</p>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <!-- 섹션 3: 거래 환경 -->
-      <div class="bg-surface-1 rounded-xl border border-border shadow-sm overflow-hidden">
-        <div class="px-6 py-4 bg-surface-2 border-b border-border">
-          <h3 class="text-sm font-semibold text-txt-primary">거래 환경</h3>
-        </div>
-        <div class="p-6">
-          <div class="flex gap-3">
-            <button
-              type="button"
-              @click="form.isVirtual = true"
-              class="flex-1 py-3 px-4 rounded-xl border-2 text-sm font-medium transition-all"
-              :class="form.isVirtual ? 'border-amber-400 bg-amber-50 text-amber-700' : 'border-border text-txt-secondary hover:border-border-hover'"
-            >
-              <div class="text-lg mb-1">🧪</div>
-              <div class="font-semibold">모의투자</div>
-              <div class="text-xs mt-0.5 opacity-70">가상 자금으로 테스트</div>
-            </button>
-            <button
-              type="button"
-              @click="form.isVirtual = false"
-              class="flex-1 py-3 px-4 rounded-xl border-2 text-sm font-medium transition-all"
-              :class="!form.isVirtual ? 'border-blue-400 bg-blue-50 text-blue-700' : 'border-border text-txt-secondary hover:border-border-hover'"
-            >
-              <div class="text-lg mb-1">💹</div>
-              <div class="font-semibold">실계좌</div>
-              <div class="text-xs mt-0.5 opacity-70">실제 자금으로 거래</div>
-            </button>
-          </div>
-          <div v-if="!form.isVirtual" class="mt-3 p-3 bg-red-50 rounded-lg border border-red-200">
-            <p class="text-xs text-red-600">⚠️ 실계좌 모드에서는 실제 자금으로 거래가 이루어집니다. 신중하게 사용하세요.</p>
-          </div>
-        </div>
-      </div>
-
-      <!-- 섹션 4: 외부 LLM 서버 (Ollama / OpenAI 호환 원격) -->
-      <div class="bg-surface-1 rounded-xl border border-border shadow-sm overflow-hidden">
-        <div class="px-6 py-4 bg-surface-2 border-b border-border">
-          <h3 class="text-sm font-semibold text-txt-primary">외부 LLM 서버 (원격)</h3>
-          <p class="text-xs text-txt-secondary mt-0.5">
-            매수/매도 판단에 사용할 원격 LLM을 선택합니다. Ollama(원격) 또는 OpenAI 호환 서버를 지원합니다.
-          </p>
-        </div>
-        <div class="p-6 space-y-4">
-
-          <!-- 활성화 토글 + 연결 상태 -->
-          <div class="flex items-center justify-between">
-            <label class="flex items-center gap-3 cursor-pointer">
-              <div class="relative">
-                <input type="checkbox" v-model="form.llmEnabled" class="sr-only" />
-                <div class="w-11 h-6 rounded-full transition-colors" :class="form.llmEnabled ? 'bg-primary' : 'bg-surface-3'"></div>
-                <div class="absolute top-1 left-1 w-4 h-4 bg-white rounded-full shadow transition-transform" :class="form.llmEnabled ? 'translate-x-5' : 'translate-x-0'"></div>
-              </div>
-              <span class="text-sm font-medium text-txt-primary">LLM 활성화</span>
-            </label>
-            <span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium"
-              :class="llmConnected ? 'bg-green-100 text-green-700' : 'bg-surface-3 text-txt-secondary'">
-              <span class="w-1.5 h-1.5 rounded-full" :class="llmConnected ? 'bg-green-500' : 'bg-txt-tertiary'"></span>
-              {{ llmConnected ? '연결됨' : '미연결' }}
-            </span>
-          </div>
-
-          <!-- Provider 선택 (Ollama / OpenAI) -->
-          <div v-if="form.llmEnabled">
-            <label class="block text-sm font-medium text-txt-primary mb-2">제공자</label>
-            <div class="grid grid-cols-2 gap-2">
-              <button type="button" @click="selectLlmProvider('ollama')"
-                class="px-4 py-3 rounded-lg border text-sm font-medium transition"
-                :class="form.llmProvider === 'ollama'
-                  ? 'border-primary bg-primary/10 text-primary'
-                  : 'border-border bg-surface-1 text-txt-secondary hover:bg-surface-2'">
-                <div class="font-semibold">Ollama</div>
-                <div class="text-xs text-txt-tertiary mt-0.5">원격 Ollama 서버</div>
-              </button>
-              <button type="button" @click="selectLlmProvider('openai')"
-                class="px-4 py-3 rounded-lg border text-sm font-medium transition"
-                :class="form.llmProvider === 'openai'
-                  ? 'border-primary bg-primary/10 text-primary'
-                  : 'border-border bg-surface-1 text-txt-secondary hover:bg-surface-2'">
-                <div class="font-semibold">OpenAI 호환</div>
-                <div class="text-xs text-txt-tertiary mt-0.5">ai.unids.kr, OpenAI 등</div>
-              </button>
-            </div>
-          </div>
-
-          <!-- 연결 실패 안내 -->
-          <div v-if="!llmConnected && form.llmEnabled" class="p-4 bg-amber-50 rounded-lg border border-amber-200">
-            <p class="text-sm font-medium text-amber-800 mb-2">LLM 서버에 연결할 수 없습니다</p>
-            <ul class="text-xs text-amber-700 space-y-1 list-disc list-inside">
-              <li>URL이 /v1 을 포함한 full base URL인지 확인하세요 (예: <code>https://ai.unids.kr/v1</code>).</li>
-              <li>공개 서비스(OpenAI, ai.unids.kr 등)는 API 키가 필요합니다.</li>
-              <li>로컬 Ollama를 사용하는 경우 별도로 <code>ollama serve</code> 실행 후 <code>http://localhost:11434/v1</code> 입력.</li>
-            </ul>
-            <button type="button" @click="checkLlm"
-              class="mt-3 px-3 py-1.5 bg-amber-600 text-white rounded text-xs hover:bg-amber-700 transition">
-              연결 재확인
-            </button>
-          </div>
-
-          <!-- URL / API 키 / 모델 입력 -->
-          <div v-if="form.llmEnabled" class="space-y-4">
-            <div>
-              <label class="block text-sm font-medium text-txt-primary mb-1">서버 URL</label>
-              <input v-model="form.llmUrl" type="text"
-                :placeholder="form.llmProvider === 'ollama' ? 'http://<ollama-host>:11434/v1' : 'https://ai.unids.kr/v1'"
-                class="w-full border border-border rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-accent" />
-              <p class="text-xs text-txt-tertiary mt-1">
-                <template v-if="form.llmProvider === 'ollama'">
-                  Ollama는 OpenAI 호환 엔드포인트를 <code>/v1</code> 경로로 제공합니다.
-                  예: <code>http://192.168.0.10:11434/v1</code>
-                </template>
-                <template v-else>
-                  <code>/v1</code> 을 포함한 base URL. 예: <code>https://ai.unids.kr/v1</code>,
-                  <code>https://api.openai.com/v1</code>
-                </template>
-              </p>
-            </div>
-            <div>
-              <label class="block text-sm font-medium text-txt-primary mb-1">
-                API 키
-                <span v-if="llmKeySaved" class="ml-2 text-xs font-normal text-green-600 bg-green-50 px-1.5 py-0.5 rounded">저장됨</span>
-                <span v-if="form.llmProvider === 'ollama'" class="ml-2 text-xs font-normal text-txt-tertiary">(선택사항)</span>
-              </label>
-              <input v-model="form.llmApiKey" type="password"
-                :placeholder="llmKeySaved ? '변경할 경우에만 입력' : (form.llmProvider === 'ollama' ? '필요한 경우에만 입력' : 'Bearer 토큰 입력')"
-                class="w-full border border-border rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-accent" />
-              <p class="text-xs text-txt-tertiary mt-1">
-                <template v-if="form.llmProvider === 'ollama'">
-                  Ollama는 기본적으로 인증 없이 동작합니다. 프록시/인증 설정이 있을 때만 입력하세요.
-                </template>
-                <template v-else>
-                  OpenAI 호환 공개 서버는 Bearer 토큰이 필요합니다.
-                </template>
-              </p>
-            </div>
-            <div>
-              <label class="block text-sm font-medium text-txt-primary mb-1">사용 모델</label>
-              <div class="flex gap-2">
-                <select v-if="llmModels.length > 0" v-model="form.llmModel"
-                  class="flex-1 border border-border rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-accent">
-                  <option value="">(직접 입력)</option>
-                  <option v-for="m in llmModels" :key="m.name" :value="m.name">{{ m.name }}</option>
-                </select>
-                <input v-else v-model="form.llmModel" type="text"
-                  :placeholder="form.llmProvider === 'ollama' ? '예: llama3.1:8b, gemma2:9b, qwen2.5:7b' : '예: gpt-4o-mini, gemma-3n-E4B-it'"
-                  class="flex-1 border border-border rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-accent" />
-                <button type="button" @click="loadLlmModels"
-                  class="px-3 py-2 border border-border rounded-lg text-xs text-txt-secondary hover:bg-surface-2 transition whitespace-nowrap">
-                  새로고침
-                </button>
-              </div>
-              <p class="text-xs text-txt-tertiary mt-1">서버가 제공하는 모델 ID를 선택하세요. 직접 입력도 가능합니다.</p>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <!-- 섹션: DART (금융감독원 공시) -->
-      <div class="bg-surface-1 rounded-xl border border-border shadow-sm overflow-hidden">
-        <div class="px-6 py-4 bg-surface-2 border-b border-border">
-          <h3 class="text-sm font-semibold text-txt-primary">DART (금융감독원 공시)</h3>
-          <p class="text-xs text-txt-secondary mt-0.5">
-            재무제표(매출, 영업이익, ROE)와 실시간 공시 데이터를 조회합니다.
-            <a href="https://opendart.fss.or.kr/" target="_blank" class="text-accent hover:underline ml-1">API 키 발급</a>
-          </p>
-        </div>
-        <div class="p-6 space-y-4">
-          <label class="flex items-center gap-3 cursor-pointer">
-            <div class="relative inline-block">
-              <input type="checkbox" v-model="form.dartEnabled" class="sr-only" />
-              <div class="w-9 h-5 rounded-full transition-colors" :class="form.dartEnabled ? 'bg-primary' : 'bg-surface-3'"></div>
-              <div class="absolute top-0.5 left-0.5 w-4 h-4 bg-white rounded-full shadow transition-transform" :class="form.dartEnabled ? 'translate-x-4' : 'translate-x-0'"></div>
-            </div>
-            <span class="text-sm font-medium text-txt-primary">DART 활성화</span>
-            <span v-if="dartKeySaved" class="text-xs px-1.5 py-0.5 rounded bg-green-50 text-green-600">API 연결됨</span>
-          </label>
-          <div v-if="form.dartEnabled" class="space-y-3">
-            <div>
-              <label class="block text-sm font-medium text-txt-primary mb-1">
-                DART API Key
-                <span v-if="dartKeySaved" class="ml-2 text-xs font-normal text-green-600 bg-green-50 px-1.5 py-0.5 rounded">저장됨</span>
-              </label>
-              <input v-model="form.dartApiKey" type="password"
-                :placeholder="dartKeySaved ? '변경할 경우에만 입력' : 'DART OpenAPI 인증키 입력'"
-                class="w-full border border-border rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-accent" />
-              <p class="text-xs text-txt-tertiary mt-1">opendart.fss.or.kr에서 발급받은 인증키</p>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <!-- 섹션 5: AI 분석 옵션 -->
-      <div class="bg-surface-1 rounded-xl border border-border shadow-sm overflow-hidden">
-        <div class="px-6 py-4 bg-surface-2 border-b border-border">
-          <h3 class="text-sm font-semibold text-txt-primary">AI 분석 옵션</h3>
-          <p class="text-xs text-txt-secondary mt-0.5">LLM 매매 판단의 투자 스타일과 분석 방식을 설정합니다.</p>
-        </div>
-        <div class="p-6 space-y-4">
-          <div>
-            <label class="block text-sm font-medium text-txt-primary mb-2">투자 스타일</label>
-            <div class="grid grid-cols-2 md:grid-cols-4 gap-2">
-              <button type="button" v-for="opt in [
-                { v: 'balanced', l: '균형형', d: 'RSI·MACD 등 종합 판단' },
-                { v: 'value', l: '가치투자', d: '저PER·저PBR 안전마진 중시' },
-                { v: 'growth', l: '성장투자', d: '매출 성장·혁신 기업 선호' },
-                { v: 'momentum', l: '모멘텀', d: '추세 추종·돌파 패턴 중심' },
-              ]" :key="opt.v" @click="form.investmentStyle = opt.v"
-                class="py-2.5 px-3 rounded-lg border-2 text-center transition-all"
-                :class="form.investmentStyle === opt.v ? 'border-blue-400 bg-blue-50' : 'border-border hover:border-border-hover'">
-                <div class="text-sm font-medium" :class="form.investmentStyle === opt.v ? 'text-blue-700' : 'text-txt-primary'">{{ opt.l }}</div>
-                <div class="text-xs mt-0.5" :class="form.investmentStyle === opt.v ? 'text-blue-500' : 'text-txt-tertiary'">{{ opt.d }}</div>
-              </button>
-            </div>
-          </div>
-          <div>
-            <label class="flex items-center gap-3 cursor-pointer">
-              <div class="relative inline-block">
-                <input type="checkbox" v-model="form.debateMode" class="sr-only" />
-                <div class="w-9 h-5 rounded-full transition-colors" :class="form.debateMode ? 'bg-primary' : 'bg-surface-3'"></div>
-                <div class="absolute top-0.5 left-0.5 w-4 h-4 bg-white rounded-full shadow transition-transform" :class="form.debateMode ? 'translate-x-4' : 'translate-x-0'"></div>
-              </div>
-              <span class="text-sm font-medium text-txt-primary">토론 모드 (강세/약세 분석)</span>
-            </label>
-            <p class="text-xs text-txt-secondary mt-1 ml-12">LLM이 강세·약세 관점을 각각 분석한 뒤 종합 판단합니다. 정확도가 높아지지만 분석 시간이 3배로 늘어납니다.</p>
-          </div>
-          <div>
-            <label class="block text-sm font-medium text-txt-primary mb-1">손절 기준 (%)</label>
-            <div class="flex items-center gap-3">
-              <input v-model.number="form.stopLossPercent" type="number" min="1" max="20" step="0.5"
-                class="w-24 border border-border rounded-lg px-3 py-2 text-sm text-center focus:outline-none focus:ring-2 focus:ring-accent" />
-              <span class="text-xs text-txt-secondary">매입가 대비 -{{ form.stopLossPercent }}% 도달 시 자동 손절 매도</span>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <!-- 섹션 6: 자동매매 설정 -->
-      <div class="bg-surface-1 rounded-xl border border-border shadow-sm overflow-hidden">
-        <div class="px-6 py-4 bg-surface-2 border-b border-border">
-          <h3 class="text-sm font-semibold text-txt-primary">자동매매</h3>
-          <p class="text-xs text-txt-secondary mt-0.5">자동매매 활성화 및 리스크 관리 설정</p>
-        </div>
-        <div class="p-6 space-y-4">
-          <label class="flex items-center gap-3 cursor-pointer">
-            <div class="relative">
-              <input type="checkbox" v-model="form.autoTradeEnabled" class="sr-only" />
-              <div class="w-11 h-6 rounded-full transition-colors" :class="form.autoTradeEnabled ? 'bg-primary' : 'bg-surface-3'"></div>
-              <div class="absolute top-1 left-1 w-4 h-4 bg-white rounded-full shadow transition-transform" :class="form.autoTradeEnabled ? 'translate-x-5' : 'translate-x-0'"></div>
-            </div>
-            <span class="text-sm font-medium text-txt-primary">자동매매 활성화</span>
-          </label>
-          <div v-if="!form.autoTradeEnabled" class="p-3 bg-surface-2 rounded-lg border border-border">
-            <p class="text-xs text-txt-secondary">자동매매가 비활성화되어 있습니다. 매매 신호는 생성되지만 주문은 실행되지 않습니다.</p>
-          </div>
-          <div v-if="form.autoTradeEnabled" class="p-3 bg-red-50 rounded-lg border border-red-200">
-            <p class="text-xs text-red-600">⚠️ 자동매매가 활성화되면 LLM 판단에 따라 실제 주문이 실행됩니다.</p>
-          </div>
-          <div class="grid grid-cols-3 gap-4">
-            <div>
-              <label class="block text-sm font-medium text-txt-primary mb-1">총 최대 투자금액</label>
-              <input v-model.number="form.autoTradeMaxInvestment" type="number" min="0" step="1"
-                class="w-full border border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-accent" />
-              <p class="text-xs text-txt-tertiary mt-1">{{ formatCurrency(form.autoTradeMaxInvestment) }}</p>
-            </div>
-            <div>
-              <label class="block text-sm font-medium text-txt-primary mb-1">종목당 최대</label>
-              <input v-model.number="form.autoTradeMaxPerStock" type="number" min="0" step="1"
-                class="w-full border border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-accent" />
-              <p class="text-xs text-txt-tertiary mt-1">{{ formatCurrency(form.autoTradeMaxPerStock) }}</p>
-            </div>
-            <div>
-              <label class="block text-sm font-medium text-txt-primary mb-1">일일 최대 거래</label>
-              <input v-model.number="form.autoTradeMaxDailyTrades" type="number" min="1"
-                class="w-full border border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-accent" />
-              <p class="text-xs text-txt-tertiary mt-1">{{ form.autoTradeMaxDailyTrades }}회</p>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <!-- 섹션 7: 스케줄 설정 -->
-      <div class="bg-surface-1 rounded-xl border border-border shadow-sm overflow-hidden">
-        <div class="px-6 py-4 bg-surface-2 border-b border-border">
-          <h3 class="text-sm font-semibold text-txt-primary">매매 스케줄</h3>
-          <p class="text-xs text-txt-secondary mt-0.5">시장별 자동 분석/매매 스케줄 (주말 제외)</p>
-        </div>
-        <div class="p-6 space-y-6">
-          <!-- KRX -->
-          <div>
-            <div class="flex items-center justify-between mb-3">
-              <div class="flex items-center gap-2">
-                <span class="text-sm font-semibold text-txt-primary">🇰🇷 KRX (한국거래소)</span>
-                <span class="text-xs text-txt-tertiary">09:00 ~ 15:30 KST</span>
-              </div>
-              <label class="flex items-center gap-2 cursor-pointer">
-                <div class="relative">
-                  <input type="checkbox" v-model="form.scheduleKrx.enabled" class="sr-only" />
-                  <div class="w-9 h-5 rounded-full transition-colors" :class="form.scheduleKrx.enabled ? 'bg-primary' : 'bg-surface-3'"></div>
-                  <div class="absolute top-0.5 left-0.5 w-4 h-4 bg-white rounded-full shadow transition-transform" :class="form.scheduleKrx.enabled ? 'translate-x-4' : 'translate-x-0'"></div>
-                </div>
-              </label>
-            </div>
-            <div v-if="form.scheduleKrx.enabled" class="grid grid-cols-2 gap-2">
-              <label v-for="s in scheduleSlots" :key="'krx-'+s.key"
-                class="flex items-center gap-2 p-2 rounded-lg border text-xs cursor-pointer"
-                :class="form.scheduleKrx[s.key] ? 'border-blue-200 bg-blue-50' : 'border-border'">
-                <input type="checkbox" v-model="form.scheduleKrx[s.key]" class="rounded text-accent" />
-                <div>
-                  <span class="font-medium text-txt-primary">{{ s.label }}</span>
-                  <span class="text-txt-tertiary ml-1">{{ s.krxTime }}</span>
-                </div>
-              </label>
-            </div>
-          </div>
-          <!-- NYSE -->
-          <div class="border-t border-border-subtle pt-6">
-            <div class="flex items-center justify-between mb-3">
-              <div class="flex items-center gap-2">
-                <span class="text-sm font-semibold text-txt-primary">🇺🇸 NYSE/NASDAQ</span>
-                <span class="text-xs text-txt-tertiary">09:30 ~ 16:00 ET</span>
-              </div>
-              <label class="flex items-center gap-2 cursor-pointer">
-                <div class="relative">
-                  <input type="checkbox" v-model="form.scheduleNyse.enabled" class="sr-only" />
-                  <div class="w-9 h-5 rounded-full transition-colors" :class="form.scheduleNyse.enabled ? 'bg-primary' : 'bg-surface-3'"></div>
-                  <div class="absolute top-0.5 left-0.5 w-4 h-4 bg-white rounded-full shadow transition-transform" :class="form.scheduleNyse.enabled ? 'translate-x-4' : 'translate-x-0'"></div>
-                </div>
-              </label>
-            </div>
-            <div v-if="form.scheduleNyse.enabled" class="grid grid-cols-2 gap-2">
-              <label v-for="s in scheduleSlots" :key="'nyse-'+s.key"
-                class="flex items-center gap-2 p-2 rounded-lg border text-xs cursor-pointer"
-                :class="form.scheduleNyse[s.key] ? 'border-blue-200 bg-blue-50' : 'border-border'">
-                <input type="checkbox" v-model="form.scheduleNyse[s.key]" class="rounded text-accent" />
-                <div>
-                  <span class="font-medium text-txt-primary">{{ s.label }}</span>
-                  <span class="text-txt-tertiary ml-1">{{ s.nyseTime }}</span>
-                </div>
-              </label>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <!-- 섹션: 포트폴리오 운영 -->
-      <div class="bg-surface-1 rounded-xl border border-border shadow-sm overflow-hidden">
-        <div class="px-6 py-4 bg-surface-2 border-b border-border">
-          <h3 class="text-sm font-semibold text-txt-primary">포트폴리오 운영</h3>
-          <p class="text-xs text-txt-secondary mt-0.5">포트폴리오 분산 투자 및 리밸런싱 정책을 설정합니다.</p>
-        </div>
-        <div class="p-6 space-y-4">
-          <!-- 최대 보유 종목 수 -->
-          <div>
-            <label class="block text-sm font-medium text-txt-primary mb-1">최대 보유 종목 수</label>
-            <input v-model.number="form.portfolioMaxHoldings" type="number" min="3" max="50"
-              class="w-24 border border-border rounded-lg px-3 py-2 text-sm text-center focus:outline-none focus:ring-2 focus:ring-accent" />
-            <p class="text-xs text-txt-tertiary mt-1">포트폴리오에 보유할 수 있는 최대 종목 수</p>
-          </div>
-          <!-- 종목당 최대 비율 -->
-          <div>
-            <label class="block text-sm font-medium text-txt-primary mb-1">종목당 최대 비율</label>
-            <div class="flex items-center gap-2">
-              <input v-model.number="form.portfolioMaxPerStockPercent" type="number" min="5" max="50"
-                class="w-24 border border-border rounded-lg px-3 py-2 text-sm text-center focus:outline-none focus:ring-2 focus:ring-accent" />
-              <span class="text-sm text-txt-secondary">%</span>
-            </div>
-            <p class="text-xs text-txt-tertiary mt-1">총 자산 대비 단일 종목 최대 투자 비율</p>
-          </div>
-          <!-- 섹터당 최대 비율 -->
-          <div>
-            <label class="block text-sm font-medium text-txt-primary mb-1">섹터당 최대 비율</label>
-            <div class="flex items-center gap-2">
-              <input v-model.number="form.portfolioMaxSectorPercent" type="number" min="20" max="80"
-                class="w-24 border border-border rounded-lg px-3 py-2 text-sm text-center focus:outline-none focus:ring-2 focus:ring-accent" />
-              <span class="text-sm text-txt-secondary">%</span>
-            </div>
-            <p class="text-xs text-txt-tertiary mt-1">동일 섹터에 집중 투자할 수 있는 최대 비율</p>
-          </div>
-          <!-- 최소 현금 보유 비율 -->
-          <div>
-            <label class="block text-sm font-medium text-txt-primary mb-1">최소 현금 보유 비율</label>
-            <div class="flex items-center gap-2">
-              <input v-model.number="form.portfolioMinCashPercent" type="number" min="0" max="50"
-                class="w-24 border border-border rounded-lg px-3 py-2 text-sm text-center focus:outline-none focus:ring-2 focus:ring-accent" />
-              <span class="text-sm text-txt-secondary">%</span>
-            </div>
-            <p class="text-xs text-txt-tertiary mt-1">투자 후에도 유지해야 할 최소 현금 비율</p>
-          </div>
-          <!-- 자동 리밸런싱 -->
-          <div>
-            <label class="flex items-center gap-3 cursor-pointer">
-              <div class="relative inline-block">
-                <input type="checkbox" v-model="form.portfolioRebalanceEnabled" class="sr-only" />
-                <div class="w-9 h-5 rounded-full transition-colors" :class="form.portfolioRebalanceEnabled ? 'bg-primary' : 'bg-surface-3'"></div>
-                <div class="absolute top-0.5 left-0.5 w-4 h-4 bg-white rounded-full shadow transition-transform" :class="form.portfolioRebalanceEnabled ? 'translate-x-4' : 'translate-x-0'"></div>
-              </div>
-              <span class="text-sm font-medium text-txt-primary">자동 리밸런싱</span>
-            </label>
-            <p class="text-xs text-txt-secondary mt-1 ml-12">주간 1회 비중 초과/부족 종목 자동 제안</p>
-          </div>
-        </div>
-      </div>
-
-      <!-- 섹션: 매매 원칙 -->
-      <TradingRulesSection
-        v-model:tradingRulesEnabled="form.tradingRulesEnabled"
-        v-model:tradingRulesStrictMode="form.tradingRulesStrictMode"
-        v-model:gapThresholdPercent="form.gapThresholdPercent"
-        v-model:volumeSurgeRatio="form.volumeSurgeRatio"
-        v-model:lowVolumeRatio="form.lowVolumeRatio"
-        v-model:sidewaysAtrPercent="form.sidewaysAtrPercent"
-      />
-
-      <!-- 섹션: 매도 규칙 (v4.8.0) -->
-      <div class="bg-surface-1 rounded-xl border border-border shadow-sm overflow-hidden">
-        <div class="px-6 py-4 bg-surface-2 border-b border-border">
-          <div class="flex items-center justify-between">
-            <div>
-              <h3 class="text-sm font-semibold text-txt-primary">매도 규칙 (Hard Rules)</h3>
-              <p class="text-xs text-txt-secondary mt-0.5">LLM 없이 즉시 매도하는 4가지 조건. 매수 판단보다 우선 실행됩니다.</p>
-            </div>
-            <label class="flex items-center gap-2 cursor-pointer">
-              <div class="relative inline-block">
-                <input type="checkbox" v-model="form.sellRulesEnabled" class="sr-only" />
-                <div class="w-9 h-5 rounded-full transition-colors" :class="form.sellRulesEnabled ? 'bg-primary' : 'bg-surface-3'"></div>
-                <div class="absolute top-0.5 left-0.5 w-4 h-4 bg-white rounded-full shadow transition-transform" :class="form.sellRulesEnabled ? 'translate-x-4' : 'translate-x-0'"></div>
-              </div>
-              <span class="text-sm text-txt-primary">활성화</span>
-            </label>
-          </div>
-        </div>
-        <div class="p-6 space-y-4" :class="{ 'opacity-50 pointer-events-none': !form.sellRulesEnabled }">
-          <div>
-            <label class="block text-sm font-medium text-txt-primary mb-1">목표 수익률</label>
-            <div class="flex items-center gap-2">
-              <input v-model.number="form.targetProfitRate" type="number" step="0.1" min="0.5" max="50"
-                class="w-24 border border-border rounded-lg px-3 py-2 text-sm text-center focus:outline-none focus:ring-2 focus:ring-accent" />
-              <span class="text-sm text-txt-secondary">%</span>
-            </div>
-            <p class="text-xs text-txt-tertiary mt-1">매수가 대비 +N% 도달 시 전량 매도 (기본 3%)</p>
-          </div>
-          <div>
-            <label class="block text-sm font-medium text-txt-primary mb-1">손절 기준 (hard stop-loss)</label>
-            <div class="flex items-center gap-2">
-              <span class="text-sm text-txt-secondary">-</span>
-              <input v-model.number="form.hardStopLossRate" type="number" step="0.1" min="0.5" max="50"
-                class="w-24 border border-border rounded-lg px-3 py-2 text-sm text-center focus:outline-none focus:ring-2 focus:ring-accent" />
-              <span class="text-sm text-txt-secondary">%</span>
-            </div>
-            <p class="text-xs text-txt-tertiary mt-1">매수가 대비 -N% 이하 시 전량 매도 (기본 2% — 긴급 손절 3%보다 먼저 발동)</p>
-          </div>
-          <div>
-            <label class="block text-sm font-medium text-txt-primary mb-1">트레일링 스탑</label>
-            <div class="flex items-center gap-2">
-              <span class="text-sm text-txt-secondary">고점 -</span>
-              <input v-model.number="form.trailingStopRate" type="number" step="0.1" min="0.3" max="20"
-                class="w-24 border border-border rounded-lg px-3 py-2 text-sm text-center focus:outline-none focus:ring-2 focus:ring-accent" />
-              <span class="text-sm text-txt-secondary">%</span>
-            </div>
-            <p class="text-xs text-txt-tertiary mt-1">보유 중 관측된 최고가에서 -N% 하락 시 전량 매도 (기본 1.5%)</p>
-          </div>
-          <div>
-            <label class="block text-sm font-medium text-txt-primary mb-1">최대 보유 시간</label>
-            <div class="flex items-center gap-2">
-              <input v-model.number="form.maxHoldMinutes" type="number" min="5" max="1440"
-                class="w-24 border border-border rounded-lg px-3 py-2 text-sm text-center focus:outline-none focus:ring-2 focus:ring-accent" />
-              <span class="text-sm text-txt-secondary">분</span>
-            </div>
-            <p class="text-xs text-txt-tertiary mt-1">매수 후 N분 경과 시 손익 무관 전량 매도 (기본 60분 — 단타 목적)</p>
-          </div>
-        </div>
-      </div>
-
-      <!-- 섹션: 포지션 사이징 (v4.8.0) -->
-      <div class="bg-surface-1 rounded-xl border border-border shadow-sm overflow-hidden">
-        <div class="px-6 py-4 bg-surface-2 border-b border-border">
-          <h3 class="text-sm font-semibold text-txt-primary">포지션 사이징</h3>
-          <p class="text-xs text-txt-secondary mt-0.5">매수 시 예산·종목 수·현금 비율을 강제합니다. 잔고 전액 단일 종목 투입 방지.</p>
-        </div>
-        <div class="p-6 space-y-4">
-          <div>
-            <label class="block text-sm font-medium text-txt-primary mb-1">단일 종목 최대 투자 비율</label>
-            <div class="flex items-center gap-2">
-              <input v-model.number="form.positionMaxRatio" type="number" min="5" max="100"
-                class="w-24 border border-border rounded-lg px-3 py-2 text-sm text-center focus:outline-none focus:ring-2 focus:ring-accent" />
-              <span class="text-sm text-txt-secondary">%</span>
-            </div>
-            <p class="text-xs text-txt-tertiary mt-1">전체 예산의 N% 이하로 단일 종목 투자 제한 (기본 25%)</p>
-          </div>
-          <div>
-            <label class="block text-sm font-medium text-txt-primary mb-1">최소 현금 보유 비율</label>
-            <div class="flex items-center gap-2">
-              <input v-model.number="form.positionMinCashRatio" type="number" min="0" max="80"
-                class="w-24 border border-border rounded-lg px-3 py-2 text-sm text-center focus:outline-none focus:ring-2 focus:ring-accent" />
-              <span class="text-sm text-txt-secondary">%</span>
-            </div>
-            <p class="text-xs text-txt-tertiary mt-1">현금 비율이 이 값 미만이면 신규 매수 금지 (기본 20%)</p>
-          </div>
-          <div>
-            <label class="block text-sm font-medium text-txt-primary mb-1">최대 동시 보유 종목 수</label>
-            <input v-model.number="form.positionMaxPositions" type="number" min="1" max="20"
-              class="w-24 border border-border rounded-lg px-3 py-2 text-sm text-center focus:outline-none focus:ring-2 focus:ring-accent" />
-            <p class="text-xs text-txt-tertiary mt-1">보유 종목 수가 이 값 이상이면 신규 매수 금지 (기본 3종목 — 집중 투자 전략)</p>
-          </div>
-        </div>
-      </div>
-
-      <!-- 섹션: 동적 스크리닝 (v4.8.0) -->
-      <div class="bg-surface-1 rounded-xl border border-border shadow-sm overflow-hidden">
-        <div class="px-6 py-4 bg-surface-2 border-b border-border">
-          <div class="flex items-center justify-between">
-            <div>
-              <h3 class="text-sm font-semibold text-txt-primary">동적 종목 스크리닝</h3>
-              <p class="text-xs text-txt-secondary mt-0.5">시장 국면(RISING/FLAT/FALLING)에 따라 후보 종목을 자동 스크리닝합니다.</p>
-            </div>
-            <label class="flex items-center gap-2 cursor-pointer">
-              <div class="relative inline-block">
-                <input type="checkbox" v-model="form.dynamicScreeningEnabled" class="sr-only" />
-                <div class="w-9 h-5 rounded-full transition-colors" :class="form.dynamicScreeningEnabled ? 'bg-primary' : 'bg-surface-3'"></div>
-                <div class="absolute top-0.5 left-0.5 w-4 h-4 bg-white rounded-full shadow transition-transform" :class="form.dynamicScreeningEnabled ? 'translate-x-4' : 'translate-x-0'"></div>
-              </div>
-              <span class="text-sm text-txt-primary">활성화</span>
-            </label>
-          </div>
-        </div>
-        <div class="p-6 space-y-4" :class="{ 'opacity-50 pointer-events-none': !form.dynamicScreeningEnabled }">
-          <div>
-            <label class="block text-sm font-medium text-txt-primary mb-1">거래량 비율 최소값 (RISING 국면)</label>
-            <div class="flex items-center gap-2">
-              <input v-model.number="form.screeningVolumeRatioMin" type="number" step="0.1" min="1" max="10"
-                class="w-24 border border-border rounded-lg px-3 py-2 text-sm text-center focus:outline-none focus:ring-2 focus:ring-accent" />
-              <span class="text-sm text-txt-secondary">배</span>
-            </div>
-            <p class="text-xs text-txt-tertiary mt-1">상승장에서 5일 평균 거래량의 N배 이상만 후보로 선정 (기본 1.5배 = 150%)</p>
-          </div>
-          <div>
-            <label class="block text-sm font-medium text-txt-primary mb-1">최소 시가총액 (FLAT 국면)</label>
-            <div class="flex items-center gap-2">
-              <input v-model.number="form.screeningMinMarketCap" type="number" min="0"
-                class="w-32 border border-border rounded-lg px-3 py-2 text-sm text-center focus:outline-none focus:ring-2 focus:ring-accent" />
-              <span class="text-sm text-txt-secondary">억원</span>
-            </div>
-            <p class="text-xs text-txt-tertiary mt-1">박스권에서 시가총액 N억 이상만 후보로 선정 (기본 500억 — 유동성 확보)</p>
-          </div>
-          <div class="bg-surface-2 rounded-lg p-3 text-xs text-txt-secondary">
-            <p class="font-semibold mb-1">국면 판별 기준 (KOSPI + KOSDAQ 평균 등락률):</p>
-            <ul class="space-y-0.5 ml-2">
-              <li>• <span class="text-profit">RISING</span>: ≥ +0.5% — 모멘텀 종목 (등락률 +1~5%, 거래량 급증)</li>
-              <li>• <span class="text-txt-tertiary">FLAT</span>: ±0.5% — 박스권 종목 (볼린저 하단, RSI ≤ 30, 대형주)</li>
-              <li>• <span class="text-loss">FALLING</span>: ≤ -0.5% — 신규 매수 건너뜀 (현금 보유)</li>
-            </ul>
-          </div>
-        </div>
-      </div>
-
-      <!-- 섹션: 가상매매 (v4.10.0) -->
-      <div class="bg-surface-1 rounded-xl border border-border shadow-sm overflow-hidden">
-        <div class="px-6 py-4 bg-surface-2 border-b border-border">
-          <div class="flex items-center justify-between">
-            <div>
-              <h3 class="text-sm font-semibold text-txt-primary">가상매매 (Paper Trading)</h3>
-              <p class="text-xs text-txt-secondary mt-0.5">추천 BUY 신호가 발생했지만 실매매가 안 된 종목을 자동으로 가상 매수하여 학습 데이터로 활용합니다.</p>
-            </div>
-            <label class="flex items-center gap-2 cursor-pointer">
-              <div class="relative inline-block">
-                <input type="checkbox" v-model="form.paperTradingEnabled" class="sr-only" />
-                <div class="w-9 h-5 rounded-full transition-colors" :class="form.paperTradingEnabled ? 'bg-primary' : 'bg-surface-3'"></div>
-                <div class="absolute top-0.5 left-0.5 w-4 h-4 bg-white rounded-full shadow transition-transform" :class="form.paperTradingEnabled ? 'translate-x-4' : 'translate-x-0'"></div>
-              </div>
-              <span class="text-sm text-txt-primary">활성화</span>
-            </label>
-          </div>
-        </div>
-        <div class="p-6 space-y-4" :class="{ 'opacity-50 pointer-events-none': !form.paperTradingEnabled }">
-          <div>
-            <label class="block text-sm font-medium text-txt-primary mb-1">종목당 가상매수 금액 (KRW)</label>
-            <div class="flex items-center gap-2">
-              <input v-model.number="form.paperTradeAmount" type="number" min="1" step="1"
-                class="w-48 border border-border rounded-lg px-3 py-2 text-sm tabular-nums text-right focus:outline-none focus:ring-2 focus:ring-accent" />
-              <span class="text-sm text-txt-secondary">원</span>
-              <span class="text-xs text-txt-tertiary">({{ (form.paperTradeAmount / 10000).toLocaleString() }}만원)</span>
-            </div>
-            <p class="text-xs text-txt-tertiary mt-1">가상매수 시 종목당 투자 금액. 해외 종목은 USD/KRW 환율로 환산하여 수량 계산. <strong>한도 제한 없음</strong> — 기본 100만원, 원하는 만큼 설정 가능.</p>
-          </div>
-          <div class="bg-surface-2 rounded-lg p-3 text-xs text-txt-secondary">
-            <p class="font-semibold mb-2">가상매매 규칙:</p>
-            <ul class="space-y-1 ml-2">
-              <li>• <strong>중복 방지</strong>: 실매매로 보유 중인 종목은 가상매매하지 않습니다 (transactions/auto_trades 합산 체크)</li>
-              <li>• <strong>매도</strong>: 위 매도 규칙 4종(목표수익률/손절/트레일링/시간초과)을 동일하게 적용</li>
-              <li>• <strong>학습 합산</strong>: 정확도 평가/가중치 최적화 시 가상매매 데이터도 자동 합산 (signal_performance.is_paper)</li>
-              <li>• <strong>전용 화면</strong>: Portfolio · Transactions · 차트에서 실/가상 구분 표시</li>
-            </ul>
-          </div>
-        </div>
-      </div>
-
-      <!-- 섹션: 데이터 동기화 (NAS) -->
-      <div class="bg-surface-1 rounded-xl border border-border shadow-sm overflow-hidden">
-        <div class="px-6 py-4 bg-surface-2 border-b border-border">
-          <h3 class="text-sm font-semibold text-txt-primary">데이터 동기화 (NAS)</h3>
-          <p class="text-xs text-txt-secondary mt-0.5">NAS에 데이터를 자동으로 백업/동기화합니다. 여러 기기에서 동일한 데이터를 유지할 수 있습니다.</p>
-        </div>
-        <div class="p-6 space-y-4">
-          <!-- NAS 동기화 활성화 토글 -->
-          <label class="flex items-center gap-3 cursor-pointer">
-            <div class="relative">
-              <input type="checkbox" v-model="form.nasSyncEnabled" class="sr-only" />
-              <div class="w-11 h-6 rounded-full transition-colors" :class="form.nasSyncEnabled ? 'bg-primary' : 'bg-surface-3'"></div>
-              <div class="absolute top-1 left-1 w-4 h-4 bg-white rounded-full shadow transition-transform" :class="form.nasSyncEnabled ? 'translate-x-5' : 'translate-x-0'"></div>
-            </div>
-            <span class="text-sm font-medium text-txt-primary">NAS 동기화 활성화</span>
-          </label>
-
-          <div v-if="form.nasSyncEnabled" class="space-y-4">
-            <!-- NAS 경로 -->
-            <div>
-              <label class="block text-sm font-medium text-txt-primary mb-1">NAS 경로</label>
-              <div class="flex gap-2">
-                <input v-model="form.nasSyncPath" type="text" placeholder="/Volumes/NAS/StockManager"
-                  class="flex-1 border border-border rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-accent" />
-                <button type="button" @click="validateNasPath" :disabled="validating || !form.nasSyncPath"
-                  class="px-4 py-2 border border-border rounded-lg text-sm font-medium text-txt-secondary hover:bg-surface-2 disabled:opacity-50 transition whitespace-nowrap">
-                  {{ validating ? '확인 중...' : '경로 테스트' }}
-                </button>
-              </div>
-              <p v-if="syncValidateResult" class="text-xs mt-1"
-                :class="syncValidateResult.startsWith('OK') ? 'text-green-600' : 'text-red-600'">
-                {{ syncValidateResult }}
-              </p>
-              <p class="text-xs text-txt-tertiary mt-1">마운트된 NAS 공유 폴더 경로를 입력하세요</p>
-            </div>
-
-            <!-- 기기 ID -->
-            <div>
-              <label class="block text-sm font-medium text-txt-primary mb-1">기기 ID</label>
-              <input v-model="form.nasDeviceId" type="text" placeholder="hostname"
-                class="w-full border border-border rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-accent" />
-              <p class="text-xs text-txt-tertiary mt-1">이 기기를 식별하는 고유 이름 (비워두면 호스트명 사용)</p>
-            </div>
-
-            <!-- 동기화 시간 -->
-            <div>
-              <label class="block text-sm font-medium text-txt-primary mb-1">동기화 시간 (Cron 표현식)</label>
-              <input v-model="form.nasSyncTime" type="text" placeholder="0 20 * * *"
-                class="w-full border border-border rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-accent" />
-              <p class="text-xs text-txt-tertiary mt-1">기본값: 매일 오후 8시 (0 20 * * *)</p>
-            </div>
-
-            <!-- 마지막 동기화 정보 -->
-            <div v-if="syncStatus?.lastSync" class="bg-surface-2 rounded-lg p-4">
-              <h4 class="text-sm font-medium text-txt-primary mb-2">마지막 동기화 정보</h4>
-              <div class="grid grid-cols-2 gap-2 text-xs">
-                <div>
-                  <span class="text-txt-secondary">동기화 시각:</span>
-                  <span class="ml-1 text-txt-primary font-medium">{{ new Date(syncStatus.lastSync.lastSyncAt).toLocaleString('ko-KR') }}</span>
-                </div>
-                <div>
-                  <span class="text-txt-secondary">기기:</span>
-                  <span class="ml-1 text-txt-primary font-medium">{{ syncStatus.lastSync.deviceId }}</span>
-                </div>
-                <div>
-                  <span class="text-txt-secondary">테이블:</span>
-                  <span class="ml-1 text-txt-primary font-medium">{{ syncStatus.lastSync.tablesExported }}개</span>
-                </div>
-                <div>
-                  <span class="text-txt-secondary">레코드:</span>
-                  <span class="ml-1 text-txt-primary font-medium">{{ syncStatus.lastSync.totalRecords.toLocaleString() }}건</span>
-                </div>
-              </div>
-            </div>
-            <div v-else class="text-xs text-txt-tertiary">아직 동기화된 기록이 없습니다.</div>
-
-            <!-- 동기화 / 백업 버튼 -->
-            <div class="space-y-2">
-              <div class="flex flex-wrap gap-2">
-                <button type="button" @click="runSyncNow" :disabled="syncing"
-                  class="px-4 py-2 bg-primary text-white rounded-lg text-sm font-medium hover:bg-primary-hover disabled:opacity-50 transition">
-                  {{ syncing ? '처리 중...' : '🌐 NAS 동기화' }}
-                </button>
-                <button type="button" @click="runLocalBackup" :disabled="syncing"
-                  class="px-4 py-2 bg-surface-2 text-txt-primary border border-border rounded-lg text-sm font-medium hover:bg-surface-3 disabled:opacity-50 transition">
-                  {{ syncing ? '처리 중...' : '💾 로컬 백업 (API 키 포함)' }}
-                </button>
-              </div>
-              <p class="text-xs text-txt-tertiary">
-                <strong>NAS 동기화</strong>: 외부/공유 저장소용 — API 키가 마스킹됩니다.<br />
-                <strong>로컬 백업</strong>: brew 업그레이드 후 복구를 위해 API 키가 포함됩니다. 안전한 개인 저장소에만 사용하세요.
-              </p>
-              <p v-if="syncResultMessage" class="text-xs mt-2"
-                :class="syncResultError ? 'text-profit' : 'text-green-500'">
-                {{ syncResultMessage }}
-              </p>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <!-- 섹션: 데이터 새로고침 -->
-      <div class="bg-surface-1 rounded-xl border border-border shadow-sm overflow-hidden">
-        <div class="px-6 py-4 bg-surface-2 border-b border-border">
-          <h3 class="text-sm font-semibold text-txt-primary">데이터 새로고침</h3>
-          <p class="text-xs text-txt-secondary mt-0.5">실시간 데이터 업데이트 방식과 주기를 설정합니다.</p>
-        </div>
-        <div class="p-6 space-y-4">
-          <div>
-            <label class="block text-sm font-medium text-txt-primary mb-2">자동 새로고침 간격</label>
-            <div class="grid grid-cols-4 gap-2">
-              <button type="button" v-for="opt in refreshOptions" :key="opt.value"
-                @click="selectedRefreshInterval = opt.value"
-                class="py-2.5 px-3 rounded-xl border-2 text-sm font-medium transition-all text-center"
-                :class="selectedRefreshInterval === opt.value
-                  ? 'border-accent bg-accent-dim text-accent'
-                  : 'border-border text-txt-secondary hover:border-border-hover'">
-                {{ opt.label }}
-              </button>
-            </div>
-            <p class="text-xs text-txt-tertiary mt-2">WebSocket 연결 시 서버 푸시로 즉시 업데이트되며, 연결 끊김 시 선택한 간격으로 폴링합니다.</p>
-          </div>
-        </div>
-      </div>
-
-      <!-- 저장 버튼 -->
-      <div class="flex items-center gap-3">
-        <button
-          type="submit"
-          :disabled="saving"
-          class="bg-primary text-white px-6 py-2.5 rounded-lg text-sm font-medium hover:bg-primary-hover disabled:opacity-50 transition"
-        >
-          {{ saving ? '저장 중...' : '설정 저장' }}
-        </button>
-        <span v-if="saveMessage" class="text-sm" :class="saveError ? 'text-red-500' : 'text-green-600'">
-          {{ saveMessage }}
-        </span>
-      </div>
-    </form>
-
-    <!-- 전략 관리 -->
-    <div class="mt-8 bg-surface-1 rounded-xl border border-border shadow-sm overflow-hidden">
-      <div class="px-6 py-4 bg-surface-2 border-b border-border">
-        <h3 class="text-sm font-semibold text-txt-primary">전략 내보내기 / 가져오기</h3>
-        <p class="text-xs text-txt-secondary mt-0.5">학습된 가중치와 설정을 다른 컴퓨터에 이식하거나, LoRA 학습 데이터를 추출합니다.</p>
-      </div>
-      <div class="p-6 space-y-4">
-        <!-- 전체 설정 백업/복원 (API 키 포함) -->
-        <div class="bg-amber-50 border border-amber-200 rounded-lg p-4">
-          <h4 class="text-sm font-semibold text-amber-800 mb-2">전체 설정 백업/복원 (API 키 포함)</h4>
-          <p class="text-xs text-amber-600 mb-3">다른 컴퓨터에서 동일한 환경으로 운영할 수 있습니다. 파일에 API 키가 포함되므로 안전하게 보관하세요.</p>
-          <div class="flex gap-2 flex-wrap">
-            <button @click="doBackup" :disabled="backupLoading"
-              class="px-4 py-2 bg-amber-600 text-white rounded-lg text-sm hover:bg-amber-700 disabled:opacity-50">
-              {{ backupLoading ? '백업 중...' : '전체 백업 다운로드' }}
-            </button>
-            <div class="flex gap-2">
-              <input type="file" ref="restoreFileInput" accept=".json" @change="onRestoreFileSelect"
-                class="text-sm border border-amber-300 rounded-lg px-3 py-2 file:mr-2 file:py-1 file:px-3 file:rounded file:border-0 file:text-xs file:bg-amber-100 file:text-amber-700" />
-              <button @click="doRestore" :disabled="!restoreFile || restoreLoading"
-                class="px-4 py-2 bg-red-600 text-white rounded-lg text-sm hover:bg-red-700 disabled:opacity-50">
-                {{ restoreLoading ? '복원 중...' : '복원' }}
-              </button>
-            </div>
-          </div>
-          <p v-if="backupMsg" class="text-xs mt-2" :class="backupError ? 'text-red-600' : 'text-green-600'">{{ backupMsg }}</p>
-        </div>
-
-        <!-- 전략 내보내기 (credentials 제외) -->
-        <div class="border-t border-border-subtle pt-4">
-          <div class="flex items-center gap-3">
-            <button @click="doExportStrategy" :disabled="strategyExporting"
-              class="px-4 py-2 bg-primary text-white rounded-lg text-sm hover:bg-primary-hover disabled:opacity-50">
-              {{ strategyExporting ? '내보내는 중...' : '전략 내보내기 (API키 미포함)' }}
-            </button>
-            <span v-if="strategyExportMsg" class="text-xs text-green-600">{{ strategyExportMsg }}</span>
-          </div>
-        </div>
-
-        <!-- 전략 가져오기 -->
+    <!-- KIS API -->
+    <div class="solid-card p-5 space-y-4">
+      <h3 class="text-sm font-semibold text-txt-primary">KIS API</h3>
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
         <div>
-          <label class="block text-sm font-medium text-txt-primary mb-1">전략 가져오기</label>
-          <div class="flex gap-2">
-            <input type="file" ref="strategyFileInput" accept=".json" @change="onStrategyFileSelect"
-              class="flex-1 text-sm border border-border rounded-lg px-3 py-2 file:mr-3 file:py-1 file:px-3 file:rounded file:border-0 file:text-xs file:bg-blue-50 file:text-blue-700" />
-            <button @click="doImportStrategy" :disabled="!strategyFile || strategyImporting"
-              class="px-4 py-2 bg-green-600 text-white rounded-lg text-sm hover:bg-green-700 disabled:opacity-50">
-              {{ strategyImporting ? '적용 중...' : '적용' }}
-            </button>
-          </div>
-          <p v-if="strategyImportMsg" class="text-xs mt-1" :class="strategyImportError ? 'text-red-600' : 'text-green-600'">
-            {{ strategyImportMsg }}
-          </p>
+          <label class="block text-xs font-medium text-txt-secondary mb-1">App Key</label>
+          <input v-model="form.appKey" type="text"
+            class="w-full border border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-accent" />
         </div>
+        <div>
+          <label class="block text-xs font-medium text-txt-secondary mb-1">App Secret {{ form.hasSecret ? '(저장됨, 변경 시만 입력)' : '' }}</label>
+          <input v-model="form.appSecret" type="password" :placeholder="form.hasSecret ? '*****' : ''"
+            class="w-full border border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-accent" />
+        </div>
+        <div>
+          <label class="block text-xs font-medium text-txt-secondary mb-1">계좌번호</label>
+          <input v-model="form.accountNo" type="text"
+            class="w-full border border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-accent" />
+        </div>
+        <div>
+          <label class="block text-xs font-medium text-txt-secondary mb-1">상품코드</label>
+          <input v-model="form.accountProductCode" type="text" placeholder="01"
+            class="w-full border border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-accent" />
+        </div>
+      </div>
+      <label class="flex items-center gap-2 cursor-pointer">
+        <input type="checkbox" v-model="form.isVirtual" class="rounded text-accent" />
+        <span class="text-sm text-txt-secondary">모의투자 사용</span>
+      </label>
+    </div>
 
-        <!-- LoRA 학습 데이터 -->
-        <div class="border-t border-border-subtle pt-4">
-          <div class="flex items-center justify-between mb-2">
-            <span class="text-sm font-medium text-txt-primary">LoRA 학습 데이터</span>
-            <button @click="loadLoraStatus" class="text-xs text-accent hover:underline">새로고침</button>
+    <!-- LLM (Rule 12 / 뉴스 요약 전용) -->
+    <div class="solid-card p-5 space-y-3">
+      <h3 class="text-sm font-semibold text-txt-primary">LLM (Rule 12 / 뉴스 요약 전용)</h3>
+      <p class="text-xs text-txt-tertiary">v5에서 LLM은 매매 판단에 직접 사용하지 않음. 저평가 후보 추천 + 뉴스 요약만 담당.</p>
+      <label class="flex items-center gap-2 cursor-pointer">
+        <input type="checkbox" v-model="form.llmEnabled" class="rounded text-accent" />
+        <span class="text-sm text-txt-secondary">LLM 기능 사용</span>
+      </label>
+      <div v-if="form.llmEnabled" class="grid grid-cols-1 md:grid-cols-2 gap-3">
+        <div>
+          <label class="block text-xs font-medium text-txt-secondary mb-1">서버 URL (/v1 포함)</label>
+          <input v-model="form.llmUrl" type="text" placeholder="https://ai.unids.kr/v1"
+            class="w-full border border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-accent" />
+        </div>
+        <div>
+          <label class="block text-xs font-medium text-txt-secondary mb-1">모델명 (빈 값 = 자동선택)</label>
+          <input v-model="form.llmModel" type="text"
+            class="w-full border border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-accent" />
+        </div>
+        <div class="md:col-span-2">
+          <label class="block text-xs font-medium text-txt-secondary mb-1">API Key {{ form.hasLlmApiKey ? '(저장됨, 변경 시만 입력)' : '' }}</label>
+          <input v-model="form.llmApiKey" type="password" :placeholder="form.hasLlmApiKey ? '*****' : ''"
+            class="w-full border border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-accent" />
+        </div>
+      </div>
+    </div>
+
+    <!-- DART (선택) -->
+    <div class="solid-card p-5 space-y-3">
+      <h3 class="text-sm font-semibold text-txt-primary">DART 공시 (선택)</h3>
+      <label class="flex items-center gap-2 cursor-pointer">
+        <input type="checkbox" v-model="form.dartEnabled" class="rounded text-accent" />
+        <span class="text-sm text-txt-secondary">DART 공시 감시 사용</span>
+      </label>
+      <div v-if="form.dartEnabled">
+        <label class="block text-xs font-medium text-txt-secondary mb-1">DART API Key {{ form.hasDartKey ? '(저장됨)' : '' }}</label>
+        <input v-model="form.dartApiKey" type="password" :placeholder="form.hasDartKey ? '*****' : ''"
+          class="w-full md:w-2/3 border border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-accent" />
+      </div>
+    </div>
+
+    <!-- 자동매매 -->
+    <div class="solid-card p-5 space-y-3">
+      <div class="flex items-center justify-between">
+        <h3 class="text-sm font-semibold text-txt-primary">자동매매</h3>
+        <label class="flex items-center gap-2 cursor-pointer">
+          <input type="checkbox" v-model="form.autoTradeEnabled" class="sr-only" />
+          <div class="relative">
+            <div class="w-9 h-5 rounded-full transition-colors" :class="form.autoTradeEnabled ? 'bg-accent' : 'bg-surface-3'"></div>
+            <div class="absolute top-0.5 left-0.5 w-4 h-4 bg-white rounded-full shadow transition-transform" :class="form.autoTradeEnabled ? 'translate-x-4' : ''"></div>
           </div>
-          <div v-if="loraStatus" class="space-y-2">
-            <div class="flex items-center gap-3">
-              <div class="flex-1 bg-surface-3 rounded-full h-3 overflow-hidden">
-                <div class="h-full rounded-full transition-all" :class="loraStatus.ready ? 'bg-green-500' : 'bg-blue-500'"
-                  :style="{ width: Math.min(loraStatus.percent, 100) + '%' }"></div>
-              </div>
-              <span class="text-xs text-txt-secondary w-24 text-right">{{ loraStatus.count.toLocaleString() }} / 5,000</span>
-            </div>
-            <p v-if="loraStatus.ready" class="text-xs text-green-600">학습 데이터 준비 완료! 내보내기 가능합니다.</p>
-            <p v-else class="text-xs text-txt-tertiary">데이터가 충분히 쌓이면 자동으로 LoRA 학습 데이터가 생성됩니다.</p>
-            <button v-if="loraStatus.ready" @click="doExportLora" :disabled="loraExporting"
-              class="px-4 py-2 bg-purple-600 text-white rounded-lg text-sm hover:bg-purple-700 disabled:opacity-50">
-              {{ loraExporting ? '생성 중...' : 'LoRA 데이터 내보내기 (JSONL)' }}
-            </button>
-            <p v-if="loraExportMsg" class="text-xs text-green-600">{{ loraExportMsg }}</p>
+        </label>
+      </div>
+      <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
+        <div>
+          <label class="block text-xs font-medium text-txt-secondary mb-1">최대 총 투자금 (KRW)</label>
+          <input v-model.number="form.autoTradeMaxInvestment" type="number" min="0" step="100000"
+            class="w-full border border-border rounded-lg px-3 py-2 text-sm tabular-nums focus:outline-none focus:ring-2 focus:ring-accent" />
+        </div>
+        <div>
+          <label class="block text-xs font-medium text-txt-secondary mb-1">종목당 최대 (KRW)</label>
+          <input v-model.number="form.autoTradeMaxPerStock" type="number" min="0" step="100000"
+            class="w-full border border-border rounded-lg px-3 py-2 text-sm tabular-nums focus:outline-none focus:ring-2 focus:ring-accent" />
+        </div>
+        <div>
+          <label class="block text-xs font-medium text-txt-secondary mb-1">일일 최대 거래 횟수</label>
+          <input v-model.number="form.autoTradeMaxDailyTrades" type="number" min="1"
+            class="w-full border border-border rounded-lg px-3 py-2 text-sm tabular-nums focus:outline-none focus:ring-2 focus:ring-accent" />
+        </div>
+      </div>
+      <label class="flex items-center gap-2 cursor-pointer pt-2 border-t border-border-subtle">
+        <input type="checkbox" v-model="form.scheduleKrx.enabled" class="rounded text-accent" />
+        <span class="text-sm text-txt-secondary">KRX 스케줄러 활성화 (08:50 자동목록 빌드 → 09:00 매수창 → 15:30 익절 → 15:45 EOD 정리)</span>
+      </label>
+    </div>
+
+    <!-- 매수 게이트 (Rule 1~5 + 시장 brake) -->
+    <div class="solid-card p-5 space-y-3">
+      <h3 class="text-sm font-semibold text-txt-primary">매수 전략 (Rule 4, 5 + 시장 보호)</h3>
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+        <div>
+          <label class="block text-xs font-medium text-txt-secondary mb-1">최대 동시 보유 종목 (Rule 4)</label>
+          <input v-model.number="form.positionMaxPositions" type="number" min="1" max="20"
+            class="w-full border border-border rounded-lg px-3 py-2 text-sm tabular-nums focus:outline-none focus:ring-2 focus:ring-accent" />
+          <p class="text-xs text-txt-tertiary mt-1">예산을 N등분하여 종목당 한도 자동 산정 (±5% 허용)</p>
+        </div>
+        <div>
+          <label class="block text-xs font-medium text-txt-secondary mb-1">시초가 대비 매수 트리거 (%) — Rule 5</label>
+          <input v-model.number="form.entryGainPercent" type="number" min="0.1" step="0.1"
+            class="w-full border border-border rounded-lg px-3 py-2 text-sm tabular-nums focus:outline-none focus:ring-2 focus:ring-accent" />
+        </div>
+        <div>
+          <label class="block text-xs font-medium text-txt-secondary mb-1">갭상승 제외 임계값 (%)</label>
+          <input v-model.number="form.gapUpMaxPercent" type="number" min="0.5" step="0.5"
+            class="w-full border border-border rounded-lg px-3 py-2 text-sm tabular-nums focus:outline-none focus:ring-2 focus:ring-accent" />
+          <p class="text-xs text-txt-tertiary mt-1">전일 대비 N% 이상 갭상승한 종목은 자동목록 제외</p>
+        </div>
+        <div>
+          <label class="block text-xs font-medium text-txt-secondary mb-1">재진입 cooldown (분)</label>
+          <input v-model.number="form.reEntryCooldownMinutes" type="number" min="0" step="5"
+            class="w-full border border-border rounded-lg px-3 py-2 text-sm tabular-nums focus:outline-none focus:ring-2 focus:ring-accent" />
+        </div>
+      </div>
+      <div class="pt-3 border-t border-border-subtle space-y-3">
+        <label class="flex items-center gap-2 cursor-pointer">
+          <input type="checkbox" v-model="form.marketBrakeEnabled" class="rounded text-accent" />
+          <span class="text-sm text-txt-secondary">🚨 시장 브레이크 — KOSPI/VIX 폭락 시 신규 매수 차단</span>
+        </label>
+        <div v-if="form.marketBrakeEnabled" class="grid grid-cols-2 gap-3 pl-6">
+          <div>
+            <label class="block text-xs font-medium text-txt-secondary mb-1">KOSPI 차단 임계값 (%)</label>
+            <input v-model.number="form.marketBrakeKospiPercent" type="number" min="0.5" step="0.5"
+              class="w-full border border-border rounded-lg px-3 py-2 text-sm tabular-nums focus:outline-none focus:ring-2 focus:ring-accent" />
+            <p class="text-xs text-txt-tertiary mt-1">KOSPI -N% 이하면 차단</p>
+          </div>
+          <div>
+            <label class="block text-xs font-medium text-txt-secondary mb-1">VIX 차단 임계값</label>
+            <input v-model.number="form.marketBrakeVixLevel" type="number" min="15" step="1"
+              class="w-full border border-border rounded-lg px-3 py-2 text-sm tabular-nums focus:outline-none focus:ring-2 focus:ring-accent" />
           </div>
         </div>
       </div>
     </div>
 
-    <!-- KIS API 안내 -->
-    <div class="mt-8 p-4 bg-blue-50 rounded-xl border border-blue-200">
-      <h4 class="text-sm font-semibold text-blue-800 mb-2">KIS API 발급 방법</h4>
-      <ol class="text-xs text-blue-700 space-y-1 list-decimal list-inside">
-        <li>한국투자증권 계좌 개설 (온라인 가능)</li>
-        <li><a href="https://apiportal.koreainvestment.com" target="_blank" class="underline">KIS Developers 포털</a> 접속 후 로그인</li>
-        <li>앱 등록 → API 신청 → App Key / App Secret 발급</li>
-        <li>모의계좌 사용 시: 모의계좌 신청 별도 필요</li>
-      </ol>
+    <!-- 매도 규칙 (Rule 6, 7, 8, 9, 10, 11) -->
+    <div class="solid-card p-5 space-y-3">
+      <div class="flex items-center justify-between">
+        <h3 class="text-sm font-semibold text-txt-primary">매도 규칙 (Rule 6~11)</h3>
+        <label class="flex items-center gap-2 cursor-pointer">
+          <input type="checkbox" v-model="form.sellRulesEnabled" class="rounded text-accent" />
+          <span class="text-xs text-txt-secondary">활성화</span>
+        </label>
+      </div>
+      <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
+        <div>
+          <label class="block text-xs font-medium text-txt-secondary mb-1">목표 수익률 (%) — Rule 7-1</label>
+          <input v-model.number="form.targetProfitRate" type="number" min="0.1" step="0.1"
+            class="w-full border border-border rounded-lg px-3 py-2 text-sm tabular-nums focus:outline-none focus:ring-2 focus:ring-accent" />
+        </div>
+        <div>
+          <label class="block text-xs font-medium text-txt-secondary mb-1">손절선 (%) — Rule 6</label>
+          <input v-model.number="form.hardStopLossRate" type="number" min="0.1" step="0.1"
+            class="w-full border border-border rounded-lg px-3 py-2 text-sm tabular-nums focus:outline-none focus:ring-2 focus:ring-accent" />
+        </div>
+        <div>
+          <label class="block text-xs font-medium text-txt-secondary mb-1">트레일링 스탑 폭 (%) — Rule 7-2</label>
+          <input v-model.number="form.trailingStopRate" type="number" min="0.1" step="0.1"
+            class="w-full border border-border rounded-lg px-3 py-2 text-sm tabular-nums focus:outline-none focus:ring-2 focus:ring-accent" />
+        </div>
+        <div>
+          <label class="block text-xs font-medium text-txt-secondary mb-1">트레일링 활성 임계값 (%)</label>
+          <input v-model.number="form.trailingActivatePercent" type="number" min="0.5" step="0.5"
+            class="w-full border border-border rounded-lg px-3 py-2 text-sm tabular-nums focus:outline-none focus:ring-2 focus:ring-accent" />
+          <p class="text-xs text-txt-tertiary mt-1">+N% 도달 후에만 트레일링 활성 (sticky)</p>
+        </div>
+        <div>
+          <label class="block text-xs font-medium text-txt-secondary mb-1">정체 시간 (분) — Rule 7+8</label>
+          <input v-model.number="form.sidewaysMinutes" type="number" min="5"
+            class="w-full border border-border rounded-lg px-3 py-2 text-sm tabular-nums focus:outline-none focus:ring-2 focus:ring-accent" />
+          <p class="text-xs text-txt-tertiary mt-1">활성 임계 미달 + N분 → 정체 청산</p>
+        </div>
+        <div>
+          <label class="block text-xs font-medium text-txt-secondary mb-1">손실 강제손절 시간 (분) — Rule 9</label>
+          <input v-model.number="form.lossMinutes" type="number" min="5"
+            class="w-full border border-border rounded-lg px-3 py-2 text-sm tabular-nums focus:outline-none focus:ring-2 focus:ring-accent" />
+        </div>
+        <div>
+          <label class="block text-xs font-medium text-txt-secondary mb-1">EOD 익절 임계값 (%) — Rule 10</label>
+          <input v-model.number="form.eodProfitTakePercent" type="number" min="0.5" step="0.5"
+            class="w-full border border-border rounded-lg px-3 py-2 text-sm tabular-nums focus:outline-none focus:ring-2 focus:ring-accent" />
+          <p class="text-xs text-txt-tertiary mt-1">15:00에 +N% 이상 보유분 익절</p>
+        </div>
+        <div>
+          <label class="block text-xs font-medium text-txt-secondary mb-1">수익 정의 임계 (%)</label>
+          <input v-model.number="form.profitThresholdPercent" type="number" min="0" step="0.1"
+            class="w-full border border-border rounded-lg px-3 py-2 text-sm tabular-nums focus:outline-none focus:ring-2 focus:ring-accent" />
+          <p class="text-xs text-txt-tertiary mt-1">수수료 보전 — 이 값 미만은 손익무관 처리</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- NAS 동기화 (선택) -->
+    <div class="solid-card p-5 space-y-3">
+      <div class="flex items-center justify-between">
+        <h3 class="text-sm font-semibold text-txt-primary">NAS 동기화 (선택)</h3>
+        <label class="flex items-center gap-2 cursor-pointer">
+          <input type="checkbox" v-model="form.nasSyncEnabled" class="rounded text-accent" />
+          <span class="text-xs text-txt-secondary">활성화</span>
+        </label>
+      </div>
+      <div v-if="form.nasSyncEnabled" class="grid grid-cols-1 md:grid-cols-2 gap-3">
+        <div>
+          <label class="block text-xs font-medium text-txt-secondary mb-1">마운트 경로</label>
+          <input v-model="form.nasSyncPath" type="text" placeholder="/Volumes/stock-manager"
+            class="w-full border border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-accent" />
+        </div>
+        <div>
+          <label class="block text-xs font-medium text-txt-secondary mb-1">동기화 cron</label>
+          <input v-model="form.nasSyncTime" type="text" placeholder="0 20 * * *"
+            class="w-full border border-border rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-accent" />
+        </div>
+      </div>
+    </div>
+
+    <!-- 저장 -->
+    <div class="flex items-center justify-between sticky bottom-0 py-4 bg-surface backdrop-blur">
+      <p v-if="saveMessage" class="text-sm" :class="saveError ? 'text-loss' : 'text-profit'">{{ saveMessage }}</p>
+      <button @click="save" :disabled="saving"
+        class="ml-auto px-6 py-2 bg-accent text-white rounded-lg text-sm font-medium hover:bg-accent/90 disabled:opacity-50">
+        {{ saving ? '저장 중…' : '설정 저장' }}
+      </button>
     </div>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, watch } from 'vue';
-import { chartApi, analysisApi, feedbackApi, nasSyncApi } from '@/api';
-import TradingRulesSection from '@/components/TradingRulesSection.vue';
+import { ref, onMounted } from 'vue';
+import { chartApi } from '@/api';
 import { setRefreshInterval, getRefreshInterval } from '@/composables/useAutoRefresh';
 
-const configStatus = ref({ configured: false, isVirtual: true, hasAccount: false });
-
-// 데이터 새로고침 설정
 const refreshOptions = [
   { label: '10초', value: 10000 },
   { label: '30초', value: 30000 },
   { label: '60초', value: 60000 },
   { label: '수동', value: 0 },
 ];
-const selectedRefreshInterval = ref(getRefreshInterval());
-
-watch(selectedRefreshInterval, (val) => {
-  setRefreshInterval(val);
-});
-
-const dartKeySaved = ref(false);
-
-// 전체 백업/복원
-const backupLoading = ref(false);
-const restoreFile = ref<any>(null);
-const restoreFileInput = ref<HTMLInputElement | null>(null);
-const restoreLoading = ref(false);
-const backupMsg = ref('');
-const backupError = ref(false);
-
-async function doBackup() {
-  backupLoading.value = true;
-  backupMsg.value = '';
-  backupError.value = false;
-  try {
-    const { data } = await feedbackApi.backupConfig();
-    const blob = new Blob([JSON.stringify(data.config, null, 2)], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `stock-manager-backup-${new Date().toISOString().slice(0, 10)}.json`;
-    a.click();
-    URL.revokeObjectURL(url);
-    backupMsg.value = '백업 파일 다운로드 완료';
-  } catch (err: any) {
-    backupMsg.value = err.response?.data?.error || '백업 실패';
-    backupError.value = true;
-  }
-  backupLoading.value = false;
+const refreshInterval = ref(getRefreshInterval());
+function onRefreshIntervalChange() {
+  setRefreshInterval(refreshInterval.value);
 }
 
-function onRestoreFileSelect(e: Event) {
-  restoreFile.value = (e.target as HTMLInputElement).files?.[0] || null;
+interface FormState {
+  appKey: string;
+  appSecret: string;
+  hasSecret: boolean;
+  accountNo: string;
+  accountProductCode: string;
+  isVirtual: boolean;
+  mcpEnabled: boolean;
+  llmProvider: 'openai' | 'ollama';
+  llmUrl: string;
+  llmModel: string;
+  llmEnabled: boolean;
+  llmApiKey: string;
+  hasLlmApiKey: boolean;
+  dartApiKey: string;
+  dartEnabled: boolean;
+  hasDartKey: boolean;
+  autoTradeEnabled: boolean;
+  autoTradeMaxInvestment: number;
+  autoTradeMaxPerStock: number;
+  autoTradeMaxDailyTrades: number;
+  scheduleKrx: { enabled: boolean };
+  sellRulesEnabled: boolean;
+  targetProfitRate: number;
+  hardStopLossRate: number;
+  trailingStopRate: number;
+  trailingActivatePercent: number;
+  sidewaysMinutes: number;
+  lossMinutes: number;
+  profitThresholdPercent: number;
+  positionMaxPositions: number;
+  eodProfitTakePercent: number;
+  entryGainPercent: number;
+  marketBrakeEnabled: boolean;
+  marketBrakeKospiPercent: number;
+  marketBrakeVixLevel: number;
+  gapUpMaxPercent: number;
+  reEntryCooldownMinutes: number;
+  nasSyncEnabled: boolean;
+  nasSyncPath: string;
+  nasSyncTime: string;
+  nasHost: string;
+  nasShare: string;
+  nasUsername: string;
+  nasPassword: string;
+  nasAutoMount: boolean;
+  deviceId: string;
 }
 
-async function doRestore() {
-  if (!restoreFile.value) return;
-  if (!confirm('현재 설정을 백업 파일의 내용으로 덮어씁니다. 계속하시겠습니까?')) return;
-  restoreLoading.value = true;
-  backupMsg.value = '';
-  backupError.value = false;
-  try {
-    const text = await restoreFile.value.text();
-    const json = JSON.parse(text);
-    const { data } = await feedbackApi.restoreConfig(json.config || json);
-    backupMsg.value = '복원 완료 — 페이지를 새로고침합니다';
-    backupError.value = false;
-    setTimeout(() => location.reload(), 1500);
-  } catch (err: any) {
-    backupMsg.value = err.response?.data?.error || '복원 실패';
-    backupError.value = true;
-  }
-  restoreLoading.value = false;
-}
-
-// 전략 내보내기/가져오기
-const strategyExporting = ref(false);
-const strategyExportMsg = ref('');
-const strategyFile = ref<any>(null);
-const strategyFileInput = ref<HTMLInputElement | null>(null);
-const strategyImporting = ref(false);
-const strategyImportMsg = ref('');
-const strategyImportError = ref(false);
-const loraStatus = ref<any>(null);
-const loraExporting = ref(false);
-const loraExportMsg = ref('');
-
-// NAS 동기화
-const syncStatus = ref<any>(null);
-const syncValidateResult = ref('');
-const syncing = ref(false);
-const validating = ref(false);
-const syncResultMessage = ref('');
-const syncResultError = ref(false);
-
-async function doExportStrategy() {
-  strategyExporting.value = true;
-  strategyExportMsg.value = '';
-  try {
-    const { data } = await feedbackApi.exportStrategy();
-    // 브라우저에서 다운로드
-    const blob = new Blob([JSON.stringify(data.strategy, null, 2)], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `strategy-${new Date().toISOString().slice(0, 10)}.json`;
-    a.click();
-    URL.revokeObjectURL(url);
-    strategyExportMsg.value = '다운로드 완료';
-  } catch (err: any) {
-    strategyExportMsg.value = err.response?.data?.error || '내보내기 실패';
-  }
-  strategyExporting.value = false;
-}
-
-function onStrategyFileSelect(e: Event) {
-  const input = e.target as HTMLInputElement;
-  strategyFile.value = input.files?.[0] || null;
-}
-
-async function doImportStrategy() {
-  if (!strategyFile.value) return;
-  strategyImporting.value = true;
-  strategyImportMsg.value = '';
-  strategyImportError.value = false;
-  try {
-    const text = await strategyFile.value.text();
-    const json = JSON.parse(text);
-    const { data } = await feedbackApi.importStrategy(json.strategy || json);
-    strategyImportMsg.value = data.message || '적용 완료';
-    strategyImportError.value = false;
-  } catch (err: any) {
-    strategyImportMsg.value = err.response?.data?.error || '가져오기 실패';
-    strategyImportError.value = true;
-  }
-  strategyImporting.value = false;
-}
-
-async function loadLoraStatus() {
-  try {
-    const { data } = await feedbackApi.getLoraStatus();
-    loraStatus.value = data;
-  } catch {}
-}
-
-async function doExportLora() {
-  loraExporting.value = true;
-  loraExportMsg.value = '';
-  try {
-    const { data } = await feedbackApi.exportLora();
-    loraExportMsg.value = data.message;
-  } catch (err: any) {
-    loraExportMsg.value = err.response?.data?.error || '생성 실패';
-  }
-  loraExporting.value = false;
-}
-const saving = ref(false);
-const saveMessage = ref('');
-const saveError = ref(false);
-
-const form = ref({
-  appKey: '',
-  appSecret: '',
-  accountNo: '',
-  accountProductCode: '01',
-  isVirtual: true,
-
-  llmProvider: 'openai' as 'ollama' | 'openai',
-  llmUrl: 'https://ai.unids.kr/v1',
-  llmModel: '',
-  llmEnabled: true,
-  llmApiKey: '',
-
-  dartApiKey: '',
-  dartEnabled: false,
-
-  investmentStyle: 'balanced',
-  debateMode: false,
-  stopLossPercent: 3,
-
+const form = ref<FormState>({
+  appKey: '', appSecret: '', hasSecret: false,
+  accountNo: '', accountProductCode: '01', isVirtual: true, mcpEnabled: false,
+  llmProvider: 'openai', llmUrl: 'https://ai.unids.kr/v1', llmModel: '',
+  llmEnabled: true, llmApiKey: '', hasLlmApiKey: false,
+  dartApiKey: '', dartEnabled: false, hasDartKey: false,
   autoTradeEnabled: false,
-  autoTradeMaxInvestment: 10000000,
-  autoTradeMaxPerStock: 2000000,
+  autoTradeMaxInvestment: 10_000_000,
+  autoTradeMaxPerStock: 2_000_000,
   autoTradeMaxDailyTrades: 10,
-
-  scheduleKrx: { enabled: false, preOpen: true, postOpen: true, preClose1h: true, preClose30m: true } as Record<string, boolean>,
-  scheduleNyse: { enabled: false, preOpen: true, postOpen: true, preClose1h: true, preClose30m: true } as Record<string, boolean>,
-
-  tradingRulesEnabled: true,
-  tradingRulesStrictMode: false,
-  gapThresholdPercent: 3,
-  volumeSurgeRatio: 1.5,
-  lowVolumeRatio: 0.7,
-  sidewaysAtrPercent: 1.0,
-
-  portfolioMaxHoldings: 10,
-  portfolioMaxPerStockPercent: 20,
-  portfolioMaxSectorPercent: 40,
-  portfolioMinCashPercent: 10,
-  portfolioRebalanceEnabled: false,
-
-  // v4.8.0: 매도 규칙
+  scheduleKrx: { enabled: false },
   sellRulesEnabled: true,
   targetProfitRate: 3.0,
   hardStopLossRate: 2.0,
   trailingStopRate: 1.5,
-  maxHoldMinutes: 60,
-
-  // v4.8.0: 포지션 사이징
-  positionMaxRatio: 25,
-  positionMinCashRatio: 20,
-  positionMaxPositions: 3,
-
-  // v4.8.0: 동적 스크리닝
-  dynamicScreeningEnabled: true,
-  screeningVolumeRatioMin: 1.5,
-  screeningMinMarketCap: 500,
-
-  // v4.10.0: 가상매매
-  paperTradingEnabled: true,
-  paperTradeAmount: 1_000_000,
-
+  trailingActivatePercent: 3.0,
+  sidewaysMinutes: 60,
+  lossMinutes: 60,
+  profitThresholdPercent: 0.5,
+  positionMaxPositions: 5,
+  eodProfitTakePercent: 3.0,
+  entryGainPercent: 1.0,
+  marketBrakeEnabled: true,
+  marketBrakeKospiPercent: 2.0,
+  marketBrakeVixLevel: 30,
+  gapUpMaxPercent: 3.0,
+  reEntryCooldownMinutes: 30,
   nasSyncEnabled: false,
-  nasSyncPath: '',
+  nasSyncPath: '/Volumes/stock-manager',
   nasSyncTime: '0 20 * * *',
-  nasDeviceId: '',
+  nasHost: '', nasShare: 'stock-manager', nasUsername: '', nasPassword: '',
+  nasAutoMount: true, deviceId: '',
 });
 
-const scheduleSlots = [
-  { key: 'preOpen', label: '장 시작 전', krxTime: '08:30', nyseTime: '09:00' },
-  { key: 'postOpen', label: '장 시작 30분 후', krxTime: '09:30', nyseTime: '10:00' },
-  { key: 'preClose1h', label: '장 마감 1시간 전', krxTime: '14:30', nyseTime: '15:00' },
-  { key: 'preClose30m', label: '장 마감 30분 전', krxTime: '15:00', nyseTime: '15:30' },
-];
-
-function formatCurrency(value: number): string {
-  return new Intl.NumberFormat('ko-KR', { style: 'currency', currency: 'KRW', maximumFractionDigits: 0 }).format(value);
-}
-
-const secretSaved = ref(false);
-
-// 외부 LLM 관리 (v4.13.0)
-const llmConnected = ref(false);
-const llmModels = ref<any[]>([]);
-const llmKeySaved = ref(false);
-
-async function checkLlm() {
-  try {
-    const { data } = await analysisApi.getLlmStatus();
-    llmConnected.value = data.connected;
-    if (data.connected) await loadLlmModels();
-  } catch {
-    llmConnected.value = false;
-  }
-}
-
-/** Provider 프리셋 전환 — URL이 이전 프리셋의 기본값과 일치할 때만 자동 교체 */
-function selectLlmProvider(provider: 'ollama' | 'openai') {
-  const prev = form.value.llmProvider;
-  if (prev === provider) return;
-
-  const OLLAMA_DEFAULT = 'http://localhost:11434/v1';
-  const OPENAI_DEFAULT = 'https://ai.unids.kr/v1';
-  const presetUrls = [OLLAMA_DEFAULT, OPENAI_DEFAULT, 'https://api.openai.com/v1', ''];
-
-  form.value.llmProvider = provider;
-  // 사용자가 커스텀 URL을 입력하지 않은 경우에만 URL 프리셋 자동 교체
-  if (presetUrls.includes(form.value.llmUrl)) {
-    form.value.llmUrl = provider === 'ollama' ? OLLAMA_DEFAULT : OPENAI_DEFAULT;
-  }
-  // 모델 목록은 서버마다 다르므로 초기화
-  llmModels.value = [];
-}
-
-async function loadLlmModels() {
-  try {
-    const { data } = await analysisApi.getLlmModels();
-    llmModels.value = (data.models || []).map((m: any) =>
-      typeof m === 'string' ? { name: m, size: 0 } : m,
-    );
-  } catch {
-    llmModels.value = [];
-  }
-}
-
-async function validateNasPath() {
-  if (!form.value.nasSyncPath) return;
-  validating.value = true;
-  syncValidateResult.value = '';
-  try {
-    const { data } = await nasSyncApi.validate(form.value.nasSyncPath);
-    syncValidateResult.value = data.valid ? `OK: ${data.message}` : data.message;
-  } catch (err: any) {
-    syncValidateResult.value = err.response?.data?.message || '경로 확인 실패';
-  }
-  validating.value = false;
-}
-
-async function runSyncNow() {
-  syncing.value = true;
-  syncResultMessage.value = '';
-  syncResultError.value = false;
-  try {
-    const { data } = await nasSyncApi.run();
-    syncResultMessage.value = data.success
-      ? `NAS 동기화 완료 — ${data.tablesExported}개 테이블, ${data.totalRecords.toLocaleString()}건 (API 키 마스킹)`
-      : data.message;
-    syncResultError.value = !data.success;
-    await loadSyncStatus();
-  } catch (err: any) {
-    syncResultMessage.value = err.response?.data?.message || '동기화 실패';
-    syncResultError.value = true;
-  }
-  syncing.value = false;
-}
-
-async function runLocalBackup() {
-  if (!confirm('로컬 백업은 API 키를 평문으로 포함합니다.\n이 백업 파일은 안전한 개인 저장소(외부 노출 없음)에만 보관하세요.\n\n계속하시겠습니까?')) {
-    return;
-  }
-  syncing.value = true;
-  syncResultMessage.value = '';
-  syncResultError.value = false;
-  try {
-    const { data } = await nasSyncApi.backup();
-    syncResultMessage.value = data.success
-      ? `로컬 백업 완료 — ${data.tablesExported}개 테이블, ${data.totalRecords.toLocaleString()}건 (API 키 포함)`
-      : data.message;
-    syncResultError.value = !data.success;
-    await loadSyncStatus();
-  } catch (err: any) {
-    syncResultMessage.value = err.response?.data?.message || '백업 실패';
-    syncResultError.value = true;
-  }
-  syncing.value = false;
-}
-
-async function loadSyncStatus() {
-  try {
-    const { data } = await nasSyncApi.getStatus();
-    syncStatus.value = data;
-  } catch {
-    // NAS 동기화 미설정
-  }
-}
+const saving = ref(false);
+const saveMessage = ref('');
+const saveError = ref(false);
 
 async function loadConfig() {
   try {
-    const [statusRes, formRes] = await Promise.all([
-      chartApi.getConfig(),
-      chartApi.getFormConfig(),
-    ]);
-    configStatus.value = statusRes.data;
-
-    const saved = formRes.data;
-    form.value.appKey = saved.appKey || '';
-    form.value.accountNo = saved.accountNo || '';
-    form.value.accountProductCode = saved.accountProductCode || '01';
-    form.value.isVirtual = saved.isVirtual ?? true;
-    secretSaved.value = saved.hasSecret;
-
-    form.value.llmProvider = saved.llmProvider === 'ollama' ? 'ollama' : 'openai';
-    form.value.llmUrl = saved.llmUrl || (form.value.llmProvider === 'ollama' ? 'http://localhost:11434/v1' : 'https://ai.unids.kr/v1');
-    form.value.llmModel = saved.llmModel || '';
-    form.value.llmEnabled = saved.llmEnabled ?? true;
-    form.value.llmApiKey = ''; // 저장된 값은 서버에서 돌려주지 않음; 변경 시에만 입력
-    llmKeySaved.value = !!saved.hasLlmApiKey;
-
-    form.value.dartEnabled = saved.dartEnabled ?? false;
-    dartKeySaved.value = saved.hasDartKey ?? false;
-
-    form.value.investmentStyle = saved.investmentStyle || 'balanced';
-    form.value.debateMode = saved.debateMode ?? false;
-    form.value.stopLossPercent = saved.stopLossPercent ?? 3;
-
-    form.value.autoTradeEnabled = saved.autoTradeEnabled ?? false;
-    form.value.autoTradeMaxInvestment = saved.autoTradeMaxInvestment ?? 10000000;
-    form.value.autoTradeMaxPerStock = saved.autoTradeMaxPerStock ?? 2000000;
-    form.value.autoTradeMaxDailyTrades = saved.autoTradeMaxDailyTrades ?? 10;
-
-    if (saved.scheduleKrx) form.value.scheduleKrx = saved.scheduleKrx;
-    if (saved.scheduleNyse) form.value.scheduleNyse = saved.scheduleNyse;
-
-    form.value.tradingRulesEnabled = saved.tradingRulesEnabled ?? true;
-    form.value.tradingRulesStrictMode = saved.tradingRulesStrictMode ?? false;
-    form.value.gapThresholdPercent = saved.gapThresholdPercent ?? 3;
-    form.value.volumeSurgeRatio = saved.volumeSurgeRatio ?? 1.5;
-    form.value.lowVolumeRatio = saved.lowVolumeRatio ?? 0.7;
-    form.value.sidewaysAtrPercent = saved.sidewaysAtrPercent ?? 1.0;
-
-    form.value.portfolioMaxHoldings = saved.portfolioMaxHoldings ?? 10;
-    form.value.portfolioMaxPerStockPercent = saved.portfolioMaxPerStockPercent ?? 20;
-    form.value.portfolioMaxSectorPercent = saved.portfolioMaxSectorPercent ?? 40;
-    form.value.portfolioMinCashPercent = saved.portfolioMinCashPercent ?? 10;
-    form.value.portfolioRebalanceEnabled = saved.portfolioRebalanceEnabled ?? false;
-
-    // v4.8.0: 매도 규칙
-    form.value.sellRulesEnabled = saved.sellRulesEnabled ?? true;
-    form.value.targetProfitRate = saved.targetProfitRate ?? 3.0;
-    form.value.hardStopLossRate = saved.hardStopLossRate ?? 2.0;
-    form.value.trailingStopRate = saved.trailingStopRate ?? 1.5;
-    form.value.maxHoldMinutes = saved.maxHoldMinutes ?? 60;
-
-    // v4.8.0: 포지션 사이징
-    form.value.positionMaxRatio = saved.positionMaxRatio ?? 25;
-    form.value.positionMinCashRatio = saved.positionMinCashRatio ?? 20;
-    form.value.positionMaxPositions = saved.positionMaxPositions ?? 3;
-
-    // v4.8.0: 동적 스크리닝
-    form.value.dynamicScreeningEnabled = saved.dynamicScreeningEnabled ?? true;
-    form.value.screeningVolumeRatioMin = saved.screeningVolumeRatioMin ?? 1.5;
-    form.value.screeningMinMarketCap = saved.screeningMinMarketCap ?? 500;
-
-    // v4.10.0: 가상매매
-    form.value.paperTradingEnabled = saved.paperTradingEnabled ?? true;
-    form.value.paperTradeAmount = saved.paperTradeAmount ?? 1_000_000;
-
-    form.value.nasSyncEnabled = saved.nasSyncEnabled ?? false;
-    form.value.nasSyncPath = saved.nasSyncPath || '';
-    form.value.nasSyncTime = saved.nasSyncTime || '0 20 * * *';
-    form.value.nasDeviceId = saved.nasDeviceId || '';
-  } catch {
-    // 설정 없음
+    const { data } = await chartApi.getFormConfig();
+    Object.assign(form.value, {
+      appKey: data.appKey || '',
+      hasSecret: data.hasSecret,
+      accountNo: data.accountNo || '',
+      accountProductCode: data.accountProductCode || '01',
+      isVirtual: data.isVirtual,
+      mcpEnabled: data.mcpEnabled,
+      llmProvider: data.llmProvider || 'openai',
+      llmUrl: data.llmUrl || 'https://ai.unids.kr/v1',
+      llmModel: data.llmModel || '',
+      llmEnabled: data.llmEnabled !== false,
+      hasLlmApiKey: data.hasLlmApiKey,
+      dartEnabled: data.dartEnabled,
+      hasDartKey: data.hasDartKey,
+      autoTradeEnabled: data.autoTradeEnabled,
+      autoTradeMaxInvestment: data.autoTradeMaxInvestment,
+      autoTradeMaxPerStock: data.autoTradeMaxPerStock,
+      autoTradeMaxDailyTrades: data.autoTradeMaxDailyTrades,
+      scheduleKrx: data.scheduleKrx ?? { enabled: false },
+      sellRulesEnabled: data.sellRulesEnabled,
+      targetProfitRate: data.targetProfitRate,
+      hardStopLossRate: data.hardStopLossRate,
+      trailingStopRate: data.trailingStopRate,
+      trailingActivatePercent: data.trailingActivatePercent,
+      sidewaysMinutes: data.sidewaysMinutes,
+      lossMinutes: data.lossMinutes,
+      profitThresholdPercent: data.profitThresholdPercent,
+      positionMaxPositions: data.positionMaxPositions,
+      eodProfitTakePercent: data.eodProfitTakePercent,
+      entryGainPercent: data.entryGainPercent,
+      marketBrakeEnabled: data.marketBrakeEnabled ?? true,
+      marketBrakeKospiPercent: data.marketBrakeKospiPercent,
+      marketBrakeVixLevel: data.marketBrakeVixLevel,
+      gapUpMaxPercent: data.gapUpMaxPercent,
+      reEntryCooldownMinutes: data.reEntryCooldownMinutes,
+      nasSyncEnabled: data.nasSyncEnabled,
+      nasSyncPath: data.nasSyncPath,
+      nasSyncTime: data.nasSyncTime,
+      nasHost: data.nasHost,
+      nasShare: data.nasShare,
+      nasUsername: data.nasUsername,
+      nasAutoMount: data.nasAutoMount,
+      deviceId: data.deviceId,
+    });
+  } catch (err: any) {
+    saveError.value = true;
+    saveMessage.value = '설정 불러오기 실패';
   }
 }
 
-async function saveConfig() {
+async function save() {
   saving.value = true;
-  saveMessage.value = '';
   saveError.value = false;
+  saveMessage.value = '';
   try {
-    await chartApi.saveConfig(form.value);
-    saveMessage.value = '설정이 저장되었습니다.';
-    form.value.appSecret = ''; // 저장 후 Secret 필드 초기화
+    await chartApi.saveConfig({
+      ...form.value,
+      // hasXxx 플래그는 서버에서 안 받음 — 빈 값일 때 서버 측에서 기존값 유지
+    });
+    saveMessage.value = '설정 저장 완료';
     await loadConfig();
+    setTimeout(() => { saveMessage.value = ''; }, 3000);
   } catch (err: any) {
     saveError.value = true;
     saveMessage.value = err.response?.data?.error || '저장 실패';
   } finally {
     saving.value = false;
-    setTimeout(() => { saveMessage.value = ''; }, 3000);
   }
 }
 
-onMounted(async () => {
-  await loadConfig();
-  checkLlm();
-  loadLoraStatus();
-  loadSyncStatus();
-});
+onMounted(loadConfig);
 </script>

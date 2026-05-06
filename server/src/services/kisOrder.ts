@@ -1,15 +1,14 @@
 /**
  * KIS 주문 API
  * - 국내주식: TTTC0802U (매수), TTTC0801U (매도)
- * - 해외주식: JTTT1002U (매수), JTTT1006U (매도)
- * - 모의투자: VTTC0802U, VTTC0801U (국내) / VTTT1002U, VTTT1001U (해외)
+ * - 모의투자: VTTC0802U, VTTC0801U
  */
 
 import { getAccessToken, getKisConfig } from './kisAuth';
 import { getSettings } from './settings';
 import { queryOne, queryAll, execute } from '../db';
 import { kisApiCall } from './apiQueue';
-import { calculateOptimalQuantity, checkPositionSizingRules } from './portfolioManager';
+import { checkPositionSizingRules } from './portfolioManager';
 import logger from '../logger';
 
 // ─── 타입 ─────────────────────────────────────────────
@@ -17,11 +16,11 @@ import logger from '../logger';
 export interface OrderRequest {
   stockId: number;
   ticker: string;
-  market: 'KRX' | 'NYSE' | 'NASDAQ';
+  market: 'KRX';
   orderType: 'BUY' | 'SELL';
   quantity: number;
   price: number;        // 0이면 시장가
-  signalId?: number;
+  reason?: string;      // 매수/매도 사유 (auto_trades.reason 기록용)
 }
 
 export interface OrderResult {
@@ -95,50 +94,16 @@ async function getDomesticPrice(ticker: string): Promise<number | null> {
   return Number(data.output?.stck_prpr) || null;
 }
 
-/** 해외주식 현재가 조회 */
-async function getOverseasPrice(ticker: string, market: 'NYSE' | 'NASDAQ'): Promise<number | null> {
-  const { appKey, appSecret, baseUrl, isVirtual } = getKisConfig();
-  const token = await getAccessToken();
-  const exchCode = market === 'NYSE' ? 'NYS' : 'NAS';
-  const trId = isVirtual ? 'VHHDFS76200200' : 'HHDFS76200200';
-
-  const params = new URLSearchParams({
-    AUTH: '', EXCD: exchCode, SYMB: ticker,
-  });
-
-  const response = await fetch(
-    `${baseUrl}/uapi/overseas-price/v1/quotations/price-detail?${params}`,
-    {
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${token}`,
-        appkey: appKey, appsecret: appSecret,
-        tr_id: trId, custtype: 'P',
-      },
-    }
-  );
-
-  if (!response.ok) return null;
-  const data: any = await response.json();
-  if (data.rt_cd !== '0') return null;
-  return Number(data.output?.last) || null;
-}
-
-/** 시장에 맞는 현재가 조회 */
-export async function getCurrentPrice(ticker: string, market: 'KRX' | 'NYSE' | 'NASDAQ'): Promise<number | null> {
-  if (market === 'KRX') return getDomesticPrice(ticker);
-  return getOverseasPrice(ticker, market);
+/** KRX 현재가 조회 */
+export async function getCurrentPrice(ticker: string, _market: 'KRX'): Promise<number | null> {
+  return getDomesticPrice(ticker);
 }
 
 // ─── 수수료 계산 ──────────────────────────────────────
 
-function calculateFee(market: string, amount: number): number {
-  if (market === 'KRX') {
-    // 국내: 매매수수료 0.015% + 매도 시 세금 0.18% (간략화: 총 0.25%)
-    return Math.round(amount * 0.0025);
-  }
-  // 해외: 약 0.25% (환전 수수료 포함)
-  return Math.round(amount * 0.0025 * 100) / 100;
+function calculateFee(_market: string, amount: number): number {
+  // KRX: 매매수수료 0.015% + 매도 시 세금 0.18% (간략화: 총 0.25%)
+  return Math.round(amount * 0.0025);
 }
 
 // ─── 주문 수량 계산 ───────────────────────────────────
@@ -299,73 +264,6 @@ async function submitDomesticOrder(
   };
 }
 
-// ─── 해외주식 주문 ────────────────────────────────────
-
-async function submitOverseasOrder(
-  ticker: string,
-  market: 'NYSE' | 'NASDAQ',
-  orderType: 'BUY' | 'SELL',
-  quantity: number,
-  price: number,
-): Promise<{ success: boolean; orderNo: string; message: string }> {
-  const { appKey, appSecret, baseUrl, isVirtual } = getKisConfig();
-  const settings = getSettings();
-  const token = await getAccessToken();
-
-  const exchCode = market === 'NYSE' ? 'NYS' : 'NAS';
-  // 실전: JTTT1002U(매수), JTTT1006U(매도) | 모의: VTTT1002U(매수), VTTT1001U(매도)
-  const trId = orderType === 'BUY'
-    ? (isVirtual ? 'VTTT1002U' : 'JTTT1002U')
-    : (isVirtual ? 'VTTT1001U' : 'JTTT1006U');
-
-  // 해외주식 주문유형: 00=지정가, 32=시장가(LOO)
-  const ordType = price > 0 ? '00' : '32';
-
-  const body = {
-    CANO: settings.kisAccountNo,
-    ACNT_PRDT_CD: settings.kisAccountProductCode || '01',
-    OVRS_EXCG_CD: exchCode,
-    PDNO: ticker,
-    ORD_DVSN: ordType,
-    ORD_QTY: String(quantity),
-    OVRS_ORD_UNPR: price > 0 ? String(price) : '0',
-    ORD_SVR_DVSN_CD: '0',
-  };
-
-  const data: any = await kisApiCall(async () => {
-    const response = await fetch(
-      `${baseUrl}/uapi/overseas-stock/v1/trading/order`,
-      {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${token}`,
-          appkey: appKey,
-          appsecret: appSecret,
-          tr_id: trId,
-          custtype: 'P',
-        },
-        body: JSON.stringify(body),
-      }
-    );
-    return response.json();
-  }, `order-overseas-${orderType}-${ticker}`);
-
-  if (data.rt_cd === '0') {
-    return {
-      success: true,
-      orderNo: data.output?.ODNO || data.output?.KRX_FWDG_ORD_ORGNO || '',
-      message: data.msg1 || '주문 성공',
-    };
-  }
-
-  return {
-    success: false,
-    orderNo: '',
-    message: `${data.msg_cd}: ${data.msg1 || '주문 실패'}`,
-  };
-}
-
 // ─── 통합 주문 실행 ───────────────────────────────────
 
 /** 당일 거래정지/매매불가 이력 체크.
@@ -399,32 +297,7 @@ export function isSuspendedToday(stockId: number): { suspended: boolean; reason?
 export async function executeOrder(req: OrderRequest): Promise<OrderResult> {
   const settings = getSettings();
 
-  // 0-a. Protection 시스템 (v4.16.0) — StoplossGuard/CooldownPeriod/LowProfitPairs
-  // 전략 수준 circuit breaker. 개별 주문 차단보다 먼저 평가해 전략 실패 조기 감지.
-  try {
-    const { checkProtections, logProtectionBlock } = await import('./protections');
-    const protectionCtx = {
-      stockId: req.stockId,
-      ticker: req.ticker,
-      market: req.market,
-      orderType: req.orderType,
-    };
-    const protectionResult = checkProtections(protectionCtx);
-    if (!protectionResult.allowed) {
-      await logProtectionBlock(protectionCtx, protectionResult);
-      return {
-        success: false,
-        message: protectionResult.reason ?? 'Protection 차단',
-        quantity: 0,
-        price: 0,
-        fee: 0,
-      };
-    }
-  } catch (err) {
-    logger.error({ err, ticker: req.ticker }, 'Protection check failed — proceeding with order');
-  }
-
-  // 0-b. 당일 거래정지 이력 차단 — 같은 종목에 대한 동일 에러 반복을 방지
+  // 0. 당일 거래정지 이력 차단 — 같은 종목에 대한 동일 에러 반복을 방지
   const suspended = isSuspendedToday(req.stockId);
   if (suspended.suspended) {
     try {
@@ -458,9 +331,7 @@ export async function executeOrder(req: OrderRequest): Promise<OrderResult> {
   if (orderPrice <= 0) {
     if (req.orderType === 'BUY') {
       // 매수: 현재가 -0.5% 지정가 (슬리피지 감소)
-      orderPrice = req.market === 'KRX'
-        ? Math.floor(currentPrice * 0.995)  // KRX: 정수
-        : Math.round(currentPrice * 0.995 * 100) / 100;  // 해외: 소수점 2자리
+      orderPrice = Math.floor(currentPrice * 0.995);
     } else {
       // 매도: 시장가 (빠른 체결 우선)
       orderPrice = currentPrice;
@@ -472,16 +343,7 @@ export async function executeOrder(req: OrderRequest): Promise<OrderResult> {
   let quantity = req.quantity;
   if (req.orderType === 'BUY') {
     // 2a. 포지션 사이징 규칙 (예산/종목 수/현금 비율 gate)
-    // 해외 종목: USD 가격을 KRW로 환산해야 totalValue/cash와 단위가 일치
-    let fxRate = 1;
-    if (req.market !== 'KRX') {
-      try {
-        const { getMarketContext } = await import('./stockPrice');
-        const ctx = await getMarketContext();
-        fxRate = ctx.usdKrw?.price ?? 1400; // fallback: 평균치
-      } catch { fxRate = 1400; }
-    }
-    const sizing = checkPositionSizingRules(orderPrice, req.market, fxRate);
+    const sizing = checkPositionSizingRules(orderPrice, req.market);
     if (!sizing.allowed) {
       // v4.11.0: 체결 차단 사유를 system_events에 기록 (Dashboard에서 확인 가능)
       try {
@@ -496,18 +358,15 @@ export async function executeOrder(req: OrderRequest): Promise<OrderResult> {
     // 2b. 실제 주문가능금액 조회 (dnca_tot_amt가 아닌 ord_psbl_cash)
     let orderableAmount = settings.autoTradeMaxPerStock;
     try {
-      if (req.market === 'KRX') {
-        const available = await getDomesticOrderableAmount();
-        if (available > 0) orderableAmount = Math.min(orderableAmount, available);
-      }
-      // 해외는 fetchOverseasDeposit에서 이미 처리됨
+      const available = await getDomesticOrderableAmount();
+      if (available > 0) orderableAmount = Math.min(orderableAmount, available);
     } catch {}
 
     if (quantity <= 0) {
-      // Use portfolio-based optimal quantity (respects max % per stock)
-      const optimalQty = calculateOptimalQuantity(orderPrice, req.market);
-      quantity = optimalQty > 0 ? optimalQty : calculateOrderQuantity(orderPrice, req.market, orderableAmount);
-      // Ensure within available capital
+      // sizing.maxBuyQuantity가 정해진 한도 내 최대 수량
+      quantity = sizing.maxBuyQuantity > 0
+        ? sizing.maxBuyQuantity
+        : calculateOrderQuantity(orderPrice, req.market, orderableAmount);
       if (orderableAmount > 0 && quantity * orderPrice > orderableAmount) {
         quantity = Math.floor(orderableAmount / orderPrice);
       }
@@ -529,8 +388,8 @@ export async function executeOrder(req: OrderRequest): Promise<OrderResult> {
     return { success: false, message: '주문 수량 0 — 주문가능금액 부족 또는 가격 대비 한도 부족', quantity: 0, price: orderPrice, fee: 0 };
   }
 
-  // 2.5. 호가 품질 최후 방어선 (매수 주문 한정, KRX만)
-  if (req.orderType === 'BUY' && req.market === 'KRX') {
+  // 2.5. 호가 품질 최후 방어선 (매수 주문 한정)
+  if (req.orderType === 'BUY') {
     try {
       const { getQuoteBook } = await import('./quoteBook');
       const { logSystemEvent } = await import('./systemEvent');
@@ -568,56 +427,54 @@ export async function executeOrder(req: OrderRequest): Promise<OrderResult> {
   // 4. 수수료 계산
   const fee = calculateFee(req.market, orderPrice * quantity);
 
-  // 5. auto_trades에 SUBMITTED 기록
+  // 5. auto_trades에 SUBMITTED 기록 (v5.0: signal_id 컬럼 제거)
   const { lastId: tradeId } = execute(
-    'INSERT INTO auto_trades (stock_id, signal_id, order_type, quantity, price, fee, status) VALUES (?, ?, ?, ?, ?, ?, ?)',
-    [req.stockId, req.signalId || null, req.orderType, quantity, orderPrice, fee, 'SUBMITTED']
+    'INSERT INTO auto_trades (stock_id, order_type, quantity, price, fee, status, reason) VALUES (?, ?, ?, ?, ?, ?, ?)',
+    [req.stockId, req.orderType, quantity, orderPrice, fee, 'SUBMITTED', req.reason || ''],
   );
 
   // 6. KIS 주문 제출
   try {
-    let result: { success: boolean; orderNo: string; message: string };
+    let result: { success: boolean; orderNo: string; message: string; filledQty?: number; filledPrice?: number };
 
-    // 지정가: orderPrice 그대로, 시장가: 0 전달
     const submitPrice = useMarketOrder ? 0 : orderPrice;
-    if (req.market === 'KRX') {
-      result = await submitDomesticOrder(req.ticker, req.orderType, quantity, submitPrice);
-    } else {
-      result = await submitOverseasOrder(req.ticker, req.market, req.orderType, quantity, submitPrice);
-    }
+    result = await submitDomesticOrder(req.ticker, req.orderType, quantity, submitPrice);
 
     if (result.success) {
-      // 체결 성공
+      // 부분 체결 처리: KIS 응답에서 실제 체결 수량/가격 사용 (가능 시).
+      // submitDomesticOrder는 ODNO만 반환하지만, 추후 inquire-ccnl로 체결 내역 조회 가능.
+      // 단순화: filledQty 미제공 시 요청 수량 그대로 사용 (대부분 정상 체결).
+      const finalQty = result.filledQty && result.filledQty > 0 ? result.filledQty : quantity;
+      const finalPrice = result.filledPrice && result.filledPrice > 0 ? result.filledPrice : orderPrice;
+      const finalFee = calculateFee(req.market, finalQty * finalPrice);
+
       execute(
-        "UPDATE auto_trades SET status = 'FILLED', kis_order_no = ?, executed_at = datetime('now') WHERE id = ?",
-        [result.orderNo, tradeId]
+        "UPDATE auto_trades SET status = 'FILLED', kis_order_no = ?, executed_at = datetime('now'), quantity = ?, price = ?, fee = ? WHERE id = ?",
+        [result.orderNo, finalQty, finalPrice, finalFee, tradeId],
       );
 
-      // 매수 체결 시 거래 내역(transactions)에도 기록
-      if (req.orderType === 'BUY') {
-        const today = new Date().toISOString().split('T')[0];
-        execute(
-          'INSERT INTO transactions (stock_id, type, quantity, price, fee, date, memo) VALUES (?, ?, ?, ?, ?, ?, ?)',
-          [req.stockId, 'BUY', quantity, orderPrice, fee, today, `자동매매 (KIS: ${result.orderNo})`]
-        );
-      } else {
-        const today = new Date().toISOString().split('T')[0];
-        execute(
-          'INSERT INTO transactions (stock_id, type, quantity, price, fee, date, memo) VALUES (?, ?, ?, ?, ?, ?, ?)',
-          [req.stockId, 'SELL', quantity, orderPrice, fee, today, `자동매매 (KIS: ${result.orderNo})`]
-        );
-      }
+      const today = new Date().toISOString().split('T')[0];
+      execute(
+        'INSERT INTO transactions (stock_id, type, quantity, price, fee, date, memo) VALUES (?, ?, ?, ?, ?, ?, ?)',
+        [
+          req.stockId, req.orderType, finalQty, finalPrice, finalFee, today,
+          `자동매매 (KIS: ${result.orderNo})${req.reason ? ' / ' + req.reason : ''}`,
+        ],
+      );
 
-      logger.info({ orderType: req.orderType, ticker: req.ticker, quantity, price: orderPrice, orderNo: result.orderNo }, 'KIS order filled');
+      logger.info(
+        { orderType: req.orderType, ticker: req.ticker, quantity: finalQty, price: finalPrice, orderNo: result.orderNo },
+        'KIS order filled',
+      );
 
       return {
         success: true,
         orderId: tradeId,
         kisOrderNo: result.orderNo,
         message: result.message,
-        quantity,
-        price: orderPrice,
-        fee,
+        quantity: finalQty,
+        price: finalPrice,
+        fee: finalFee,
       };
     } else {
       // 주문 실패 — v4.18.0: failure_reason 구조화 기록

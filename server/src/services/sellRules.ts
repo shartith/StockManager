@@ -1,22 +1,34 @@
 /**
- * 매도 규칙 엔진 — LLM 불필요, hard rules
+ * 매도 규칙 엔진 (v5.1.0).
  *
- * 4가지 규칙을 우선순위 순으로 평가하여 선착 매도 신호를 반환한다:
- *   1. TARGET_PROFIT  — 목표 수익률 도달
- *   2. STOP_LOSS      — 손절 기준 이탈
- *   3. TRAILING_STOP  — 고점 대비 낙폭 초과
- *   4. HOLDING_TIME   — 보유 시간 초과
+ * 우선순위 순으로 평가, 선착 매도:
+ *   1. TARGET_PROFIT     — Rule 7-1: 목표 수익률 (예: +3%)
+ *   2. TRAILING_STOP     — Rule 7-2: 트레일링 활성 후 고점 대비 낙폭 (sticky activation)
+ *   3. STOP_LOSS         — Rule 6: 손절선 이탈
+ *   4. STAGNANT_TIME     — Rule 7+8 통합: +trailingActivatePercent 미달 + 1시간 경과 → 매도
+ *   5. LOSS_TIME         — Rule 9: 손실 상태 + 1시간 경과 → 강제 손절
  *
- * 매도 판단은 매수 판단보다 우선 실행된다 (continuousMonitor.ts에서 호출).
+ * v5.1 변경:
+ *   - 트레일링은 sticky: 한번 +trailingActivatePercent 도달하면 계속 활성, 비활성 안 됨
+ *   - SIDEWAYS_PROFIT 제거, STAGNANT_TIME으로 단순화 (수익률 무관 1시간 정체)
+ *   - 수익 정의를 profitThresholdPercent (default 0.5%) 기준으로 — 수수료 보전
+ *   - peakPrice / trailing_active는 intradayState (DB) 영구화
+ *
+ * EOD 룰(Rule 10/11)은 dailyStrategy.ts.
  */
 
 import { queryOne } from '../db';
 import { getSettings } from './settings';
-import logger from '../logger';
+import { getState, updatePeak, markSold } from './intradayState';
 
 // ── Types ──
 
-export type SellRule = 'TARGET_PROFIT' | 'STOP_LOSS' | 'TRAILING_STOP' | 'HOLDING_TIME';
+export type SellRule =
+  | 'TARGET_PROFIT'
+  | 'STOP_LOSS'
+  | 'TRAILING_STOP'
+  | 'STAGNANT_TIME'
+  | 'LOSS_TIME';
 
 export interface SellRuleResult {
   shouldSell: boolean;
@@ -33,112 +45,47 @@ export interface HoldingContext {
   unrealizedPnLPercent: number;
 }
 
-// ── In-memory peak price tracker ──
+// ── Buy timestamp ──
 
-const peakPrices = new Map<number, number>();
-
-/** 고점 갱신 — 현재가가 기존 고점보다 높으면 업데이트 */
-export function updatePeakPrice(stockId: number, currentPrice: number): number {
-  const existing = peakPrices.get(stockId) ?? currentPrice;
-  const peak = Math.max(existing, currentPrice);
-  peakPrices.set(stockId, peak);
-  return peak;
-}
-
-/** 매도 완료 후 고점 초기화 */
-export function resetPeakPrice(stockId: number): void {
-  peakPrices.delete(stockId);
-}
-
-/** 현재 고점 조회 (테스트용) */
-export function getPeakPrice(stockId: number): number | undefined {
-  return peakPrices.get(stockId);
-}
-
-// ── 매수 시각 조회 ──
-
-/**
- * auto_trades 테이블에서 가장 최근 체결된 BUY 주문의 시각을 가져온다.
- * auto_trades가 없으면 transactions 테이블의 date를 fallback으로 사용
- * (단, DATE 타입이라 분 단위 정밀도 없음).
- */
 export function getBuyTimestamp(stockId: number): Date | null {
-  // auto_trades: DATETIME → 분 단위 정밀도
-  const autoTrade = queryOne(
+  const autoTrade = queryOne<{ created_at: string }>(
     "SELECT created_at FROM auto_trades WHERE stock_id = ? AND order_type = 'BUY' AND status = 'FILLED' ORDER BY created_at DESC LIMIT 1",
     [stockId],
   );
-  if (autoTrade?.created_at) {
-    return new Date(autoTrade.created_at);
-  }
+  if (autoTrade?.created_at) return new Date(autoTrade.created_at);
 
-  // fallback: transactions (수동 매수도 포함)
-  const tx = queryOne(
-    "SELECT date FROM transactions WHERE stock_id = ? AND type = 'BUY' ORDER BY date DESC, id DESC LIMIT 1",
+  const tx = queryOne<{ date: string }>(
+    "SELECT date FROM transactions WHERE stock_id = ? AND type = 'BUY' AND deleted_at IS NULL ORDER BY date DESC, id DESC LIMIT 1",
     [stockId],
   );
-  if (tx?.date) {
-    return new Date(tx.date);
-  }
+  if (tx?.date) return new Date(tx.date);
 
   return null;
 }
 
-// ── 핵심 평가 함수 ──
-
-/**
- * ROI Table 평가 — 경과 시간 t에 대해 "해당 시점의 목표 수익률 임계값"을 반환.
- * 테이블은 [[minutes, profitPct], ...] 형태. minutes 오름차순 정렬 가정.
- * 가장 최근에 통과한 단계의 profitPct를 사용 (step function, not interpolated).
- *
- * 예: [[0, 3], [30, 2], [60, 1], [120, 0]]
- *   - t=0~29분:   threshold = 3%
- *   - t=30~59분:  threshold = 2%
- *   - t=60~119분: threshold = 1%
- *   - t≥120분:    threshold = 0% (손익무관 청산)
- *
- * 반환값이 null이면 해당 시점에 ROI 규칙 적용 불가 (테이블 미설정).
- */
-function getRoiThresholdAt(minutes: number, table?: Array<[number, number]>): number | null {
-  if (!table || table.length === 0) return null;
-  const sorted = [...table].sort((a, b) => a[0] - b[0]);
-  let threshold: number | null = null;
-  for (const [t, pct] of sorted) {
-    if (minutes >= t) threshold = pct;
-    else break;
-  }
-  return threshold;
+/** Public — 매도 후 호출. peak/trailing 정리. */
+export function resetPeakPrice(stockId: number): void {
+  markSold(stockId);
 }
 
-/**
- * 매도 규칙을 우선순위 순으로 평가.
- * 첫 번째 매칭되는 규칙에서 즉시 반환 (선착순).
- *
- * v4.16.0: ROI Table 지원. settings.roiTable이 있으면 Rule 1+4가 통합되어
- *   시간 경과에 따라 감쇠하는 익절 임계값으로 작동 (freqtrade 스타일).
- *   테이블 없으면 기존 Rule 1(고정 targetProfitRate) + Rule 4(maxHoldMinutes) 유지.
- */
+// ── 핵심 평가 ──
+
 export function evaluateSellRules(ctx: HoldingContext): SellRuleResult {
   const settings = getSettings();
+  if (!settings.sellRulesEnabled) return { shouldSell: false };
 
-  if (!settings.sellRulesEnabled) {
-    return { shouldSell: false };
-  }
+  const profitThresh = settings.profitThresholdPercent ?? 0.5;
+  const trailingActivate = settings.trailingActivatePercent ?? 3.0;
 
-  const buyTs = getBuyTimestamp(ctx.stockId);
-  const holdingMinutes = buyTs ? (Date.now() - buyTs.getTime()) / 60_000 : 0;
+  // 트레일링 활성 여부 결정 — peak 갱신과 함께 처리.
+  // +trailingActivatePercent 도달 시 활성 (sticky).
+  const shouldActivate = ctx.unrealizedPnLPercent >= trailingActivate;
+  const peak = updatePeak(ctx.stockId, ctx.currentPrice, shouldActivate);
+  const state = getState(ctx.stockId);
+  const trailingActive = state?.trailingActive ?? false;
 
-  // Rule 1: ROI Table 또는 고정 targetProfitRate로 익절 판정
-  if (settings.roiTable && settings.roiTable.length > 0) {
-    const threshold = getRoiThresholdAt(holdingMinutes, settings.roiTable);
-    if (threshold !== null && ctx.unrealizedPnLPercent >= threshold) {
-      return {
-        shouldSell: true,
-        rule: 'TARGET_PROFIT',
-        reason: `ROI Table (t=${Math.round(holdingMinutes)}분, ${ctx.unrealizedPnLPercent.toFixed(1)}% ≥ ${threshold}%)`,
-      };
-    }
-  } else if (ctx.unrealizedPnLPercent >= settings.targetProfitRate) {
+  // Rule 7-1: 목표 수익률 도달 → 즉시 익절
+  if (ctx.unrealizedPnLPercent >= settings.targetProfitRate) {
     return {
       shouldSell: true,
       rule: 'TARGET_PROFIT',
@@ -146,7 +93,19 @@ export function evaluateSellRules(ctx: HoldingContext): SellRuleResult {
     };
   }
 
-  // Rule 2: 손절 매도
+  // Rule 7-2: 트레일링 스탑 — 활성된 경우만 평가
+  if (trailingActive && peak > 0) {
+    const dropFromPeak = ((peak - ctx.currentPrice) / peak) * 100;
+    if (dropFromPeak >= settings.trailingStopRate) {
+      return {
+        shouldSell: true,
+        rule: 'TRAILING_STOP',
+        reason: `트레일링 스탑 (활성됨, 고점 ${peak.toLocaleString()} → ${ctx.currentPrice.toLocaleString()}, -${dropFromPeak.toFixed(1)}% ≥ ${settings.trailingStopRate}%)`,
+      };
+    }
+  }
+
+  // Rule 6: 손절선 이탈
   if (ctx.unrealizedPnLPercent <= -settings.hardStopLossRate) {
     return {
       shouldSell: true,
@@ -155,27 +114,33 @@ export function evaluateSellRules(ctx: HoldingContext): SellRuleResult {
     };
   }
 
-  // Rule 3: 트레일링 스탑 매도
-  const peak = updatePeakPrice(ctx.stockId, ctx.currentPrice);
-  if (peak > 0) {
-    const dropFromPeak = ((peak - ctx.currentPrice) / peak) * 100;
-    if (dropFromPeak >= settings.trailingStopRate) {
+  // Rule 7+8: STAGNANT_TIME — trailingActivate 미달 + sidewaysMinutes 경과 + 수익 상태
+  // 사용자 안: "+3% 미달 + 1시간 정체 → 매도"
+  const buyTs = getBuyTimestamp(ctx.stockId);
+  if (buyTs) {
+    const heldMin = (Date.now() - buyTs.getTime()) / 60_000;
+    const sidewaysMin = settings.sidewaysMinutes ?? 60;
+    if (heldMin >= sidewaysMin
+        && !trailingActive
+        && ctx.unrealizedPnLPercent >= profitThresh
+        && ctx.unrealizedPnLPercent < trailingActivate) {
       return {
         shouldSell: true,
-        rule: 'TRAILING_STOP',
-        reason: `트레일링 스탑 (고점 ${peak.toLocaleString()} → 현재 ${ctx.currentPrice.toLocaleString()}, -${dropFromPeak.toFixed(1)}% ≥ ${settings.trailingStopRate}%)`,
+        rule: 'STAGNANT_TIME',
+        reason: `정체 청산 (${Math.round(heldMin)}분 보유, +${ctx.unrealizedPnLPercent.toFixed(1)}% < ${trailingActivate}%, 트레일링 미활성)`,
       };
     }
   }
 
-  // Rule 4: 보유 시간 초과 매도 — ROI Table이 없을 때만 단독 적용.
-  // ROI Table이 있으면 table의 마지막 항목이 "시간 초과 강매도" 역할을 이미 수행.
-  if (!settings.roiTable && buyTs) {
-    if (holdingMinutes >= settings.maxHoldMinutes) {
+  // Rule 9: LOSS_TIME — 손실 상태 + lossMinutes 경과
+  if (buyTs && ctx.unrealizedPnLPercent < 0) {
+    const heldMin = (Date.now() - buyTs.getTime()) / 60_000;
+    const lossMin = settings.lossMinutes ?? 60;
+    if (heldMin >= lossMin) {
       return {
         shouldSell: true,
-        rule: 'HOLDING_TIME',
-        reason: `보유 시간 초과 (${Math.round(holdingMinutes)}분 ≥ ${settings.maxHoldMinutes}분)`,
+        rule: 'LOSS_TIME',
+        reason: `손실 시간초과 (${Math.round(heldMin)}분 손실 유지, ${ctx.unrealizedPnLPercent.toFixed(1)}%)`,
       };
     }
   }

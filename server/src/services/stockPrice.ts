@@ -4,6 +4,27 @@ import { kisApiCall, yahooApiCall } from './apiQueue';
 
 /** KIS API로 단일 종목 현재가 조회 */
 async function getKisStockPrice(ticker: string, token: string): Promise<number | null> {
+  const snap = await getKisStockSnapshot(ticker, token);
+  return snap?.price ?? null;
+}
+
+export interface KisSnapshot {
+  price: number;
+  open: number;
+  prevClose: number;
+  high: number;
+  low: number;
+  volume: number;          // 누적 거래량
+  changePercent: number;   // 전일 대비 등락률
+  viActivated: boolean;    // VI(변동성 완화장치) 발동 여부
+  isSuspended: boolean;    // 거래정지/관리종목 여부 (대략)
+}
+
+/**
+ * KIS API로 단일 종목 풀 스냅샷 조회 (가격 + 거래량 + VI + 시초가).
+ * dailyStrategy의 매수 평가에서 1회 호출로 모든 정보 확보.
+ */
+export async function getKisStockSnapshot(ticker: string, token: string): Promise<KisSnapshot | null> {
   const { appKey, appSecret, baseUrl } = getKisConfig();
   try {
     const params = new URLSearchParams({
@@ -26,45 +47,29 @@ async function getKisStockPrice(ticker: string, token: string): Promise<number |
     if (!response.ok) return null;
     const data: any = await response.json();
     if (data.rt_cd !== '0') return null;
-    const price = Number(data.output?.stck_prpr);
-    return price > 0 ? price : null;
+    const o = data.output || {};
+    const price = Number(o.stck_prpr) || 0;
+    if (price <= 0) return null;
+    return {
+      price,
+      open: Number(o.stck_oprc) || 0,
+      prevClose: Number(o.stck_prdy_clpr) || price,
+      high: Number(o.stck_hgpr) || price,
+      low: Number(o.stck_lwpr) || price,
+      volume: Number(o.acml_vol) || 0,
+      changePercent: Number(o.prdy_ctrt) || 0,
+      // VI 발동 기준가가 0이 아니면 발동 중. KIS field: vi_stnd_prc
+      viActivated: Number(o.vi_stnd_prc) > 0,
+      // 매매구분: '00' = 정상매매. 거래정지면 다른 값.
+      // 주의: KIS는 거래정지 종목도 stck_prpr를 0이 아닌 직전가로 줄 수 있음 → fallback은 별도 시도.
+      isSuspended: false, // 본격 판단은 주문 시 KIS 에러 코드(APBK0066 등)에 위임
+    };
   } catch {
     return null;
   }
 }
 
-/** KIS API로 해외 단일 종목 현재가 조회 */
-async function getKisOverseasPrice(ticker: string, token: string, exchCode: string): Promise<number | null> {
-  const { appKey, appSecret, baseUrl, isVirtual } = getKisConfig();
-  const trId = isVirtual ? 'VHHDFS76200200' : 'HHDFS76200200';
-  try {
-    const params = new URLSearchParams({
-      AUTH: '', EXCD: exchCode, SYMB: ticker,
-    });
-    const response = await fetch(
-      `${baseUrl}/uapi/overseas-price/v1/quotations/price-detail?${params}`,
-      {
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${token}`,
-          appkey: appKey,
-          appsecret: appSecret,
-          tr_id: trId,
-          custtype: 'P',
-        },
-      }
-    );
-    if (!response.ok) return null;
-    const data: any = await response.json();
-    if (data.rt_cd !== '0') return null;
-    const price = Number(data.output?.last);
-    return price > 0 ? price : null;
-  } catch {
-    return null;
-  }
-}
-
-/** Yahoo Finance fallback (해외주식용) */
+/** Yahoo Finance fallback */
 async function getYahooStockPrice(ticker: string): Promise<number | null> {
   try {
     const response = await fetch(
@@ -123,10 +128,9 @@ export function invalidatePriceCache(): void {
   priceCache.clear();
 }
 
-export async function getMultipleStockPrices(tickers: string[], tickerMarkets?: Map<string, string>): Promise<Map<string, number>> {
+export async function getMultipleStockPrices(tickers: string[], _tickerMarkets?: Map<string, string>): Promise<Map<string, number>> {
   const prices = new Map<string, number>();
   const settings = getSettings();
-  const overseasMarkets = ['NASDAQ', 'NYSE', 'AMEX', 'NASD'];
 
   // Resolve cache hits first; only fetch what's missing
   const tickersToFetch: string[] = [];
@@ -143,81 +147,36 @@ export async function getMultipleStockPrices(tickers: string[], tickerMarkets?: 
     return prices;
   }
 
-  // 국내/해외 티커 분리
-  const domesticTickers: string[] = [];
-  const overseasTickers: string[] = [];
-
-  for (const ticker of tickersToFetch) {
-    const market = tickerMarkets?.get(ticker) || '';
-    if (overseasMarkets.includes(market)) {
-      overseasTickers.push(ticker);
-    } else {
-      domesticTickers.push(ticker);
-    }
-  }
-
-  // 국내 종목: KIS API 우선 (큐로 rate limit + 동시성 관리), 실패 시 Yahoo fallback
-  // v4.5.3: for-await 순차 처리 → Promise.all 병렬 등록.
-  // kisApiQueue가 maxConcurrent=3로 동시 처리하면서 초당 15건 throttle.
   const recordPrice = (ticker: string, price: number): void => {
     prices.set(ticker, price);
     setCachedPrice(ticker, price);
   };
 
-  if (domesticTickers.length > 0 && settings.kisAppKey && settings.kisAppSecret) {
+  // KIS API 우선 (큐로 rate limit + 동시성 관리), 실패 시 Yahoo fallback
+  if (settings.kisAppKey && settings.kisAppSecret) {
     try {
       const token = await getAccessToken();
       await Promise.all(
-        domesticTickers.map(async ticker => {
+        tickersToFetch.map(async ticker => {
           const price = await kisApiCall(() => getKisStockPrice(ticker, token), `price-${ticker}`);
           if (price !== null) recordPrice(ticker, price);
         }),
       );
     } catch {
       await Promise.allSettled(
-        domesticTickers.map(async ticker => {
+        tickersToFetch.map(async ticker => {
           const price = await yahooApiCall(() => getYahooStockPrice(ticker), `yahoo-${ticker}`);
           if (price !== null) recordPrice(ticker, price);
         })
       );
     }
-  } else if (domesticTickers.length > 0) {
+  } else {
     await Promise.allSettled(
-      domesticTickers.map(async ticker => {
+      tickersToFetch.map(async ticker => {
         const price = await yahooApiCall(() => getYahooStockPrice(ticker), `yahoo-${ticker}`);
         if (price !== null) recordPrice(ticker, price);
       })
     );
-  }
-
-  // 해외 종목: KIS API 우선 (큐로 rate limit 관리), 실패 시 Yahoo fallback
-  if (overseasTickers.length > 0) {
-    const marketToExch: Record<string, string> = { NASDAQ: 'NAS', NYSE: 'NYS', NASD: 'NAS', AMEX: 'AMS' };
-
-    if (settings.kisAppKey && settings.kisAppSecret) {
-      try {
-        const token = await getAccessToken();
-        // v4.5.3: 병렬 등록 (큐가 throttle)
-        await Promise.all(
-          overseasTickers.map(async ticker => {
-            const market = tickerMarkets?.get(ticker) || '';
-            const exchCode = marketToExch[market] || 'NAS';
-            const price = await kisApiCall(() => getKisOverseasPrice(ticker, token, exchCode), `overseas-${ticker}`);
-            if (price !== null) recordPrice(ticker, price);
-          }),
-        );
-      } catch {}
-    }
-
-    const missingOverseas = overseasTickers.filter(t => !prices.has(t));
-    if (missingOverseas.length > 0) {
-      await Promise.allSettled(
-        missingOverseas.map(async ticker => {
-          const price = await yahooApiCall(() => getYahooStockPrice(ticker), `yahoo-${ticker}`);
-          if (price !== null) recordPrice(ticker, price);
-        })
-      );
-    }
   }
 
   return prices;
@@ -340,10 +299,7 @@ export async function getKisFundamentals(ticker: string): Promise<FundamentalDat
 export interface MarketContextData {
   kospi?: { price: number; changePercent: number };
   kosdaq?: { price: number; changePercent: number };
-  sp500?: { price: number; changePercent: number };
-  dow?: { price: number; changePercent: number };
   vix?: { price: number; changePercent: number };
-  usdKrw?: { price: number; changePercent: number };
 }
 
 let marketContextCache: { data: MarketContextData; fetchedAt: number } | null = null;
@@ -369,7 +325,7 @@ export async function fetchYahooQuote(symbol: string): Promise<{ price: number; 
   }
 }
 
-/** 글로벌 시장 지수 조회 (KOSPI, S&P500, VIX, 환율 등) */
+/** KRX 시장 지수 조회 (KOSPI, KOSDAQ, VIX) */
 export async function getMarketContext(): Promise<MarketContextData> {
   const now = Date.now();
   if (marketContextCache && now - marketContextCache.fetchedAt < CONTEXT_CACHE_TTL) {
@@ -379,10 +335,7 @@ export async function getMarketContext(): Promise<MarketContextData> {
   const symbols = [
     { key: 'kospi', symbol: '^KS11' },
     { key: 'kosdaq', symbol: '^KQ11' },
-    { key: 'sp500', symbol: '^GSPC' },
-    { key: 'dow', symbol: '^DJI' },
     { key: 'vix', symbol: '^VIX' },
-    { key: 'usdKrw', symbol: 'KRW=X' },
   ];
 
   const results = await Promise.allSettled(
@@ -401,42 +354,17 @@ export async function getMarketContext(): Promise<MarketContextData> {
 }
 
 /** 시장 컨텍스트를 LLM 입력용 텍스트로 변환 */
-export function formatMarketContext(ctx: MarketContextData, market: string): string {
+export function formatMarketContext(ctx: MarketContextData, _market: string): string {
   const lines: string[] = [];
 
-  if (market === 'KRX') {
-    if (ctx.kospi) lines.push(`KOSPI: ${ctx.kospi.price.toLocaleString()} (${ctx.kospi.changePercent >= 0 ? '+' : ''}${ctx.kospi.changePercent}%)`);
-    if (ctx.kosdaq) lines.push(`KOSDAQ: ${ctx.kosdaq.price.toLocaleString()} (${ctx.kosdaq.changePercent >= 0 ? '+' : ''}${ctx.kosdaq.changePercent}%)`);
-    if (ctx.usdKrw) lines.push(`USD/KRW: ${ctx.usdKrw.price.toLocaleString()} (${ctx.usdKrw.changePercent >= 0 ? '+' : ''}${ctx.usdKrw.changePercent}%)`);
-    // 전날 미국 시장도 포함
-    if (ctx.sp500) lines.push(`S&P500(전일): ${ctx.sp500.price.toLocaleString()} (${ctx.sp500.changePercent >= 0 ? '+' : ''}${ctx.sp500.changePercent}%)`);
-  } else {
-    if (ctx.sp500) lines.push(`S&P500: ${ctx.sp500.price.toLocaleString()} (${ctx.sp500.changePercent >= 0 ? '+' : ''}${ctx.sp500.changePercent}%)`);
-    if (ctx.dow) lines.push(`다우: ${ctx.dow.price.toLocaleString()} (${ctx.dow.changePercent >= 0 ? '+' : ''}${ctx.dow.changePercent}%)`);
-    if (ctx.vix) lines.push(`VIX: ${ctx.vix.price.toFixed(1)} (${ctx.vix.changePercent >= 0 ? '+' : ''}${ctx.vix.changePercent}%)`);
-    if (ctx.usdKrw) lines.push(`USD/KRW: ${ctx.usdKrw.price.toLocaleString()}`);
-  }
+  if (ctx.kospi) lines.push(`KOSPI: ${ctx.kospi.price.toLocaleString()} (${ctx.kospi.changePercent >= 0 ? '+' : ''}${ctx.kospi.changePercent}%)`);
+  if (ctx.kosdaq) lines.push(`KOSDAQ: ${ctx.kosdaq.price.toLocaleString()} (${ctx.kosdaq.changePercent >= 0 ? '+' : ''}${ctx.kosdaq.changePercent}%)`);
+  if (ctx.vix) lines.push(`VIX: ${ctx.vix.price.toFixed(1)} (${ctx.vix.changePercent >= 0 ? '+' : ''}${ctx.vix.changePercent}%)`);
 
   // VIX 경고
   if (ctx.vix) {
     if (ctx.vix.price > 30) lines.push('⚠️ VIX 30 초과 — 극도의 공포, 신규 매수 매우 보수적으로');
     else if (ctx.vix.price > 25) lines.push('⚠️ VIX 25 초과 — 공포 구간, 신규 매수 보수적으로');
-  }
-
-  // 환율 전략 경고
-  if (ctx.usdKrw) {
-    const rate = ctx.usdKrw.price;
-    const change = Math.abs(ctx.usdKrw.changePercent);
-    if (change >= 1) {
-      lines.push(`⚠️ 환율 일 변동 ${ctx.usdKrw.changePercent > 0 ? '+' : ''}${ctx.usdKrw.changePercent}% — 양 시장 변동성 확대 주의`);
-    }
-    if (market === 'KRX') {
-      if (rate >= 1380) lines.push('📉 원화 약세 구간 — KRX 외국인 매도 압력, 수출주 유리');
-      else if (rate <= 1320) lines.push('📈 원화 강세 구간 — KRX 외국인 매수 유입, 내수주 유리');
-    } else {
-      if (rate >= 1380) lines.push('💵 달러 강세 — NYSE 매수 적극적 (달러 자산 가치 ↑)');
-      else if (rate <= 1320) lines.push('💴 달러 약세 — NYSE 매수 보수적 (환차손 리스크)');
-    }
   }
 
   return lines.join('\n  ');

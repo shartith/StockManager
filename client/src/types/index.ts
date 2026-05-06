@@ -226,7 +226,7 @@ export interface BacktestResult {
 // ============================================================
 
 export interface SchedulerLog {
-  market: 'KRX' | 'NYSE' | 'NASDAQ';
+  market: 'KRX';
   phase: string;
   status: 'started' | 'completed' | 'error';
   timestamp: string;
@@ -237,7 +237,6 @@ export interface SchedulerStatus {
   active: boolean;
   taskCount: number;
   krxEnabled: boolean;
-  nyseEnabled: boolean;
   autoTradeEnabled: boolean;
   recentLogs: SchedulerLog[];
 }
@@ -256,10 +255,6 @@ export interface BalanceHolding {
   profitLossRate: number;
 }
 
-export interface OverseasBalanceHolding extends BalanceHolding {
-  market: string;
-}
-
 export interface BalanceData {
   totalEvalAmount: number;
   totalPurchaseAmount: number;
@@ -268,11 +263,6 @@ export interface BalanceData {
   orderableAmount: number;
   withdrawableAmount: number;
   holdings: BalanceHolding[];
-  overseasHoldings: OverseasBalanceHolding[];
-  overseasTotalEvalAmount: number;
-  overseasTotalPurchaseAmount: number;
-  overseasTotalProfitLoss: number;
-  overseasDepositAmount: number;
 }
 
 // ============================================================
@@ -287,10 +277,7 @@ export interface MarketIndex {
 export interface MarketContext {
   kospi: MarketIndex | null;
   kosdaq: MarketIndex | null;
-  sp500: MarketIndex | null;
   vix: MarketIndex | null;
-  usdKrw: MarketIndex | null;
-  dow: MarketIndex | null;
 }
 
 // ============================================================

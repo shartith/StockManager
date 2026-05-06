@@ -1,194 +1,142 @@
 /**
- * 자동매매 스케줄러
- * node-cron 기반, 시장별 현지 시간 스케줄링
- * 주말 제외, 연속 모니터링 + 수익 실현 + 추천 갱신 + 공시 감시
+ * v5.1.0 스케줄러 — 강화된 12-Rule 매매.
+ *
+ *  08:50          : 자동목록 빌드 + daily state reset
+ *  *\/5 9-14 *      : 5분 모니터링 (매수창 09:05~09:55, 그 외엔 매도/예약 only)
+ *  0 15 * * 1-5    : Rule 10 — +3% 이상 보유분 익절 (EOD profit take)
+ *  20 15 * * 1-5   : Rule 11 — 당일 매수분 강제 정리 (동시호가 직전)
+ *  50 15 * * 1-5   : EOD KIS balance reconcile + 일일 리포트
+ *  *\/30 * * * *    : 예약 주문 만료 정리
  */
 
 import cron from 'node-cron';
-import { getSettings } from '../settings';
-import { evaluatePendingPerformance, backfillUntrackedSignals } from '../performanceTracker';
 import logger from '../../logger';
 import { ScheduleLog, schedulerState } from './types';
-import { runMarketOpen } from './marketOpen';
-import { runContinuousMonitor } from './continuousMonitor';
-import { runProfitTaking } from './profitTaking';
-import { runRecommendationRefresh } from './recommendations';
-import { runWeekendLearning } from './weekendLearning';
-import { cleanupWatchlist, expireStaleRecommendations } from './watchlistCleanup';
-import { checkDartDisclosures } from './dartMonitor';
+import { getSettings } from '../settings';
+import {
+  resetDailyState,
+  runFiveMinTick,
+  runEodProfitTake,
+  runEodForceClose,
+  runEodReport,
+  runExpiry,
+} from '../dailyStrategy';
+import { buildAutoList } from '../autoListBuilder';
+import { syncKisBalance } from '../balanceSync';
 import { runNasSync } from '../nasSync';
 import { runNasImport } from '../nasImport';
-import { generateRebalanceSignals } from '../portfolioManager';
 
-// Re-export types for external consumers
 export type { SchedulePhase, Market, ScheduleLog } from './types';
 
-// Re-export legacy functions for backward compatibility
-export { runPhase, handlePreOpen, handlePostOpen, handlePreClose1h, handlePreClose30m } from './legacy';
-
-// Re-export phase functions
-export { runMarketOpen } from './marketOpen';
-export { runContinuousMonitor } from './continuousMonitor';
-export { runProfitTaking } from './profitTaking';
-export { runRecommendationRefresh } from './recommendations';
-export { runWeekendLearning } from './weekendLearning';
-export { cleanupWatchlist } from './watchlistCleanup';
-export { checkDartDisclosures } from './dartMonitor';
-
-/** 스케줄러 로그 조회 */
 export function getSchedulerLogs(): ScheduleLog[] {
   return schedulerState.recentLogs;
 }
 
-/** 스케줄러 시작 */
 export function startScheduler() {
   stopScheduler();
   const settings = getSettings();
+  const tz = 'Asia/Seoul';
 
-  // ── KRX 연속 모니터링 (Asia/Seoul, 월~금) ──
-  if (settings.scheduleKrx.enabled) {
-    // 장 시작 10분 관망 후: 뉴스 수집 + 갭 분석 + 초기 매수
-    schedulerState.activeTasks.push(cron.schedule('10 9 * * 1-5', () => {
-      runMarketOpen('KRX').catch(err => logger.error({ err, market: 'KRX' }, 'runMarketOpen failed'));
-    }, { timezone: 'Asia/Seoul' }));
-    // 장 중: 10분 간격 연속 모니터링 (09:20~14:50)
-    schedulerState.activeTasks.push(cron.schedule('*/10 9-14 * * 1-5', () => {
-      runContinuousMonitor('KRX').catch(err => logger.error({ err, market: 'KRX' }, 'runContinuousMonitor failed'));
-    }, { timezone: 'Asia/Seoul' }));
-    // 장 마감 30분 전: 수익 실현 매도
-    schedulerState.activeTasks.push(cron.schedule('0 15 * * 1-5', () => {
-      runProfitTaking('KRX').catch(err => logger.error({ err, market: 'KRX' }, 'runProfitTaking failed'));
-    }, { timezone: 'Asia/Seoul' }));
-    logger.info('[Scheduler] KRX 연속 모니터링 등록 (09:10 관망 후 → 10분 간격 → 15:00 수익실현)');
-  }
-
-  // ── NYSE/NASDAQ 연속 모니터링 (America/New_York, 월~금) ──
-  if (settings.scheduleNyse.enabled) {
-    // 장 시작 10분 관망 후: 뉴스 + 갭 분석 + 초기 매수
-    schedulerState.activeTasks.push(cron.schedule('40 9 * * 1-5', () => {
-      runMarketOpen('NYSE').catch(err => logger.error({ err, market: 'NYSE' }, 'runMarketOpen failed'));
-    }, { timezone: 'America/New_York' }));
-    // 장 중: 10분 간격 연속 모니터링 (09:50~15:20)
-    schedulerState.activeTasks.push(cron.schedule('*/10 9-15 * * 1-5', () => {
-      runContinuousMonitor('NYSE').catch(err => logger.error({ err, market: 'NYSE' }, 'runContinuousMonitor failed'));
-    }, { timezone: 'America/New_York' }));
-    // 장 마감 30분 전: 수익 실현 매도
-    schedulerState.activeTasks.push(cron.schedule('30 15 * * 1-5', () => {
-      runProfitTaking('NYSE').catch(err => logger.error({ err, market: 'NYSE' }, 'runProfitTaking failed'));
-    }, { timezone: 'America/New_York' }));
-    logger.info('[Scheduler] NYSE 연속 모니터링 등록 (09:40 관망 후 → 10분 간격 → 15:30 수익실현)');
-  }
-
-  // ── 추천종목 자동 갱신 (매 시간) ──
-  if (settings.llmEnabled) {
-    schedulerState.activeTasks.push(cron.schedule('0 * * * *', () => {
-      runRecommendationRefresh().catch(err => logger.error({ err }, 'runRecommendationRefresh failed'));
-    }, { timezone: 'Asia/Seoul' }));
-    logger.info('[Scheduler] 추천종목 자동 갱신 스케줄 등록 (매 1시간)');
-  }
-
-  // ── DART 공시 감시 (10분 간격, KRX 장 시간) ──
-  if (settings.dartEnabled && settings.dartApiKey) {
-    schedulerState.activeTasks.push(cron.schedule('*/10 9-15 * * 1-5', () => {
-      checkDartDisclosures().catch(err => logger.error({ err }, 'checkDartDisclosures failed'));
-    }, { timezone: 'Asia/Seoul' }));
-    logger.info('[Scheduler] DART 공시 감시 스케줄 등록 (10분 간격, 09~15시)');
-  }
-
-  // ── 일일 성과 평가 (18:00 KST, 평일) ──
-  schedulerState.activeTasks.push(cron.schedule('0 18 * * 1-5', async () => {
-    try { await evaluatePendingPerformance(); } catch (err) {
-      logger.error({ err }, 'evaluatePendingPerformance failed');
-    }
-  }, { timezone: 'Asia/Seoul' }));
-  logger.info('[Scheduler] 일일 성과 평가 스케줄 등록 (18:00 KST)');
-
-  // ── 관심종목 + 추천 자동 정리 (매 1시간, LLM 무관) ──
-  // 평가가 낮아지면 즉시 제거하기 위해 매시간 실행 (이전 22:00 1회 → 시간당)
-  schedulerState.activeTasks.push(cron.schedule('0 * * * *', () => {
-    try { cleanupWatchlist(); } catch (err) { logger.error({ err }, 'cleanupWatchlist failed'); }
-    try { expireStaleRecommendations(); } catch (err) { logger.error({ err }, 'expireStaleRecommendations failed'); }
-  }, { timezone: 'Asia/Seoul' }));
-  logger.info('[Scheduler] 관심종목/추천 자동 정리 등록 (매 1시간)');
-
-  // ── 주말 학습 (토요일 06:00 KST) ──
-  schedulerState.activeTasks.push(cron.schedule('0 6 * * 6', () => {
-    runWeekendLearning().catch(err => logger.error({ err }, 'runWeekendLearning failed'));
-  }, { timezone: 'Asia/Seoul' }));
-  logger.info('[Scheduler] 주말 학습 스케줄 등록 (토요일 06:00 KST)');
-
-  // ── 포트폴리오 리밸런싱 (일요일 08:00 KST) ──
-  if (settings.portfolioRebalanceEnabled) {
-    schedulerState.activeTasks.push(cron.schedule('0 8 * * 0', () => {
+  if (settings.scheduleKrx?.enabled) {
+    // 08:50 — 자동목록 빌드 (장 시작 10분 전, daily state reset)
+    schedulerState.activeTasks.push(cron.schedule('50 8 * * 1-5', async () => {
       try {
-        generateRebalanceSignals();
+        resetDailyState();
+        const result = await buildAutoList();
+        logger.info(result, '[Scheduler] 08:50 자동목록 빌드');
       } catch (err) {
-        logger.error({ err }, 'Portfolio rebalancing failed');
+        logger.error({ err }, '[Scheduler] 08:50 buildAutoList 실패');
       }
-    }, { timezone: 'Asia/Seoul' }));
-    logger.info('[Scheduler] 포트폴리오 리밸런싱 스케줄 등록 (일요일 08:00 KST)');
+    }, { timezone: tz }));
+
+    // 09:00~14:55 — 5분 간격 monitoring (매수창은 09:05~09:55만 dailyStrategy 내부에서 게이팅)
+    schedulerState.activeTasks.push(cron.schedule('*/5 9-14 * * 1-5', async () => {
+      try {
+        const r = await runFiveMinTick();
+        if (r.bought + r.sold + r.reservedExecuted > 0 || r.brakeReason) {
+          logger.info(r, '[Scheduler] 5min tick');
+        }
+      } catch (err) {
+        logger.error({ err }, '[Scheduler] runFiveMinTick failed');
+      }
+    }, { timezone: tz }));
+
+    // 15:00 — Rule 10 EOD profit take
+    schedulerState.activeTasks.push(cron.schedule('0 15 * * 1-5', async () => {
+      try {
+        const r = await runEodProfitTake();
+        logger.info(r, '[Scheduler] 15:00 EOD profit take');
+      } catch (err) {
+        logger.error({ err }, '[Scheduler] runEodProfitTake failed');
+      }
+    }, { timezone: tz }));
+
+    // 15:20 — Rule 11 당일 매수분 강제 정리 (동시호가 직전)
+    schedulerState.activeTasks.push(cron.schedule('20 15 * * 1-5', async () => {
+      try {
+        const r = await runEodForceClose();
+        logger.info(r, '[Scheduler] 15:20 EOD force close');
+      } catch (err) {
+        logger.error({ err }, '[Scheduler] runEodForceClose failed');
+      }
+    }, { timezone: tz }));
+
+    // 15:50 — EOD reconcile + 일일 리포트
+    schedulerState.activeTasks.push(cron.schedule('50 15 * * 1-5', async () => {
+      try {
+        const sync = await syncKisBalance('EOD 자동 reconcile');
+        logger.info(sync, '[Scheduler] 15:50 EOD reconcile');
+      } catch (err) {
+        logger.error({ err }, '[Scheduler] EOD reconcile failed');
+      }
+      try {
+        const report = await runEodReport();
+        logger.info({ summary: report.summary }, '[Scheduler] 15:50 EOD report');
+      } catch (err) {
+        logger.error({ err }, '[Scheduler] runEodReport failed');
+      }
+    }, { timezone: tz }));
+
+    logger.info('[Scheduler] KRX 매매 스케줄 등록 (08:50, 5분 모니터, 15:00 익절, 15:20 EOD 정리, 15:50 reconcile)');
   }
 
-  // ── NAS 데이터 동기화 ──
+  // 예약 주문 만료 정리 (30분마다)
+  schedulerState.activeTasks.push(cron.schedule('*/30 * * * *', () => {
+    try {
+      const r = runExpiry();
+      if (r.reservedExpired > 0) logger.info(r, '[Scheduler] expiry');
+    } catch (err) {
+      logger.error({ err }, '[Scheduler] runExpiry failed');
+    }
+  }, { timezone: tz }));
+
+  // NAS 동기화 (선택)
   if (settings.nasSyncEnabled && settings.nasSyncPath) {
     const syncTime = settings.nasSyncTime || '0 20 * * *';
     schedulerState.activeTasks.push(cron.schedule(syncTime, async () => {
-      try {
-        await runNasSync();
-      } catch (err) {
-        logger.error({ err }, 'NAS sync failed');
-      }
-      // v4.19.0: export 직후 양방향 import (opt-in: nasImportEnabled=true)
+      try { await runNasSync(); } catch (err) { logger.error({ err }, 'NAS sync failed'); }
       if ((settings as any).nasImportEnabled) {
-        try {
-          await runNasImport();
-        } catch (err) {
-          logger.error({ err }, 'NAS import failed');
-        }
+        try { await runNasImport(); } catch (err) { logger.error({ err }, 'NAS import failed'); }
       }
-    }, { timezone: 'Asia/Seoul' }));
-    logger.info(`[Scheduler] NAS 동기화 스케줄 등록 (${syncTime})`);
+    }, { timezone: tz }));
+    logger.info(`[Scheduler] NAS 동기화 등록 (${syncTime})`);
   }
 
-  if (schedulerState.activeTasks.length > 0) {
-    logger.info(`[Scheduler] 총 ${schedulerState.activeTasks.length}개 스케줄 활성화`);
-  } else {
-    logger.info('[Scheduler] 활성화된 스케줄 없음');
-  }
-
-  // v4.15.0: 기동 즉시 성과 추적 백필 + 평가 1회 실행.
-  // 하루 1회 18:00 KST만 기다리지 않고 기동 즉시 갱신 — 디바이스 간 데이터 이행
-  // (jsonl → DB import 후 최초 기동) 시나리오나 장시간 오프라인 이후 복귀 시 회복.
-  setTimeout(() => {
-    try {
-      const result = backfillUntrackedSignals();
-      if (result.registered > 0) {
-        logger.info({ ...result }, '[Scheduler] 기동 백필: 미등록 신호 → signal_performance 복구');
-      }
-    } catch (err) {
-      logger.error({ err }, '[Scheduler] 기동 백필 실패');
-    }
-    evaluatePendingPerformance().catch(err =>
-      logger.error({ err }, '[Scheduler] 기동 성과 평가 실패')
-    );
-  }, 5_000); // 5초 지연 — 서버 부팅 완료 후
+  logger.info(`[Scheduler] 총 ${schedulerState.activeTasks.length}개 cron 활성화`);
 }
 
-/** 스케줄러 중지 */
 export function stopScheduler() {
-  schedulerState.activeTasks.forEach(task => task.stop());
+  schedulerState.activeTasks.forEach(t => t.stop());
   schedulerState.activeTasks.length = 0;
   logger.info('[Scheduler] 모든 스케줄 중지');
 }
 
-/** 스케줄러 상태 */
 export function getSchedulerStatus() {
   const settings = getSettings();
   return {
     active: schedulerState.activeTasks.length > 0,
     taskCount: schedulerState.activeTasks.length,
-    krxEnabled: settings.scheduleKrx.enabled,
-    nyseEnabled: settings.scheduleNyse.enabled,
+    krxEnabled: settings.scheduleKrx?.enabled ?? false,
     autoTradeEnabled: settings.autoTradeEnabled,
     recentLogs: schedulerState.recentLogs.slice(0, 20),
   };

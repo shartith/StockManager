@@ -49,11 +49,6 @@ const kisPriceResponse = (price: number) => ({
   json: async () => ({ rt_cd: '0', output: { stck_prpr: String(price) } }),
 });
 
-const kisOverseasPriceResponse = (price: number) => ({
-  ok: true,
-  json: async () => ({ rt_cd: '0', output: { last: String(price) } }),
-});
-
 const yahooQuoteResponse = (price: number, prevClose: number) => ({
   ok: true,
   json: async () => ({
@@ -140,14 +135,6 @@ describe('getMultipleStockPrices — KIS and overseas branches', () => {
     expect(prices.get('000660')).toBe(10000);
   });
 
-  it('fetches overseas tickers via KIS overseas endpoint', async () => {
-    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(kisOverseasPriceResponse(150.25)));
-
-    const markets = new Map([['AAPL', 'NASDAQ']]);
-    const prices = await getMultipleStockPrices(['AAPL'], markets);
-    expect(prices.get('AAPL')).toBe(150.25);
-  });
-
   it('falls back to Yahoo for domestic when KIS auth fails', async () => {
     vi.mocked(getAccessToken).mockRejectedValue(new Error('no token'));
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(yahooQuoteResponse(88, 85)));
@@ -203,63 +190,26 @@ describe('getMarketContext', () => {
 });
 
 describe('formatMarketContext', () => {
-  it('renders KRX-flavored text with all indicators', () => {
+  it('renders KRX text with all indicators', () => {
     const ctx: MarketContextData = {
       kospi: { price: 2600, changePercent: 0.5 },
       kosdaq: { price: 850, changePercent: -0.3 },
-      usdKrw: { price: 1350, changePercent: 0.2 },
-      sp500: { price: 5000, changePercent: 0.8 },
+      vix: { price: 15, changePercent: -0.5 },
     };
     const text = formatMarketContext(ctx, 'KRX');
     expect(text).toContain('KOSPI');
     expect(text).toContain('KOSDAQ');
-    expect(text).toContain('USD/KRW');
-    expect(text).toContain('S&P500(전일)');
+    expect(text).toContain('VIX');
   });
 
   it('warns on VIX > 30 (extreme fear)', () => {
-    const text = formatMarketContext({ vix: { price: 35, changePercent: 2 } }, 'NYSE');
+    const text = formatMarketContext({ vix: { price: 35, changePercent: 2 } }, 'KRX');
     expect(text).toContain('VIX 30 초과');
   });
 
   it('warns on VIX > 25 but < 30', () => {
-    const text = formatMarketContext({ vix: { price: 27, changePercent: 1 } }, 'NYSE');
+    const text = formatMarketContext({ vix: { price: 27, changePercent: 1 } }, 'KRX');
     expect(text).toContain('VIX 25 초과');
-  });
-
-  it('warns on KRW weakness ≥ 1380 for KRX', () => {
-    const text = formatMarketContext({ usdKrw: { price: 1400, changePercent: 0.2 } }, 'KRX');
-    expect(text).toContain('원화 약세');
-  });
-
-  it('warns on KRW strength ≤ 1320 for KRX', () => {
-    const text = formatMarketContext({ usdKrw: { price: 1300, changePercent: -0.2 } }, 'KRX');
-    expect(text).toContain('원화 강세');
-  });
-
-  it('renders NYSE-flavored text', () => {
-    const ctx: MarketContextData = {
-      sp500: { price: 5000, changePercent: 0.8 },
-      dow: { price: 40000, changePercent: 0.3 },
-      vix: { price: 15, changePercent: -0.5 },
-      usdKrw: { price: 1400, changePercent: 0.2 },
-    };
-    const text = formatMarketContext(ctx, 'NYSE');
-    expect(text).toContain('S&P500');
-    expect(text).toContain('다우');
-    expect(text).toContain('VIX');
-    expect(text).toContain('달러 강세');
-  });
-
-  it('warns NYSE on dollar weakness ≤ 1320', () => {
-    const ctx: MarketContextData = { usdKrw: { price: 1300, changePercent: -0.2 } };
-    const text = formatMarketContext(ctx, 'NYSE');
-    expect(text).toContain('달러 약세');
-  });
-
-  it('warns on large FX daily move (≥1%)', () => {
-    const text = formatMarketContext({ usdKrw: { price: 1350, changePercent: 1.5 } }, 'NYSE');
-    expect(text).toContain('환율 일 변동');
   });
 
   it('returns empty string for empty context', () => {

@@ -165,7 +165,7 @@
 import { ref, onMounted, onUnmounted, watch, nextTick } from 'vue';
 import { useRoute } from 'vue-router';
 import { createChart, createSeriesMarkers, IChartApi, ISeriesApi, CandlestickSeries, HistogramSeries, LineSeries, ColorType } from 'lightweight-charts';
-import { chartApi, stocksApi, watchlistApi, analysisApi } from '@/api';
+import { chartApi, stocksApi, watchTargetsApi } from '@/api';
 
 const searchTicker = ref('');
 const period = ref('D');
@@ -258,14 +258,8 @@ async function loadChart() {
     const { data } = await chartApi.getCandle(ticker, { period: period.value });
     chartData.value = data;
 
-    // 매매 신호 조회 (fail-safe)
-    try {
-      const sigRes = await analysisApi.getSignals(ticker);
-      chartData.value._signals = sigRes.data || [];
-      signalsCount.value = chartData.value._signals.length;
-    } catch {
-      chartData.value._signals = [];
-    }
+    // v5.0.0: trade_signals 테이블 제거. 마커 표시 안 함.
+    chartData.value._signals = [];
 
     await nextTick();
     renderChart(data.candles);
@@ -428,9 +422,9 @@ async function loadStockLists() {
     holdingStocks.value = data.map((s: any) => ({ ticker: s.ticker, name: s.name }));
   } catch {}
   try {
-    const { data } = await watchlistApi.getAll();
+    const { data } = await watchTargetsApi.getAll();
     const holdingSet = new Set(holdingStocks.value.map(s => s.ticker));
-    watchlistStocks.value = data
+    watchlistStocks.value = (data.items || [])
       .filter((w: any) => !holdingSet.has(w.ticker))
       .map((w: any) => ({ ticker: w.ticker, name: w.name }));
   } catch {}

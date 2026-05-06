@@ -95,66 +95,12 @@
                 </tbody>
               </table>
             </div>
-            <!-- 해외 보유 종목 -->
-            <div v-if="balanceData.overseasHoldings && balanceData.overseasHoldings.length > 0">
-              <div class="px-5 py-3 bg-green-500/5 border-t border-b border-border">
-                <h4 class="text-sm font-semibold text-green-500">해외 보유 종목</h4>
-              </div>
-              <div class="grid grid-cols-2 md:grid-cols-4 gap-4 p-5">
-                <div>
-                  <p class="text-xs text-txt-tertiary">해외 평가금액 (USD)</p>
-                  <p class="font-bold text-txt-primary mt-1 tabular-nums">{{ formatUsd(balanceData.overseasTotalEvalAmount) }}</p>
-                </div>
-                <div>
-                  <p class="text-xs text-txt-tertiary">해외 매입금액 (USD)</p>
-                  <p class="font-bold text-txt-primary mt-1 tabular-nums">{{ formatUsd(balanceData.overseasTotalPurchaseAmount) }}</p>
-                </div>
-                <div>
-                  <p class="text-xs text-txt-tertiary">해외 평가손익 (USD)</p>
-                  <p class="font-bold mt-1 tabular-nums" :class="balanceData.overseasTotalProfitLoss >= 0 ? 'text-profit' : 'text-loss'">
-                    {{ formatUsd(balanceData.overseasTotalProfitLoss) }}
-                  </p>
-                </div>
-                <div>
-                  <p class="text-xs text-txt-tertiary">외화 예수금</p>
-                  <p class="font-bold text-txt-primary mt-1 tabular-nums">{{ formatUsd(balanceData.overseasDepositAmount || 0) }}</p>
-                </div>
-              </div>
-              <div class="overflow-x-auto">
-                <table class="table-modern">
-                  <thead>
-                    <tr>
-                      <th class="text-left">종목</th>
-                      <th class="text-center">거래소</th>
-                      <th class="text-right">수량</th>
-                      <th class="text-right">평균단가</th>
-                      <th class="text-right">현재가</th>
-                      <th class="text-right">평가금액</th>
-                      <th class="text-right">수익률</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    <tr v-for="h in balanceData.overseasHoldings" :key="h.ticker">
-                      <td class="font-medium">{{ h.ticker }} <span class="text-xs text-txt-tertiary">{{ h.name }}</span></td>
-                      <td class="text-center text-xs text-txt-secondary">{{ h.market }}</td>
-                      <td class="text-right tabular-nums">{{ h.quantity }}</td>
-                      <td class="text-right tabular-nums">{{ formatUsd(h.avgPrice) }}</td>
-                      <td class="text-right tabular-nums">{{ formatUsd(h.currentPrice) }}</td>
-                      <td class="text-right tabular-nums">{{ formatUsd(h.totalValue) }}</td>
-                      <td class="text-right tabular-nums font-medium" :class="h.profitLossRate >= 0 ? 'text-profit' : 'text-loss'">
-                        {{ h.profitLossRate >= 0 ? '+' : '' }}{{ h.profitLossRate.toFixed(2) }}%
-                      </td>
-                    </tr>
-                  </tbody>
-                </table>
-              </div>
-            </div>
             <!-- 가져오기 버튼 -->
-            <div v-if="balanceData.holdings.length > 0 || (balanceData.overseasHoldings && balanceData.overseasHoldings.length > 0)"
+            <div v-if="balanceData.holdings.length > 0"
               class="p-4 border-t border-border text-right">
               <button @click="importBalance" :disabled="importing"
                 class="px-4 py-2 bg-primary text-white rounded-xl text-sm font-medium hover:bg-primary-hover disabled:opacity-50 transition-colors">
-                {{ importing ? '가져오는 중...' : `${balanceData.holdings.length + (balanceData.overseasHoldings?.length || 0)}개 종목을 포트폴리오로 가져오기` }}
+                {{ importing ? '가져오는 중...' : `${balanceData.holdings.length}개 종목을 포트폴리오로 가져오기` }}
               </button>
             </div>
           </div>
@@ -301,13 +247,6 @@
           :change="store.summary.totalProfitLossPercent"
           :color="store.summary.totalProfitLoss >= 0 ? 'text-profit' : 'text-loss'"
         />
-        <SummaryCard
-          label="총 배당금"
-          :value="formatCurrency(store.summary.totalDividends)"
-          :numeric-value="store.summary.totalDividends"
-          format="currency"
-          color="text-accent"
-        />
       </div>
 
       <!-- 차트 영역 -->
@@ -326,85 +265,6 @@
           <h3 class="text-sm font-semibold text-txt-secondary mb-4">보유 종목 수익률</h3>
           <StockChart v-if="store.summary.holdings.length > 0" :holdings="store.summary.holdings" />
           <p v-else class="text-txt-tertiary text-sm py-8 text-center">데이터가 없습니다</p>
-        </div>
-      </div>
-
-      <!-- 포트폴리오 히스토리 -->
-      <div class="solid-card mb-8 overflow-hidden">
-        <div class="p-5 border-b border-border">
-          <h3 class="text-sm font-semibold text-txt-secondary">포트폴리오 히스토리 (누적 순투자 / 수수료)</h3>
-          <p class="text-xs text-txt-tertiary mt-1">transactions 테이블 기반, 날짜별 누적 매수/매도/수수료</p>
-        </div>
-        <div class="p-5 h-72">
-          <PortfolioHistoryChart />
-        </div>
-      </div>
-
-      <!-- 체결률 지표 (v4.11.0) -->
-      <div v-if="fillRate" class="solid-card mb-8 overflow-hidden">
-        <div class="p-5 border-b border-border flex items-center justify-between">
-          <div>
-            <h3 class="text-sm font-semibold text-txt-secondary">⚡ 체결률 (최근 {{ fillRate.days }}일)</h3>
-            <p class="text-xs text-txt-tertiary mt-1">BUY 신호 대비 실제/가상 체결 비율 — 시스템 효율성 지표</p>
-          </div>
-        </div>
-        <div class="p-5 grid grid-cols-2 md:grid-cols-5 gap-4">
-          <div>
-            <p class="text-xs text-txt-secondary mb-1">BUY 신호</p>
-            <p class="text-2xl font-bold text-txt-primary">{{ fillRate.signals }}</p>
-          </div>
-          <div>
-            <p class="text-xs text-txt-secondary mb-1">실매수</p>
-            <p class="text-2xl font-bold text-accent">{{ fillRate.realFills }}</p>
-          </div>
-          <div>
-            <p class="text-xs text-txt-secondary mb-1">🧪 가상매수</p>
-            <p class="text-2xl font-bold text-purple-500">{{ fillRate.paperFills }}</p>
-          </div>
-          <div>
-            <p class="text-xs text-txt-secondary mb-1">차단(BLOCKED)</p>
-            <p class="text-2xl font-bold text-txt-tertiary">{{ fillRate.blocked }}</p>
-          </div>
-          <div>
-            <p class="text-xs text-txt-secondary mb-1">체결률 (실+가상)</p>
-            <p class="text-2xl font-bold" :class="fillRate.combinedFillRate >= 50 ? 'text-profit' : fillRate.combinedFillRate >= 20 ? 'text-amber-500' : 'text-loss'">
-              {{ fillRate.combinedFillRate }}%
-            </p>
-          </div>
-        </div>
-      </div>
-
-      <!-- 가상매매(Paper Trading) 요약 -->
-      <div v-if="paperSummary" class="solid-card mb-8 overflow-hidden border-l-4 border-purple-500">
-        <div class="p-5 border-b border-border flex items-center justify-between">
-          <div>
-            <h3 class="text-sm font-semibold text-txt-secondary">🧪 가상매매 현황 <span class="text-xs font-normal text-purple-500 ml-1">학습 데이터</span></h3>
-            <p class="text-xs text-txt-tertiary mt-1">실매매 안 된 추천 종목을 자동 가상매수하여 모델 정확도 평가에 활용</p>
-          </div>
-        </div>
-        <div class="p-5 grid grid-cols-2 md:grid-cols-4 gap-4">
-          <div>
-            <p class="text-xs text-txt-secondary mb-1">오픈 포지션</p>
-            <p class="text-2xl font-bold text-txt-primary">{{ paperSummary.openPositions }}<span class="text-sm text-txt-tertiary ml-1">종목</span></p>
-          </div>
-          <div>
-            <p class="text-xs text-txt-secondary mb-1">실현 손익</p>
-            <p class="text-2xl font-bold tabular-nums" :class="paperSummary.totalRealizedPnL >= 0 ? 'text-profit' : 'text-loss'">
-              {{ paperSummary.totalRealizedPnL >= 0 ? '+' : '' }}{{ Math.round(paperSummary.totalRealizedPnL).toLocaleString() }}<span class="text-sm text-txt-tertiary ml-1">원</span>
-            </p>
-          </div>
-          <div>
-            <p class="text-xs text-txt-secondary mb-1">평균 수익률</p>
-            <p class="text-2xl font-bold" :class="paperSummary.totalRealizedPnLPercent >= 0 ? 'text-profit' : 'text-loss'">
-              {{ paperSummary.totalRealizedPnLPercent >= 0 ? '+' : '' }}{{ paperSummary.totalRealizedPnLPercent.toFixed(1) }}%
-            </p>
-          </div>
-          <div>
-            <p class="text-xs text-txt-secondary mb-1">승률 ({{ paperSummary.closedTrades }}건)</p>
-            <p class="text-2xl font-bold" :class="paperSummary.winRate >= 50 ? 'text-profit' : 'text-loss'">
-              {{ paperSummary.winRate }}%
-            </p>
-          </div>
         </div>
       </div>
 
@@ -467,7 +327,7 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, inject, type Ref } from 'vue';
 import { usePortfolioStore } from '@/stores/portfolio';
-import { chartApi, schedulerApi, analysisApi, systemEventsApi, paperTradingApi } from '@/api';
+import { chartApi, schedulerApi, analysisApi, systemEventsApi } from '@/api';
 import { useAutoRefresh } from '@/composables/useAutoRefresh';
 
 // v4.7.3: pull the toast singleton provided by App.vue so destructive
@@ -478,7 +338,6 @@ const toastRef = inject<Ref<ToastInstance | null> | null>('toast', null);
 import SummaryCard from '@/components/SummaryCard.vue';
 import AllocationChart from '@/components/AllocationChart.vue';
 import StockChart from '@/components/StockChart.vue';
-import PortfolioHistoryChart from '@/components/PortfolioHistoryChart.vue';
 import AnimatedNumber from '@/components/AnimatedNumber.vue';
 import TrendBadge from '@/components/TrendBadge.vue';
 
@@ -515,26 +374,26 @@ const { loading: autoRefreshLoading, refresh } = useAutoRefresh(
 );
 
 // Market items for ticker strip
-// 동기화 결과 파싱 (krx + overseas 합산)
+// 동기화 결과 파싱 (KRX)
 interface SyncAdjusted { ticker: string; from: number; to: number; delta: number; }
 interface SyncRemoved { ticker: string; quantity: number; }
 
 const syncAddedList = computed<string[]>(() => {
   const r = importResult.value;
   if (!r || r.error) return [];
-  return [...(r.krx?.added ?? []), ...(r.overseas?.added ?? [])];
+  return r.krx?.added ?? [];
 });
 
 const syncAdjustedList = computed<SyncAdjusted[]>(() => {
   const r = importResult.value;
   if (!r || r.error) return [];
-  return [...(r.krx?.adjusted ?? []), ...(r.overseas?.adjusted ?? [])];
+  return r.krx?.adjusted ?? [];
 });
 
 const syncRemovedList = computed<SyncRemoved[]>(() => {
   const r = importResult.value;
   if (!r || r.error) return [];
-  return [...(r.krx?.removed ?? []), ...(r.overseas?.removed ?? [])];
+  return r.krx?.removed ?? [];
 });
 
 const marketItems = computed(() => {
@@ -543,10 +402,7 @@ const marketItems = computed(() => {
   const mc = marketCtx.value;
   if (mc.kospi) items.push({ label: 'KOSPI', price: mc.kospi.price, change: mc.kospi.changePercent, decimals: 0 });
   if (mc.kosdaq) items.push({ label: 'KOSDAQ', price: mc.kosdaq.price, change: mc.kosdaq.changePercent, decimals: 0 });
-  if (mc.sp500) items.push({ label: 'S&P 500', price: mc.sp500.price, change: mc.sp500.changePercent, decimals: 0 });
   if (mc.vix) items.push({ label: 'VIX', price: mc.vix.price, change: mc.vix.changePercent, decimals: 1 });
-  if (mc.usdKrw) items.push({ label: 'USD/KRW', price: mc.usdKrw.price, change: mc.usdKrw.changePercent, decimals: 0 });
-  if (mc.dow) items.push({ label: 'DOW', price: mc.dow.price, change: mc.dow.changePercent, decimals: 0 });
   return items;
 });
 
@@ -560,16 +416,8 @@ function formatCurrency(value: number): string {
   return new Intl.NumberFormat('ko-KR', { style: 'currency', currency: 'KRW', maximumFractionDigits: 0 }).format(value);
 }
 
-function formatUsd(value: number): string {
-  return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(value);
-}
-
-function isOverseasMarket(market: string): boolean {
-  return ['NASDAQ', 'NYSE', 'AMEX', 'NASD'].includes(market);
-}
-
-function formatByMarket(value: number, market: string): string {
-  return isOverseasMarket(market) ? formatUsd(value) : formatCurrency(value);
+function formatByMarket(value: number, _market: string): string {
+  return formatCurrency(value);
 }
 
 async function checkKisConfig() {
@@ -682,39 +530,6 @@ async function loadMarketContext() {
   } catch {}
 }
 
-interface PaperSummary {
-  openPositions: number;
-  totalRealizedPnL: number;
-  totalRealizedPnLPercent: number;
-  closedTrades: number;
-  winRate: number;
-}
-const paperSummary = ref<PaperSummary | null>(null);
-
-async function loadPaperSummary() {
-  try {
-    const { data } = await paperTradingApi.getSummary();
-    paperSummary.value = data;
-  } catch {
-    paperSummary.value = null;
-  }
-}
-
-// v4.11.0: 체결률 지표
-interface FillRate {
-  days: number; signals: number; realFills: number; paperFills: number; blocked: number;
-  realFillRate: number; combinedFillRate: number;
-}
-const fillRate = ref<FillRate | null>(null);
-
-async function loadFillRate() {
-  try {
-    const { data } = await schedulerApi.getFillRate(7);
-    fillRate.value = data;
-  } catch {
-    fillRate.value = null;
-  }
-}
 
 onMounted(async () => {
   await checkKisConfig();
@@ -722,7 +537,5 @@ onMounted(async () => {
   loadSystemStatus();
   loadMarketContext();
   loadSystemEvents();
-  loadPaperSummary();
-  loadFillRate();
 });
 </script>

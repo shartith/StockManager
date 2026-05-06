@@ -1,5 +1,5 @@
 import { fetchYahooQuote } from './stockPrice';
-import { KRX_TOP_STOCKS, US_TOP_STOCKS, US_SECTOR_ETFS, type MarketStock } from '../config/marketStocks';
+import { KRX_TOP_STOCKS, type MarketStock } from '../config/marketStocks';
 import { queryAll } from '../db';
 import logger from '../logger';
 
@@ -139,17 +139,13 @@ export async function getPortfolioHeatmap(): Promise<HeatmapData> {
     return empty;
   }
 
-  // Build yahoo ticker map
-  const tickerMap: MarketStock[] = holdings.map((h: any) => {
-    const isKrx = !h.market || h.market === 'KRX';
-    const suffix = isKrx ? '.KS' : '';
-    return {
-      ticker: h.ticker,
-      yahooTicker: isKrx ? `${h.ticker}${suffix}` : h.ticker,
-      name: h.name,
-      sector: h.sector || '기타',
-    };
-  });
+  // Build yahoo ticker map (KRX → .KS suffix)
+  const tickerMap: MarketStock[] = holdings.map((h: any) => ({
+    ticker: h.ticker,
+    yahooTicker: `${h.ticker}.KS`,
+    name: h.name,
+    sector: h.sector || '기타',
+  }));
 
   const prices = await fetchPrices(tickerMap);
 
@@ -186,20 +182,18 @@ export async function getPortfolioHeatmap(): Promise<HeatmapData> {
   return data;
 }
 
-// ── Market Heatmap (KRX / US) ──
+// ── Market Heatmap (KRX) ──
 
-export async function getMarketHeatmap(market: 'KRX' | 'US'): Promise<HeatmapData> {
-  const cacheKey = `market:${market}`;
+export async function getMarketHeatmap(): Promise<HeatmapData> {
+  const cacheKey = 'market:KRX';
   const cached = getCached(cacheKey);
   if (cached) return cached;
 
-  const stockList = market === 'KRX'
-    ? KRX_TOP_STOCKS
-    : [...US_SECTOR_ETFS, ...US_TOP_STOCKS];
+  const stockList = KRX_TOP_STOCKS;
 
-  logger.info({ market, count: stockList.length }, 'Fetching heatmap prices');
+  logger.info({ count: stockList.length }, 'Fetching heatmap prices');
 
-  const prices = await fetchPrices(stockList, market === 'KRX' ? 3 : 5);
+  const prices = await fetchPrices(stockList, 3);
 
   // Equal weight within sector for market mode
   const sectorCounts = new Map<string, number>();
@@ -216,7 +210,7 @@ export async function getMarketHeatmap(market: 'KRX' | 'US'): Promise<HeatmapDat
       ticker: s.ticker,
       name: s.name,
       sector: s.sector,
-      market,
+      market: 'KRX',
       price: quote.price,
       changePercent: quote.changePercent,
       weight: 1 / (sectorCounts.get(s.sector) || 1),
@@ -225,7 +219,7 @@ export async function getMarketHeatmap(market: 'KRX' | 'US'): Promise<HeatmapDat
 
   const data: HeatmapData = {
     mode: 'market',
-    market,
+    market: 'KRX',
     sectors: groupBySector(stocks),
     updatedAt: new Date().toISOString(),
     totalStocks: stocks.length,
@@ -234,7 +228,7 @@ export async function getMarketHeatmap(market: 'KRX' | 'US'): Promise<HeatmapDat
   };
 
   setCache(cacheKey, data);
-  logger.info({ market, fetched: prices.size, total: stockList.length }, 'Heatmap data cached');
+  logger.info({ fetched: prices.size, total: stockList.length }, 'Heatmap data cached');
   return data;
 }
 
