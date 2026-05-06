@@ -71,27 +71,13 @@ export const saveConfigSchema = z.object({
   dartApiKey: z.string().optional(),
   dartEnabled: z.boolean().default(false),
 
-  // 자동매매 한도
+  // 자동매매 ON/OFF (한도는 KIS 잔고에서 자동 산정)
   autoTradeEnabled: z.boolean().default(false),
-  autoTradeMaxInvestment: z.number().positive().default(10_000_000),
-  autoTradeMaxPerStock: z.number().positive().default(2_000_000),
-  autoTradeMaxDailyTrades: z.number().int().positive().default(10),
 
   // 매매 스케줄
   scheduleKrx: z.object({
     enabled: z.boolean(),
   }).optional(),
-
-  // NAS sync
-  nasSyncEnabled: z.boolean().default(false),
-  nasSyncPath: z.string().default('/Volumes/stock-manager'),
-  nasSyncTime: z.string().regex(/^[\d*\/,-]+ [\d*\/,-]+ [\d*\/,-]+ [\d*\/,-]+ [\d*\/,-]+$/).or(z.literal('')).default('0 20 * * *'),
-  deviceId: z.string().default(''),
-  nasHost: z.string().default(''),
-  nasShare: z.string().default('stock-manager'),
-  nasUsername: z.string().default(''),
-  nasPassword: z.string().default(''),
-  nasAutoMount: z.boolean().default(true),
 
   // 매도 규칙
   sellRulesEnabled: z.boolean().default(true),

@@ -46,21 +46,8 @@ router.get('/config/form', (_req: Request, res: Response) => {
     hasDartKey: !!settings.dartApiKey,
 
     autoTradeEnabled: settings.autoTradeEnabled,
-    autoTradeMaxInvestment: settings.autoTradeMaxInvestment,
-    autoTradeMaxPerStock: settings.autoTradeMaxPerStock,
-    autoTradeMaxDailyTrades: settings.autoTradeMaxDailyTrades,
 
     scheduleKrx: settings.scheduleKrx,
-
-    nasSyncEnabled: settings.nasSyncEnabled,
-    nasSyncPath: settings.nasSyncPath,
-    nasSyncTime: settings.nasSyncTime,
-    deviceId: settings.deviceId,
-    nasHost: settings.nasHost,
-    nasShare: settings.nasShare,
-    nasUsername: settings.nasUsername,
-    hasNasPassword: !!settings.nasPassword,
-    nasAutoMount: settings.nasAutoMount,
 
     sellRulesEnabled: settings.sellRulesEnabled,
     targetProfitRate: settings.targetProfitRate,
@@ -87,8 +74,7 @@ router.post('/config', validate(saveConfigSchema), (req: Request, res: Response)
   const { appKey, appSecret, accountNo, accountProductCode, isVirtual, mcpEnabled,
     llmProvider, llmUrl, llmModel, llmEnabled, llmApiKey,
     dartApiKey, dartEnabled,
-    autoTradeEnabled, autoTradeMaxInvestment, autoTradeMaxPerStock, autoTradeMaxDailyTrades,
-    scheduleKrx,
+    autoTradeEnabled, scheduleKrx,
   } = req.body;
 
   const currentSettings = getSettings();
@@ -114,21 +100,8 @@ router.post('/config', validate(saveConfigSchema), (req: Request, res: Response)
     dartEnabled: !!dartEnabled,
 
     autoTradeEnabled: !!autoTradeEnabled,
-    autoTradeMaxInvestment: Number(autoTradeMaxInvestment) || 10_000_000,
-    autoTradeMaxPerStock: Number(autoTradeMaxPerStock) || 2_000_000,
-    autoTradeMaxDailyTrades: Number(autoTradeMaxDailyTrades) || 10,
 
     ...(scheduleKrx ? { scheduleKrx } : {}),
-
-    nasSyncEnabled: req.body.nasSyncEnabled ?? false,
-    nasSyncPath: req.body.nasSyncPath || '/Volumes/stock-manager',
-    nasSyncTime: req.body.nasSyncTime || '0 20 * * *',
-    deviceId: req.body.deviceId || '',
-    nasHost: req.body.nasHost || '',
-    nasShare: req.body.nasShare || 'stock-manager',
-    nasUsername: req.body.nasUsername || '',
-    ...(req.body.nasPassword ? { nasPassword: req.body.nasPassword } : {}),
-    nasAutoMount: req.body.nasAutoMount ?? true,
 
     sellRulesEnabled: req.body.sellRulesEnabled ?? true,
     targetProfitRate: Number(req.body.targetProfitRate) || 3.0,

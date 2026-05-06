@@ -1,17 +1,14 @@
 /**
- * 설정 관리 (v5.0.0 슬림화).
+ * 설정 관리 (v5.2.0 추가 슬림화).
  *
- * 제거된 필드: investmentStyle, debateMode, stopLossPercent (구 PRE_OPEN 분석용),
- *            autoTradeScoreThreshold, priceChangeThreshold, portfolioMaxHoldings,
- *            portfolioMaxPerStockPercent, portfolioMaxSectorPercent,
- *            portfolioRebalanceEnabled, portfolioMinCashPercent,
- *            tradingRulesEnabled, tradingRulesStrictMode, gapThresholdPercent,
- *            volumeSurgeRatio, lowVolumeRatio, sidewaysAtrPercent, maxHoldMinutes,
- *            dynamicScreeningEnabled, screeningVolumeRatioMin, screeningMinMarketCap,
- *            paperTradingEnabled, paperTradeAmount, backtestMinTradesForSave,
- *            roiTable, protections, presets.
+ * v5.2 제거:
+ *   - autoTradeMaxInvestment, autoTradeMaxPerStock, autoTradeMaxDailyTrades
+ *     → KIS 잔고 + positionMaxPositions로 자동 산정.
+ *   - nasSyncEnabled, nasSyncPath, nasSyncTime, nasImportEnabled,
+ *     nasHost, nasShare, nasUsername, nasPassword, nasAutoMount, deviceId
+ *     → NAS sync 기능 전체 제거.
  *
- * 추가: sidewaysMinutes, sidewaysRangePercent, lossMinutes (Rule 8/9 임계값).
+ * 자동매매는 ON/OFF 토글 하나 + KRX 스케줄 토글 하나만 노출.
  */
 
 import fs from 'fs';
@@ -46,7 +43,7 @@ export interface AppSettings {
   kisVirtual: boolean;
   mcpEnabled: boolean;
 
-  // 외부 OpenAI 호환 LLM (뉴스 요약 / Rule 12 용)
+  // 외부 OpenAI 호환 LLM (Rule 12 / 뉴스 요약 / systemEvent 조언)
   llmProvider: 'ollama' | 'openai';
   llmUrl: string;
   llmModel: string;
@@ -60,50 +57,35 @@ export interface AppSettings {
   dartApiKey: string;
   dartEnabled: boolean;
 
-  // 자동매매 ON/OFF + 한도
+  // 자동매매 (ON/OFF만)
   autoTradeEnabled: boolean;
-  autoTradeMaxInvestment: number;
-  autoTradeMaxPerStock: number;
-  autoTradeMaxDailyTrades: number;
 
-  // KRX 매매 스케줄
+  // KRX 스케줄
   scheduleKrx: MarketScheduleConfig;
 
-  // 매도 규칙 (sellRules.ts)
+  // 매도 규칙
   sellRulesEnabled: boolean;
-  targetProfitRate: number;          // Rule 7-1: +N% → 전량 매도 (default 3.0)
-  hardStopLossRate: number;          // Rule 6: -N% → 전량 매도 (default 2.0)
-  trailingStopRate: number;          // Rule 7-2: 활성 후 고점 대비 -N% (default 1.5)
-  trailingActivatePercent: number;   // 트레일링 활성 임계값 (default 3.0)
-  sidewaysMinutes: number;           // Rule 7+8: N분 정체 → 매도 (default 60)
-  lossMinutes: number;               // Rule 9: N분 손실 유지 → 강제 손절 (default 60)
-  profitThresholdPercent: number;    // "수익 상태" 정의 — 수수료 보전 (default 0.5)
+  targetProfitRate: number;
+  hardStopLossRate: number;
+  trailingStopRate: number;
+  trailingActivatePercent: number;
+  sidewaysMinutes: number;
+  lossMinutes: number;
+  profitThresholdPercent: number;
 
   // 포지션 사이징 (Rule 4)
-  positionMaxPositions: number;      // 최대 동시 보유 종목 수 (default 5)
+  positionMaxPositions: number;
 
-  // EOD (Rule 10, 11)
-  eodProfitTakePercent: number;      // 15:00 익절 임계값 (default 3.0)
+  // EOD
+  eodProfitTakePercent: number;
 
-  // 매수 게이트 (HIGH 보강)
-  entryGainPercent: number;          // 시초가 대비 N% 상승 → 매수 트리거 (default 1.0)
-  marketBrakeEnabled: boolean;       // KOSPI 폭락 시 매수 차단 활성 (default true)
-  marketBrakeKospiPercent: number;   // KOSPI -N% 이하면 매수 차단 (default 2.0)
-  marketBrakeVixLevel: number;       // VIX ≥ N이면 매수 차단 (default 30)
-  gapUpMaxPercent: number;           // 자동목록에서 갭상승 ≥N% 종목 제외 (default 3.0)
-  reEntryCooldownMinutes: number;    // 매도 후 N분 매수 차단 (default 30)
-
-  // NAS 동기화
-  nasSyncEnabled: boolean;
-  nasSyncPath: string;
-  nasSyncTime: string;
-  nasImportEnabled?: boolean;
-  deviceId: string;
-  nasHost: string;
-  nasShare: string;
-  nasUsername: string;
-  nasPassword: string;
-  nasAutoMount: boolean;
+  // 매수 게이트
+  entryGainPercent: number;
+  marketBrakeEnabled: boolean;
+  marketBrakeKospiPercent: number;
+  marketBrakeVixLevel: number;
+  gapUpMaxPercent: number;
+  reEntryCooldownMinutes: number;
 }
 
 const DEFAULT_SETTINGS: AppSettings = {
@@ -124,9 +106,6 @@ const DEFAULT_SETTINGS: AppSettings = {
   dartEnabled: false,
 
   autoTradeEnabled: false,
-  autoTradeMaxInvestment: 10_000_000,
-  autoTradeMaxPerStock: 2_000_000,
-  autoTradeMaxDailyTrades: 10,
 
   scheduleKrx: { enabled: false },
 
@@ -149,27 +128,16 @@ const DEFAULT_SETTINGS: AppSettings = {
   marketBrakeVixLevel: 30,
   gapUpMaxPercent: 3.0,
   reEntryCooldownMinutes: 30,
-
-  nasSyncEnabled: false,
-  nasSyncPath: '/Volumes/stock-manager',
-  nasSyncTime: '0 20 * * *',
-  deviceId: '',
-  nasHost: '',
-  nasShare: 'stock-manager',
-  nasUsername: '',
-  nasPassword: '',
-  nasAutoMount: true,
 };
 
 let _cache: AppSettings | null = null;
 
-/** v4.x 시절의 사용하지 않는 키. 로드 시 strip — 파일 자가 정리. */
 const LEGACY_FIELDS = [
-  // v4.x 외부 AI / Ollama / MLX 마이그레이션 잔재
+  // v4.x 외부 AI / Ollama / MLX 잔재
   'externalAiApiKey', 'externalAiProvider', 'externalAiModel',
   'ollamaUrl', 'ollamaModel', 'ollamaEnabled',
   'mlxUrl', 'mlxModel', 'mlxEnabled',
-  // v5.0.0에서 제거한 필드
+  // v5.0.0에서 제거
   'investmentStyle', 'debateMode', 'stopLossPercent',
   'autoTradeScoreThreshold', 'priceChangeThreshold',
   'portfolioMaxHoldings', 'portfolioMaxPerStockPercent', 'portfolioMaxSectorPercent',
@@ -180,8 +148,12 @@ const LEGACY_FIELDS = [
   'dynamicScreeningEnabled', 'screeningVolumeRatioMin', 'screeningMinMarketCap',
   'paperTradingEnabled', 'paperTradeAmount', 'backtestMinTradesForSave',
   'scheduleNyse',
-  // v5.1.0에서 제거한 필드
+  // v5.1.0에서 제거
   'positionMaxRatio', 'positionMinCashRatio', 'sidewaysRangePercent',
+  // v5.2.0에서 제거
+  'autoTradeMaxInvestment', 'autoTradeMaxPerStock', 'autoTradeMaxDailyTrades',
+  'nasSyncEnabled', 'nasSyncPath', 'nasSyncTime', 'nasImportEnabled',
+  'nasHost', 'nasShare', 'nasUsername', 'nasPassword', 'nasAutoMount', 'deviceId',
 ] as const;
 
 function stripLegacyFields(obj: Record<string, unknown>): Record<string, unknown> {
@@ -228,7 +200,6 @@ export function saveSettings(partial: Partial<AppSettings>) {
   const dir = path.dirname(SETTINGS_PATH);
   if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
 
-  // env로 주입된 secret은 파일에 저장하지 않음
   const { kisAppKey, kisAppSecret, dartApiKey, llmApiKey, ...safeSettings } = _cache;
   const toSave = {
     ...safeSettings,

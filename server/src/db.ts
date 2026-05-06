@@ -218,6 +218,9 @@ export async function initializeDB(): Promise<Db> {
     )
   `);
 
+  // ── auto_trades chase tracking (v5.2.0) ──
+  try { dbRun('ALTER TABLE auto_trades ADD COLUMN chase_level INTEGER DEFAULT 0'); } catch {}
+
   // ── Intraday strategy state (v5.1.0) ──
   // dailyStrategy의 in-memory 상태를 영구화: 시초가 baseline, 트레일링 high water mark,
   // 당일 매수 여부, 매도 후 cooldown용 시각.

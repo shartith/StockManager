@@ -224,14 +224,8 @@
     <div v-else-if="store.error" class="solid-card p-6 text-center text-profit">{{ store.error }}</div>
 
     <template v-else-if="store.summary">
-      <!-- Bento 그리드: 요약 카드 -->
+      <!-- 요약 카드 — 좌→우 우선순위 순: 평가금액 → 수익/손실 → 투자금액 → 보유종목 수 -->
       <div class="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
-        <SummaryCard
-          label="총 투자금액"
-          :value="formatCurrency(store.summary.totalInvested)"
-          :numeric-value="store.summary.totalInvested"
-          format="currency"
-        />
         <SummaryCard
           label="현재 평가금액"
           :value="formatCurrency(store.summary.totalCurrentValue)"
@@ -247,25 +241,18 @@
           :change="store.summary.totalProfitLossPercent"
           :color="store.summary.totalProfitLoss >= 0 ? 'text-profit' : 'text-loss'"
         />
-      </div>
-
-      <!-- 차트 영역 -->
-      <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
-        <div class="glass-card p-5">
-          <h3 class="text-sm font-semibold text-txt-secondary mb-4">
-            자산 배분
-            <span class="text-xs font-normal text-txt-tertiary ml-1">
-              {{ store.summary.allocationBy === 'sector' ? '섹터별' : '종목별' }}
-            </span>
-          </h3>
-          <AllocationChart v-if="store.summary.allocation.length > 0" :data="store.summary.allocation" />
-          <p v-else class="text-txt-tertiary text-sm py-8 text-center">데이터가 없습니다</p>
-        </div>
-        <div class="glass-card p-5">
-          <h3 class="text-sm font-semibold text-txt-secondary mb-4">보유 종목 수익률</h3>
-          <StockChart v-if="store.summary.holdings.length > 0" :holdings="store.summary.holdings" />
-          <p v-else class="text-txt-tertiary text-sm py-8 text-center">데이터가 없습니다</p>
-        </div>
+        <SummaryCard
+          label="총 투자금액"
+          :value="formatCurrency(store.summary.totalInvested)"
+          :numeric-value="store.summary.totalInvested"
+          format="currency"
+        />
+        <SummaryCard
+          label="보유 종목"
+          :value="`${store.summary.holdings.length}종목`"
+          :numeric-value="store.summary.holdings.length"
+          format="number"
+        />
       </div>
 
       <!-- 보유 종목 테이블 -->
@@ -282,8 +269,6 @@
                 <th class="text-right">평균단가</th>
                 <th class="text-right">현재가</th>
                 <th class="text-right">평가금액</th>
-                <th class="text-right">수익/손실</th>
-                <th class="text-right">수익률</th>
               </tr>
             </thead>
             <tbody>
@@ -296,16 +281,9 @@
                 <td class="text-right tabular-nums text-txt-secondary">{{ formatByMarket(h.avgPrice, h.market) }}</td>
                 <td class="text-right tabular-nums font-medium">{{ h.currentPrice ? formatByMarket(h.currentPrice, h.market) : '-' }}</td>
                 <td class="text-right tabular-nums">{{ h.currentValue ? formatByMarket(h.currentValue, h.market) : formatByMarket(h.totalCost, h.market) }}</td>
-                <td class="text-right tabular-nums font-medium" :class="(h.profitLoss ?? 0) >= 0 ? 'text-profit' : 'text-loss'">
-                  {{ h.profitLoss !== undefined ? formatByMarket(h.profitLoss, h.market) : '-' }}
-                </td>
-                <td class="text-right">
-                  <TrendBadge v-if="h.profitLossPercent !== undefined" :value="h.profitLossPercent" />
-                  <span v-else class="text-txt-tertiary">-</span>
-                </td>
               </tr>
               <tr v-if="store.summary.holdings.length === 0">
-                <td colspan="7" class="text-center py-12 text-txt-tertiary">
+                <td colspan="5" class="text-center py-12 text-txt-tertiary">
                   <p class="mb-2">보유 종목이 없습니다.</p>
                   <p v-if="kisConfigured" class="text-xs">
                     상단 <strong>계좌 잔고 가져오기</strong> 버튼으로 KIS 계좌에서 바로 불러올 수 있습니다.
@@ -336,8 +314,6 @@ interface ToastShowOpts { type?: string; title?: string; message: string; durati
 interface ToastInstance { show: (opts: ToastShowOpts) => void; }
 const toastRef = inject<Ref<ToastInstance | null> | null>('toast', null);
 import SummaryCard from '@/components/SummaryCard.vue';
-import AllocationChart from '@/components/AllocationChart.vue';
-import StockChart from '@/components/StockChart.vue';
 import AnimatedNumber from '@/components/AnimatedNumber.vue';
 import TrendBadge from '@/components/TrendBadge.vue';
 

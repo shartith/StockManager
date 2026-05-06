@@ -40,6 +40,7 @@ import {
   expireStale as expireStaleReserved,
 } from './reservedOrders';
 import { evaluateSellRules, resetPeakPrice, getBuyTimestamp } from './sellRules';
+import { chaseStaleOrders } from './orderChase';
 import {
   setOpeningPriceIfMissing,
   markBought,
@@ -177,7 +178,6 @@ async function getVolumeRatio(ticker: string, todayVolume: number): Promise<numb
 
 async function evaluateBuyForTarget(
   target: ReturnType<typeof listActiveTargets>[number],
-  perStockBudget: number,
   currentHoldings: HoldingInfo[],
   token: string,
 ): Promise<{ bought: boolean; reason: string }> {
@@ -196,12 +196,12 @@ async function evaluateBuyForTarget(
     return { bought: false, reason: 'already bought today' };
   }
 
-  // 3. 재진입 cooldown (HIGH #11)
+  // 3. 재진입 cooldown
   if (isInCooldown(target.stockId, cooldownMin)) {
     return { bought: false, reason: `cooldown ${cooldownMin}분 미경과` };
   }
 
-  // 4. 동일 섹터 집중도 (HIGH #9)
+  // 4. 동일 섹터 집중도
   if (target.sector) {
     const sameSectorCount = currentHoldings.filter(h => h.sector === target.sector).length;
     if (sameSectorCount >= SAME_SECTOR_MAX) {
@@ -209,18 +209,18 @@ async function evaluateBuyForTarget(
     }
   }
 
-  // 5. KIS snapshot — 가격 + 거래량 + VI + 시초가 1회 조회
+  // 5. KIS snapshot
   const snap = await getKisStockSnapshot(target.ticker, token);
   if (!snap || snap.price <= 0) {
     return { bought: false, reason: 'KIS 시세 조회 실패' };
   }
 
-  // 6. VI 발동 종목 차단 (LOW #15)
+  // 6. VI 발동 종목 차단
   if (snap.viActivated) {
     return { bought: false, reason: 'VI 발동 종목' };
   }
 
-  // 7. 시초가 baseline 기록 (HIGH #2)
+  // 7. 시초가 baseline 기록
   setOpeningPriceIfMissing(target.stockId, snap.open > 0 ? snap.open : snap.price);
   const state = getState(target.stockId);
   const opening = state?.openingPrice ?? snap.open ?? snap.price;
@@ -234,13 +234,13 @@ async function evaluateBuyForTarget(
     return { bought: false, reason: `gainFromOpen ${gainFromOpen.toFixed(2)}% < ${entryGain}%` };
   }
 
-  // 9. 거래량 검증 (HIGH #4)
+  // 9. 거래량 검증
   const volRatio = await getVolumeRatio(target.ticker, snap.volume);
   if (volRatio < MIN_VOLUME_RATIO) {
     return { bought: false, reason: `거래량 부족 (${volRatio.toFixed(2)}x < ${MIN_VOLUME_RATIO}x)` };
   }
 
-  // 10. 호가 품질 게이트 (HIGH #5)
+  // 10. 호가 품질 게이트
   try {
     const qb = await getQuoteBook(target.ticker, 'KRX');
     if (qb && qb.quality === 'POOR') {
@@ -248,30 +248,15 @@ async function evaluateBuyForTarget(
     }
   } catch {}
 
-  // 11. Rule 4: 동적 종목당 한도 (사용자 안: ±5% 허용)
-  if (snap.price > perStockBudget * (1 + POSITION_TOLERANCE)) {
-    return { bought: false, reason: `주가 ${snap.price} > 한도 상한 ${Math.round(perStockBudget * 1.05)}` };
-  }
-  // 수량 = floor(perStockBudget / price)
-  const quantity = Math.max(1, Math.floor(perStockBudget / snap.price));
-  if (quantity < 1) {
-    return { bought: false, reason: 'quantity < 1' };
-  }
-  // 실제 매수 금액이 한도 ±5% 이내인지 검증
-  const amount = quantity * snap.price;
-  if (amount < perStockBudget * (1 - POSITION_TOLERANCE)) {
-    // 예: 비싼 종목이라 1주 가격이 한도의 95% 미만이면 너무 적게 사는 것 → 그대로 진행
-    // (1주만 사는 게 맞음. 추가 종목은 다른 종목으로 분산)
-  }
-
-  // 12. KIS 주문 실행
+  // 11. KIS 주문 실행 — quantity=0으로 위임 (executeOrder 내부 checkPositionSizingRules가 정책 적용:
+  //     한도 내 floor(budget/price), 한도 초과 시 1주, 가용현금 90% 초과 시 차단)
   try {
     const result = await executeOrder({
       stockId: target.stockId,
       ticker: target.ticker,
       market: 'KRX',
       orderType: 'BUY',
-      quantity,
+      quantity: 0,
       price: 0, // 시장가 (executeOrder 내부에서 -0.5% 지정가 변환)
       reason: `시초가+${gainFromOpen.toFixed(1)}% 진입 (vol×${volRatio.toFixed(1)})`,
     });
@@ -351,12 +336,13 @@ async function evaluateReservedOrders(token: string): Promise<number> {
 
     let qty = order.quantity;
     if (order.orderType === 'BUY' && qty <= 0) {
-      // 보유금액 기반 자동 산정
+      // KIS 가용 현금 ÷ positionMaxPositions 기반 자동 산정
       const settings = getSettings();
-      const total = settings.autoTradeMaxInvestment;
-      const positions = settings.positionMaxPositions;
-      const perStockBudget = total / Math.max(positions, 1);
-      qty = Math.max(1, Math.floor(perStockBudget / currentPrice));
+      const cash = await getDomesticOrderableAmount().catch(() => 0);
+      if (cash > 0) {
+        const perStockBudget = cash / Math.max(settings.positionMaxPositions, 1);
+        qty = Math.max(1, Math.floor(perStockBudget / currentPrice));
+      }
     }
     if (qty <= 0) {
       recordExecutionAttempt(order.id, '수량 산정 불가');
@@ -399,7 +385,7 @@ async function evaluateReservedOrders(token: string): Promise<number> {
  * 09:05~09:55 매수창 + 10:00~14:55 모니터링.
  * 매수 윈도우 외에도 매도/예약 평가는 항상 실행.
  */
-export async function runFiveMinTick(): Promise<{
+export async function runMonitorTick(): Promise<{
   evaluated: number;
   bought: number;
   sold: number;
@@ -424,6 +410,16 @@ export async function runFiveMinTick(): Promise<{
   }
   const token = await getAccessToken();
 
+  // 미체결 주문 chase — stale (5분 이상) 주문 가격 갱신
+  try {
+    const chase = await chaseStaleOrders(false);
+    if (chase.chased > 0) {
+      logger.info(chase, '[Tick] orderChase');
+    }
+  } catch (err) {
+    logger.error({ err }, '[Tick] chaseStaleOrders failed');
+  }
+
   // 매도 평가 — 항상 실행
   const holdings = getHoldings();
   let sold = 0;
@@ -447,18 +443,20 @@ export async function runFiveMinTick(): Promise<{
       await logSystemEvent('WARN', 'MARKET_BRAKE',
         `시장 브레이크 — 신규 매수 차단`, brake.reason, '');
     } else {
-      // 보유금액 기반 종목당 한도 (Rule 4)
-      const orderable = await getDomesticOrderableAmount().catch(() => 0);
-      const totalBudget = orderable > 0 ? orderable : settings.autoTradeMaxInvestment;
-      const perStockBudget = totalBudget / Math.max(settings.positionMaxPositions, 1);
+      // KIS 가용 현금 사전 체크 (실제 sizing은 executeOrder 내부에서 매번 재조회)
+      const cashAmount = await getDomesticOrderableAmount().catch(() => 0);
+      if (cashAmount <= 0) {
+        await logSystemEvent('WARN', 'NO_CASH',
+          '주문가능금액 0 — 매수 평가 스킵', 'KIS API 잔고 확인 필요', '');
+        return { evaluated: 0, bought: 0, sold, reservedExecuted };
+      }
 
       const targets = listActiveTargets();
-      // 매수 후 갱신된 holdings 사용 (매도 직후 재매수 방지)
       const refreshedHoldings = getHoldings();
 
       for (const target of targets) {
         evaluated++;
-        const r = await evaluateBuyForTarget(target, perStockBudget, refreshedHoldings, token);
+        const r = await evaluateBuyForTarget(target, refreshedHoldings, token);
         if (r.bought) {
           bought++;
           // 새 보유 추가 (다음 평가 종목의 동일 섹터 집중도 정확히 계산)

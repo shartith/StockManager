@@ -2,7 +2,7 @@
  * Market Brake — 시장 전체 폭락/공포 시 신규 매수 일괄 차단 (HIGH #1).
  *
  * KOSPI 등락률이 settings.marketBrakeKospiPercent 이하면 신규 매수 차단.
- * 매도/예약/EOD는 영향 받지 않음. dailyStrategy.runFiveMinTick에서 매수 평가 직전 호출.
+ * 매도/예약/EOD는 영향 받지 않음. dailyStrategy.runMonitorTick에서 매수 평가 직전 호출.
  */
 
 import { fetchYahooQuote } from './stockPrice';

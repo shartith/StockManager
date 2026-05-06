@@ -106,21 +106,6 @@ function calculateFee(_market: string, amount: number): number {
   return Math.round(amount * 0.0025);
 }
 
-// ─── 주문 수량 계산 ───────────────────────────────────
-
-/** 투자 한도 내에서 주문 수량 계산 */
-export function calculateOrderQuantity(
-  price: number,
-  market: string,
-  maxPerStock: number,
-  splitRatio: number = 100,
-): number {
-  if (price <= 0) return 0;
-  const maxAmount = maxPerStock * (splitRatio / 100);
-  const quantity = Math.floor(maxAmount / price);
-  return Math.max(quantity, 1);
-}
-
 /** 국내 매수가능금액 조회 (inquire-psbl-order, TTTC8908R) */
 export async function getDomesticOrderableAmount(): Promise<number> {
   try {
@@ -173,37 +158,21 @@ interface RiskCheckResult {
   reason?: string;
 }
 
-export function checkRiskLimits(orderType: 'BUY' | 'SELL', amount: number): RiskCheckResult {
+/**
+ * v5.2: 단순화 — autoTradeEnabled 체크만.
+ * 일일 거래 횟수 / 총 투자한도는 KIS 잔고 기반 자동 분할로 대체.
+ */
+export function checkRiskLimits(_orderType: 'BUY' | 'SELL', _amount: number): RiskCheckResult {
   const settings = getSettings();
-
   if (!settings.autoTradeEnabled) {
     return { allowed: false, reason: '자동매매 비활성화' };
   }
-
-  // 일일 거래 횟수 체크
-  const todayTrades = queryOne(
-    "SELECT COUNT(*) as cnt FROM auto_trades WHERE date(created_at) = date('now') AND status IN ('SUBMITTED', 'FILLED')"
-  );
-  if ((todayTrades?.cnt ?? 0) >= settings.autoTradeMaxDailyTrades) {
-    return { allowed: false, reason: `일일 최대 거래 횟수(${settings.autoTradeMaxDailyTrades}회) 도달` };
-  }
-
-  if (orderType === 'BUY') {
-    // 총 투자금액 체크
-    const totalInvested = queryOne(
-      "SELECT COALESCE(SUM(quantity * price), 0) as total FROM auto_trades WHERE order_type = 'BUY' AND status = 'FILLED' AND date(created_at) = date('now')"
-    );
-    if ((totalInvested?.total ?? 0) + amount > settings.autoTradeMaxInvestment) {
-      return { allowed: false, reason: `총 투자한도(${settings.autoTradeMaxInvestment.toLocaleString()}원) 초과` };
-    }
-  }
-
   return { allowed: true };
 }
 
 // ─── 국내주식 주문 ────────────────────────────────────
 
-async function submitDomesticOrder(
+export async function submitDomesticOrder(
   ticker: string,
   orderType: 'BUY' | 'SELL',
   quantity: number,
@@ -262,6 +231,82 @@ async function submitDomesticOrder(
     orderNo: '',
     message: `${data.msg_cd}: ${data.msg1 || '주문 실패'}`,
   };
+}
+
+// ─── 주문 취소 / 정정 ─────────────────────────────────
+
+/**
+ * KIS 미체결 주문 취소 (orderChase에서 stale 주문 갱신용).
+ * Endpoint: /uapi/domestic-stock/v1/trading/order-rvsecncl
+ * TR_ID: TTTC0803U (실전), VTTC0803U (모의)
+ */
+export async function cancelKisOrder(orderNo: string, ticker: string, quantity: number): Promise<{ success: boolean; message: string }> {
+  if (!orderNo) return { success: false, message: '주문번호 없음' };
+
+  const { appKey, appSecret, baseUrl, isVirtual } = getKisConfig();
+  const settings = getSettings();
+  const token = await getAccessToken();
+  const trId = isVirtual ? 'VTTC0803U' : 'TTTC0803U';
+
+  const body = {
+    CANO: settings.kisAccountNo,
+    ACNT_PRDT_CD: settings.kisAccountProductCode || '01',
+    KRX_FWDG_ORD_ORGNO: '',  // 빈 문자열이면 KIS가 ODNO로 자동 매핑
+    ORGN_ODNO: orderNo,
+    ORD_DVSN: '00',
+    RVSE_CNCL_DVSN_CD: '02', // 02 = 취소
+    ORD_QTY: String(quantity),
+    ORD_UNPR: '0',
+    QTY_ALL_ORD_YN: 'Y',
+    PDNO: ticker,
+  };
+
+  try {
+    const data: any = await kisApiCall(async () => {
+      const response = await fetch(
+        `${baseUrl}/uapi/domestic-stock/v1/trading/order-rvsecncl`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${token}`,
+            appkey: appKey, appsecret: appSecret,
+            tr_id: trId, custtype: 'P',
+          },
+          body: JSON.stringify(body),
+        }
+      );
+      return response.json();
+    }, `cancel-${orderNo}`);
+
+    if (data.rt_cd === '0') {
+      return { success: true, message: data.msg1 || '취소 성공' };
+    }
+    return { success: false, message: `${data.msg_cd}: ${data.msg1 || '취소 실패'}` };
+  } catch (err) {
+    return { success: false, message: (err as Error).message };
+  }
+}
+
+/**
+ * 미체결 주문을 새 가격으로 재제출 (cancel + new submit).
+ * @param newPrice 0이면 시장가, 양수면 지정가
+ */
+export async function resubmitOrder(args: {
+  oldOrderNo: string;
+  ticker: string;
+  orderType: 'BUY' | 'SELL';
+  quantity: number;
+  newPrice: number;
+}): Promise<{ success: boolean; orderNo: string; message: string }> {
+  const cancel = await cancelKisOrder(args.oldOrderNo, args.ticker, args.quantity);
+  if (!cancel.success) {
+    // 취소 실패는 보통 "이미 체결됨" 의미 — chase 종료 신호
+    return { success: false, orderNo: '', message: `취소 실패: ${cancel.message}` };
+  }
+  // 약간의 지연 후 재제출 (KIS 큐 정리)
+  await new Promise(r => setTimeout(r, 200));
+  return submitDomesticOrder(args.ticker, args.orderType, args.quantity, args.newPrice);
 }
 
 // ─── 통합 주문 실행 ───────────────────────────────────
@@ -339,13 +384,18 @@ export async function executeOrder(req: OrderRequest): Promise<OrderResult> {
     }
   }
 
-  // 2. 매수 시: 포지션 사이징 + 주문가능금액 확인 + 수량 계산
+  // 2. 매수 시: KIS 잔고 + 포지션 사이징 + 수량 계산
   let quantity = req.quantity;
   if (req.orderType === 'BUY') {
-    // 2a. 포지션 사이징 규칙 (예산/종목 수/현금 비율 gate)
-    const sizing = checkPositionSizingRules(orderPrice, req.market);
+    // 2a. KIS 가용 현금 조회 (실시간)
+    const cashAmount = await getDomesticOrderableAmount().catch(() => 0);
+    if (cashAmount <= 0) {
+      return { success: false, message: '주문가능금액 0 — KIS 잔고 확인 필요', quantity: 0, price: orderPrice, fee: 0 };
+    }
+
+    // 2b. 포지션 사이징 게이트 (예산/종목 수)
+    const sizing = checkPositionSizingRules(orderPrice, cashAmount);
     if (!sizing.allowed) {
-      // v4.11.0: 체결 차단 사유를 system_events에 기록 (Dashboard에서 확인 가능)
       try {
         const { logSystemEvent } = await import('./systemEvent');
         await logSystemEvent('INFO', 'TRADE_BLOCKED',
@@ -355,32 +405,16 @@ export async function executeOrder(req: OrderRequest): Promise<OrderResult> {
       return { success: false, message: `포지션 규칙: ${sizing.reason}`, quantity: 0, price: orderPrice, fee: 0 };
     }
 
-    // 2b. 실제 주문가능금액 조회 (dnca_tot_amt가 아닌 ord_psbl_cash)
-    let orderableAmount = settings.autoTradeMaxPerStock;
-    try {
-      const available = await getDomesticOrderableAmount();
-      if (available > 0) orderableAmount = Math.min(orderableAmount, available);
-    } catch {}
-
+    // 2c. 수량 결정 — sizing이 산정한 maxBuyQuantity 우선
     if (quantity <= 0) {
-      // sizing.maxBuyQuantity가 정해진 한도 내 최대 수량
-      quantity = sizing.maxBuyQuantity > 0
-        ? sizing.maxBuyQuantity
-        : calculateOrderQuantity(orderPrice, req.market, orderableAmount);
-      if (orderableAmount > 0 && quantity * orderPrice > orderableAmount) {
-        quantity = Math.floor(orderableAmount / orderPrice);
-      }
+      quantity = sizing.maxBuyQuantity;
     }
-
-    // 2c. 포지션 사이징 수량 상한 적용
+    // 사이징 상한 + 가용현금 안전망
     if (sizing.maxBuyQuantity > 0 && quantity > sizing.maxBuyQuantity) {
       quantity = sizing.maxBuyQuantity;
     }
-
-    // 2d. 주문가능금액 대비 재검증
-    const orderAmount = orderPrice * quantity;
-    if (orderableAmount > 0 && orderAmount > orderableAmount) {
-      quantity = Math.floor(orderableAmount / orderPrice);
+    if (orderPrice * quantity > cashAmount * 0.9) {
+      quantity = Math.floor((cashAmount * 0.9) / orderPrice);
     }
   }
 

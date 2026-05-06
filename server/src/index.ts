@@ -20,7 +20,6 @@ import portfolioRouter from './routes/portfolio';
 import chartRouter from './routes/chart';
 import analysisRouter from './routes/analysis';
 import notificationsRouter from './routes/notifications';
-import nasSyncRouter from './routes/nasSync';
 import watchTargetsRouter from './routes/watchTargets';
 import reservedOrdersRouter from './routes/reservedOrders';
 import { getSettings } from './services/settings';
@@ -90,7 +89,6 @@ app.use('/api/portfolio', portfolioRouter);
 app.use('/api/chart', chartRouter);
 app.use('/api/analysis', analysisRouter);
 app.use('/api/notifications', notificationsRouter);
-app.use('/api/nas-sync', nasSyncRouter);
 app.use('/api/watch-targets', watchTargetsRouter);
 app.use('/api/reserved-orders', reservedOrdersRouter);
 

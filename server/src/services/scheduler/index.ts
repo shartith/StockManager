@@ -1,10 +1,11 @@
 /**
- * v5.1.0 스케줄러 — 강화된 12-Rule 매매.
+ * v5.2.0 스케줄러 — 1분 모니터링 + 미체결 주문 chase.
  *
  *  08:50          : 자동목록 빌드 + daily state reset
- *  *\/5 9-14 *      : 5분 모니터링 (매수창 09:05~09:55, 그 외엔 매도/예약 only)
- *  0 15 * * 1-5    : Rule 10 — +3% 이상 보유분 익절 (EOD profit take)
+ *  * 9-14 *        : 1분 모니터링 (매수창 09:05~09:55, 그 외엔 매도/예약/chase)
+ *  0 15 * * 1-5    : Rule 10 — +3% 이상 보유분 익절
  *  20 15 * * 1-5   : Rule 11 — 당일 매수분 강제 정리 (동시호가 직전)
+ *  25 15 * * 1-5   : 미체결 주문 일괄 시장가 강제
  *  50 15 * * 1-5   : EOD KIS balance reconcile + 일일 리포트
  *  *\/30 * * * *    : 예약 주문 만료 정리
  */
@@ -15,7 +16,7 @@ import { ScheduleLog, schedulerState } from './types';
 import { getSettings } from '../settings';
 import {
   resetDailyState,
-  runFiveMinTick,
+  runMonitorTick,
   runEodProfitTake,
   runEodForceClose,
   runEodReport,
@@ -23,8 +24,7 @@ import {
 } from '../dailyStrategy';
 import { buildAutoList } from '../autoListBuilder';
 import { syncKisBalance } from '../balanceSync';
-import { runNasSync } from '../nasSync';
-import { runNasImport } from '../nasImport';
+import { chaseStaleOrders } from '../orderChase';
 
 export type { SchedulePhase, Market, ScheduleLog } from './types';
 
@@ -49,15 +49,15 @@ export function startScheduler() {
       }
     }, { timezone: tz }));
 
-    // 09:00~14:55 — 5분 간격 monitoring (매수창은 09:05~09:55만 dailyStrategy 내부에서 게이팅)
-    schedulerState.activeTasks.push(cron.schedule('*/5 9-14 * * 1-5', async () => {
+    // 09:00~14:59 — 1분 간격 monitoring (매수창은 09:05~09:55만 dailyStrategy 내부에서 게이팅)
+    schedulerState.activeTasks.push(cron.schedule('* 9-14 * * 1-5', async () => {
       try {
-        const r = await runFiveMinTick();
+        const r = await runMonitorTick();
         if (r.bought + r.sold + r.reservedExecuted > 0 || r.brakeReason) {
-          logger.info(r, '[Scheduler] 5min tick');
+          logger.info(r, '[Scheduler] 1min tick');
         }
       } catch (err) {
-        logger.error({ err }, '[Scheduler] runFiveMinTick failed');
+        logger.error({ err }, '[Scheduler] runMonitorTick failed');
       }
     }, { timezone: tz }));
 
@@ -81,6 +81,16 @@ export function startScheduler() {
       }
     }, { timezone: tz }));
 
+    // 15:25 — 미체결 주문 일괄 시장가 강제 (동시호가 합류 → 15:30 마감 체결 보장)
+    schedulerState.activeTasks.push(cron.schedule('25 15 * * 1-5', async () => {
+      try {
+        const r = await chaseStaleOrders(true);
+        logger.info(r, '[Scheduler] 15:25 EOD force-market');
+      } catch (err) {
+        logger.error({ err }, '[Scheduler] EOD force-market failed');
+      }
+    }, { timezone: tz }));
+
     // 15:50 — EOD reconcile + 일일 리포트
     schedulerState.activeTasks.push(cron.schedule('50 15 * * 1-5', async () => {
       try {
@@ -97,7 +107,7 @@ export function startScheduler() {
       }
     }, { timezone: tz }));
 
-    logger.info('[Scheduler] KRX 매매 스케줄 등록 (08:50, 5분 모니터, 15:00 익절, 15:20 EOD 정리, 15:50 reconcile)');
+    logger.info('[Scheduler] KRX 매매 스케줄 등록 (08:50, 1분 모니터, 15:00 익절, 15:20 EOD 정리, 15:25 force-market, 15:50 reconcile)');
   }
 
   // 예약 주문 만료 정리 (30분마다)
@@ -109,18 +119,6 @@ export function startScheduler() {
       logger.error({ err }, '[Scheduler] runExpiry failed');
     }
   }, { timezone: tz }));
-
-  // NAS 동기화 (선택)
-  if (settings.nasSyncEnabled && settings.nasSyncPath) {
-    const syncTime = settings.nasSyncTime || '0 20 * * *';
-    schedulerState.activeTasks.push(cron.schedule(syncTime, async () => {
-      try { await runNasSync(); } catch (err) { logger.error({ err }, 'NAS sync failed'); }
-      if ((settings as any).nasImportEnabled) {
-        try { await runNasImport(); } catch (err) { logger.error({ err }, 'NAS import failed'); }
-      }
-    }, { timezone: tz }));
-    logger.info(`[Scheduler] NAS 동기화 등록 (${syncTime})`);
-  }
 
   logger.info(`[Scheduler] 총 ${schedulerState.activeTasks.length}개 cron 활성화`);
 }

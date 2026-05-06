@@ -2,6 +2,42 @@
 
 Stock Manager 주요 릴리즈 변경사항. 자세한 노트는 [GitHub Releases](https://github.com/shartith/StockManager/releases)에서 확인.
 
+## v5.2.0 — 2026-05-06
+
+**미체결 주문 chase + 1분 모니터링 + 시스템 슬림화 (NAS/배당/보유 수익률 UI 등 제거).**
+
+### 매매 엔진 강화
+- **미체결 주문 가격 갱신 (`orderChase`)**: 5분 이상 미체결 SUBMITTED 주문을 cancel + 더 공격적 가격으로 재제출. BUY는 +0.5%/+1.0% 단계, SELL은 -0.5%/-1.0% 단계, level 4 초과 시 시장가.
+- **EOD 강제 시장가 (15:25)**: 장 마감 5분 전 모든 미체결 주문을 시장가로 강제 → 동시호가(15:20-15:30) 합류 → 15:30 마감 체결 보장.
+- **1분 모니터링**: cron `* 9-14` (5분 → 1분). 시장 변동성에 빠른 반응.
+- **KIS 주문 취소 API (`cancelKisOrder`)**: `/uapi/domestic-stock/v1/trading/order-rvsecncl` 래퍼.
+
+### 포지션 사이징 정책 명확화 (사용자 결정)
+사용자 시나리오 (100만원, 5종목):
+- **30만원 종목**: 종목당 한도 21만 초과 → 1주만 (절대 2주 이상 ✗)
+- **88만원 종목**: 1주 매수 (가용 90만 이내 ✓)
+- **95만원 종목**: 차단 (가용현금 90% 초과)
+- **10만원 종목**: floor(21만/10만) = 2주 매수
+
+`portfolioManager.checkPositionSizingRules` — settings 의존 제거, KIS 잔고를 인자로.
+
+### 시스템 슬림화
+- **NAS 동기화 전체 제거**: `services/nasSync.ts`, `nasImport.ts`, `routes/nasSync.ts`, 관련 settings 10여 개.
+- **자동매매 설정 단순화**:
+  - 제거: `autoTradeMaxInvestment`, `autoTradeMaxPerStock`, `autoTradeMaxDailyTrades` (KIS 잔고에서 자동 산정)
+  - 유지: `autoTradeEnabled` + `scheduleKrx.enabled` 토글 2개만
+- **Dashboard 슬림화**: 자산 배분 차트, 보유 종목 수익률 차트 제거. 보유 테이블의 수익/손실·수익률 컬럼 제거. 카드 재정렬 (평가금액 → 수익 → 투자 → 보유종목 수).
+- **ToggleSwitch 컴포넌트**: 모든 체크박스를 자동매매와 같은 토글 스타일로 통일.
+
+### 신규
+- `services/orderChase.ts`
+- `client/components/ToggleSwitch.vue`
+- `db.ts`: `auto_trades.chase_level` 컬럼
+
+### 검증
+- 서버 typecheck clean, **162 tests pass**, build OK
+- 클라이언트 vue-tsc clean, build OK (Dashboard 18KB로 슬림화)
+
 ## v5.1.0 — 2026-05-06
 
 **12-Rule 매매 엔진 강화 + UI 슬림화. v5.0의 동작을 유지하면서 사고 방지 보강.**

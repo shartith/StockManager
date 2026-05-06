@@ -137,14 +137,6 @@ export const systemEventsApi = {
       : api.delete('/system-events/all'),
 };
 
-// NAS 동기화
-export const nasSyncApi = {
-  getStatus: () => api.get('/nas-sync/status'),
-  run: () => api.post('/nas-sync/run'),
-  backup: () => api.post('/nas-sync/backup'),
-  validate: (path: string) => api.post('/nas-sync/validate', { path }),
-};
-
 // 버전
 export const versionApi = {
   check: () => api.get('/version'),

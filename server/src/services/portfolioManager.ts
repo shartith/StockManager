@@ -1,23 +1,20 @@
 /**
- * 포지션 사이징 (v5.1.0).
+ * 포지션 사이징 (v5.2.0).
  *
- * v5.1: positionMaxRatio/positionMinCashRatio 제거 → autoTradeMaxInvestment ÷ positionMaxPositions
- *       기반 단순 분할로 변경 (사용자 안: 100만원 / 5종목 = 20만원).
- *
- * dailyStrategy는 직접 perStockBudget 계산해서 호출. kisOrder는 이 함수로 안전망 체크.
+ * v5.2: settings.autoTradeMaxInvestment 의존 제거. 호출처가 KIS 잔고를 받아서 전달.
+ * 단순 분할: cashAmount ÷ positionMaxPositions ±5%.
  */
 
 import { queryAll } from '../db';
 import { getSettings } from './settings';
 
 export interface PortfolioState {
-  totalValue: number;
   investedValue: number;
-  cashValue: number;
   holdingCount: number;
 }
 
-export function getTotalPortfolioValue(): PortfolioState {
+/** 보유 종목 수 + 평균단가 합 (cash는 KIS API에서 별도 조회). */
+export function getHoldingsState(): PortfolioState {
   const holdings = queryAll<{
     buy_qty: number; sell_qty: number; total_cost: number;
   }>(`
@@ -39,16 +36,7 @@ export function getTotalPortfolioValue(): PortfolioState {
     investedValue += qty * avgPrice;
   }
 
-  const settings = getSettings();
-  const cashValue = settings.autoTradeMaxInvestment - investedValue;
-  const totalValue = Math.max(investedValue + Math.max(cashValue, 0), settings.autoTradeMaxInvestment);
-
-  return {
-    totalValue,
-    investedValue,
-    cashValue: Math.max(cashValue, 0),
-    holdingCount: holdings.length,
-  };
+  return { investedValue, holdingCount: holdings.length };
 }
 
 export interface PositionSizingResult {
@@ -59,21 +47,24 @@ export interface PositionSizingResult {
 }
 
 /**
- * 매수 전 포지션 사이징 게이트.
- * v5.1: 단순 분할 — totalBudget ÷ positionMaxPositions, ±5% 허용.
+ * 매수 전 포지션 사이징 게이트 (v5.2).
+ *
+ * 정책 (사용자 결정):
+ *   1. 단가 > 가용현금×0.9    → 차단 (1주도 못 살 정도로 비쌈)
+ *   2. 단가 ≤ 종목당 한도×1.05 → floor(한도/단가)주 매수 (정상 분할)
+ *   3. 단가 > 종목당 한도×1.05 → 1주만 매수 (한도 초과지만 가용 가능)
+ *
+ *   종목당 한도 = cashAmount / positionMaxPositions  (1/N 고정)
  *
  * @param price 주문가 (KRW)
+ * @param cashAmount KIS API에서 가져온 현재 가용 현금
  */
 export function checkPositionSizingRules(
   price: number,
-  _market: string,
+  cashAmount: number,
 ): PositionSizingResult {
   const settings = getSettings();
-  const portfolio = getTotalPortfolioValue();
-
-  const totalBudget = portfolio.totalValue;
-  const cash = portfolio.cashValue;
-  const holdingCount = portfolio.holdingCount;
+  const { holdingCount } = getHoldingsState();
   const maxPositions = settings.positionMaxPositions;
 
   if (holdingCount >= maxPositions) {
@@ -84,30 +75,37 @@ export function checkPositionSizingRules(
       maxBuyQuantity: 0,
     };
   }
-
   if (price <= 0) {
     return { allowed: false, reason: '잘못된 가격', maxBuyAmount: 0, maxBuyQuantity: 0 };
   }
-
-  // 종목당 한도: 총 예산 ÷ 보유 종목 수, ±5% 허용
-  const perStockBudget = totalBudget / Math.max(maxPositions, 1);
-  const maxAmount = perStockBudget * 1.05;
-
-  // 가용 현금 한도 (90%)
-  const buyAmount = Math.min(maxAmount, cash * 0.9);
-  if (buyAmount <= 0) {
-    return { allowed: false, reason: '매수 가능 금액 없음', maxBuyAmount: 0, maxBuyQuantity: 0 };
+  if (cashAmount <= 0) {
+    return { allowed: false, reason: '가용 현금 없음', maxBuyAmount: 0, maxBuyQuantity: 0 };
   }
 
-  const qty = Math.floor(buyAmount / price);
-  if (qty <= 0) {
+  // Step 1: 단가가 가용현금 90% 초과면 차단 (1주도 못 살 정도)
+  const maxAffordable = cashAmount * 0.9;
+  if (price > maxAffordable) {
     return {
       allowed: false,
-      reason: `주가(${price.toLocaleString()}원)가 종목당 한도(${Math.round(buyAmount).toLocaleString()}원) 초과`,
-      maxBuyAmount: buyAmount,
+      reason: `단가 ${price.toLocaleString()}원 > 가용현금 90% (${Math.round(maxAffordable).toLocaleString()}원)`,
+      maxBuyAmount: 0,
       maxBuyQuantity: 0,
     };
   }
 
-  return { allowed: true, maxBuyAmount: buyAmount, maxBuyQuantity: qty };
+  // Step 2: 종목당 한도 산정 (1/N)
+  const perStockBudget = cashAmount / maxPositions;
+  const budgetCeiling = perStockBudget * 1.05; // ±5% 허용
+
+  // Step 3: 한도 내 → 정상 분할, 한도 초과 → 1주만
+  let qty = Math.floor(budgetCeiling / price);
+  if (qty <= 0) {
+    qty = 1; // 한도 초과지만 maxAffordable 이내 → 1주 허용 (절대 2주 이상 X)
+  }
+
+  return {
+    allowed: true,
+    maxBuyAmount: qty * price,
+    maxBuyQuantity: qty,
+  };
 }
