@@ -1,0 +1,53 @@
+# VCS / IDE
+.git
+.gitignore
+.gitattributes
+.vscode
+.idea
+.DS_Store
+
+# Dependency / build artifacts (re-built inside the image)
+node_modules
+**/node_modules
+dist
+**/dist
+coverage
+**/coverage
+
+# User runtime data — never bake into image
+data
+**/*.db
+**/*.db-shm
+**/*.db-wal
+**/*.db.bak*
+data/settings.json
+stock-data
+datasets
+
+# Logs
+*.log
+**/*.log
+
+# Tests / e2e artifacts
+test-results
+playwright-report
+e2e
+
+# Local env files (secrets)
+.env
+.env.*
+!.env.example
+
+# OS / misc
+Thumbs.db
+
+# Docs not needed in image
+docs
+*.md
+!README.md
+
+# Docker meta
+Dockerfile
+.dockerignore
+docker-compose.yml
+docker-compose.*.yml
