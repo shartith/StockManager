@@ -1,7 +1,8 @@
 /**
- * v5.2.0 스케줄러 — 1분 모니터링 + 미체결 주문 chase.
+ * v5.3.0 스케줄러 — pre-market 전략 prewarm + 1분 모니터링 + 미체결 주문 chase.
  *
- *  08:50          : 자동목록 빌드 + daily state reset
+ *  08:30          : 미국 마감 ETF → KRX 섹터 + 체인링크 prewarm (전략 후보 캐시)
+ *  08:50          : 자동목록 빌드 (Stage 0 strategic / 1 rotation / 2 breakout) + daily state reset
  *  * 9-14 *        : 1분 모니터링 (매수창 09:05~09:55, 그 외엔 매도/예약/chase)
  *  0 15 * * 1-5    : Rule 10 — +3% 이상 보유분 익절
  *  20 15 * * 1-5   : Rule 11 — 당일 매수분 강제 정리 (동시호가 직전)
@@ -26,6 +27,7 @@ import { buildAutoList } from '../autoListBuilder';
 import { syncKisBalance } from '../balanceSync';
 import { chaseStaleOrders } from '../orderChase';
 import { listActive } from '../watchTargets';
+import { runPreMarketStrategy, setLastPreMarketAnalysis } from '../preMarketStrategy';
 
 export type { SchedulePhase, Market, ScheduleLog } from './types';
 
@@ -74,6 +76,20 @@ export function startScheduler() {
   const tz = 'Asia/Seoul';
 
   if (settings.scheduleKrx?.enabled) {
+    // 08:30 — 미국 마감 기반 전략 후보 prewarm (US ETF fetch → KRX 섹터 매핑 → 체인링크)
+    schedulerState.activeTasks.push(cron.schedule('30 8 * * 1-5', async () => {
+      try {
+        const result = await runPreMarketStrategy();
+        setLastPreMarketAnalysis(result);
+        logger.info(
+          { hotEtfs: result.hotEtfs.length, candidates: result.candidates.length },
+          '[Scheduler] 08:30 pre-market 전략 prewarm',
+        );
+      } catch (err) {
+        logger.error({ err }, '[Scheduler] 08:30 preMarketStrategy 실패');
+      }
+    }, { timezone: tz }));
+
     // 08:50 — 자동목록 빌드 (장 시작 10분 전, daily state reset)
     schedulerState.activeTasks.push(cron.schedule('50 8 * * 1-5', async () => {
       try {
@@ -143,7 +159,7 @@ export function startScheduler() {
       }
     }, { timezone: tz }));
 
-    logger.info('[Scheduler] KRX 매매 스케줄 등록 (08:50, 1분 모니터, 15:00 익절, 15:20 EOD 정리, 15:25 force-market, 15:50 reconcile)');
+    logger.info('[Scheduler] KRX 매매 스케줄 등록 (08:30 prewarm, 08:50 빌드, 1분 모니터, 15:00 익절, 15:20 EOD 정리, 15:25 force-market, 15:50 reconcile)');
 
     // 자가복구: 장중에 (re)등록되었는데 오늘 자동목록이 비어 있으면 즉시 빌드
     void runStartupAutoListIfNeeded();

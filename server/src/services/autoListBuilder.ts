@@ -1,15 +1,15 @@
 /**
- * Auto List Builder — Rule 1, 2 (감시대상 자동목록).
+ * Auto List Builder — 감시대상 자동목록 (3-stage 빌드).
  *
- * v5.1.0 추가:
- *   - 갭상승 ≥ gapUpMaxPercent 종목 자동 제외 (HIGH #3)
- *   - 거래량 0 종목 제외 (구체 거래량 검증은 매수 시점에서)
+ * v5.3.0:
+ *   0. STRATEGIC  — 미국 마감 ETF → KRX 섹터 매핑 + 체인링크 (preMarketStrategy)
+ *   1. ROTATION   — KRX 섹터 로테이션 IN 시그널 섹터 → 등락률 상위
+ *   2. BREAKOUT   — Rule 12: LLM 저평가 횡보 후보
  *
- * 1. KRX 섹터 로테이션에서 IN 시그널 섹터 (없으면 상위 3) 추출
- * 2. 카테고리별 KRX_TOP_STOCKS pool에서 등락률 정렬 후 상위 N
- * 3. 갭상승 필터 적용
- * 4. Rule 12: 저평가 횡보 후보 LLM 추천 (기존 유지)
- * 5. watch_targets에 자동목록으로 갱신
+ * 공통 필터:
+ *   - 갭상승 ≥ gapUpMaxPercent 자동 제외
+ *   - 거래량 0 제외
+ *   - watch_targets.category 로 분류 보존 ('strategic' / 'rotation' / 'breakout')
  */
 
 import { KRX_TOP_STOCKS, type MarketStock } from '../config/marketStocks';
@@ -18,6 +18,12 @@ import { getSectorRotationContext, type SectorMomentum } from './sectorMomentum'
 import { findLowPositionBreakouts, type BreakoutCandidate } from './llm';
 import { replaceAutoList } from './watchTargets';
 import { getSettings } from './settings';
+import {
+  runPreMarketStrategy,
+  setLastPreMarketAnalysis,
+  getLastPreMarketAnalysis,
+  type StrategicCandidate,
+} from './preMarketStrategy';
 import logger from '../logger';
 
 interface RankedStock {
@@ -93,27 +99,17 @@ async function rankByMomentum(
 export interface AutoListBuildResult {
   inserted: number;
   strongSectors: string[];
-  topMomentum: number;
+  strategicAdds: number;
+  rotationAdds: number;
   breakoutAdds: number;
   excludedGapUp: number;
+  hotUsEtfs: string[];
 }
 
 /** 자동목록 전체 빌드 (매일 아침 08:50 cron) */
 export async function buildAutoList(): Promise<AutoListBuildResult> {
   const settings = getSettings();
   const gapUpMax = settings.gapUpMaxPercent ?? 3.0;
-
-  const ctx = await getSectorRotationContext();
-
-  let categories: SectorMomentum[];
-  if (ctx.sectors.filter(s => s.rotationSignal === 'IN').length >= STRONG_SECTOR_MIN) {
-    categories = ctx.sectors.filter(s => s.rotationSignal === 'IN');
-  } else {
-    categories = ctx.sectors.slice(0, 3);
-  }
-
-  const strongSectorNames = categories.map(c => c.sector);
-  logger.info({ strongSectorNames, gapUpMax }, '자동목록 빌드 시작');
 
   const all: Array<{
     ticker: string;
@@ -123,11 +119,58 @@ export async function buildAutoList(): Promise<AutoListBuildResult> {
     reason?: string;
     expiresAt: string;
   }> = [];
-
   const expiresAt = tomorrowExpiry();
   const seen = new Set<string>();
   let excludedGapUp = 0;
 
+  // ── Stage 0: STRATEGIC — 미국 마감 → KRX 섹터 prefetch ─────────────
+  // 08:30 cron 이 미리 분석해 캐시한 결과가 30분 이내라면 재활용 (US ETF fetch 중복 방지).
+  let strategicCandidates: StrategicCandidate[] = [];
+  let hotUsEtfs: string[] = [];
+  try {
+    const cached = getLastPreMarketAnalysis();
+    const cacheFreshMs = 30 * 60 * 1000;
+    let analysis;
+    if (cached && Date.now() - new Date(cached.fetchedAt).getTime() < cacheFreshMs) {
+      analysis = cached;
+      logger.info({ fetchedAt: cached.fetchedAt }, '[buildAutoList] 08:30 prewarm 캐시 재사용');
+    } else {
+      analysis = await runPreMarketStrategy();
+      setLastPreMarketAnalysis(analysis);
+    }
+    strategicCandidates = analysis.candidates;
+    hotUsEtfs = analysis.hotEtfs.map(e => `${e.ticker} +${e.changePercent.toFixed(2)}%`);
+  } catch (err) {
+    logger.warn({ err: (err as Error).message }, 'preMarketStrategy 단계 스킵');
+  }
+
+  let strategicAdds = 0;
+  for (const c of strategicCandidates) {
+    if (seen.has(c.ticker)) continue;
+    seen.add(c.ticker);
+    all.push({
+      ticker: c.ticker,
+      name: c.name,
+      sector: c.sector,
+      category: 'strategic',
+      reason: c.reason.slice(0, 200),
+      expiresAt,
+    });
+    strategicAdds++;
+  }
+
+  // ── Stage 1: ROTATION — KRX 섹터 로테이션 ──────────────────────────
+  const ctx = await getSectorRotationContext();
+  let categories: SectorMomentum[];
+  if (ctx.sectors.filter(s => s.rotationSignal === 'IN').length >= STRONG_SECTOR_MIN) {
+    categories = ctx.sectors.filter(s => s.rotationSignal === 'IN');
+  } else {
+    categories = ctx.sectors.slice(0, 3);
+  }
+  const strongSectorNames = categories.map(c => c.sector);
+  logger.info({ strongSectorNames, gapUpMax, strategicAdds, hotUsEtfs }, '자동목록 빌드 단계 1 (rotation)');
+
+  let rotationAdds = 0;
   for (const category of categories) {
     const pool = poolForSectors([category.sector]);
     if (pool.length === 0) continue;
@@ -141,14 +184,15 @@ export async function buildAutoList(): Promise<AutoListBuildResult> {
         ticker: r.ticker,
         name: r.name,
         sector: r.sector,
-        category: category.sector,
+        category: 'rotation',
         reason: r.reason,
         expiresAt,
       });
+      rotationAdds++;
     }
   }
 
-  // Rule 12: LLM 저평가 횡보 후보
+  // ── Stage 2: BREAKOUT — LLM 저평가 횡보 후보 ───────────────────────
   let breakoutAdds = 0;
   try {
     const candidates: BreakoutCandidate[] = await findLowPositionBreakouts(strongSectorNames, 5);
@@ -159,7 +203,7 @@ export async function buildAutoList(): Promise<AutoListBuildResult> {
         ticker: c.ticker,
         name: c.name,
         sector: c.sector,
-        category: '급등예상',
+        category: 'breakout',
         reason: `[Rule 12] ${c.reason}`.slice(0, 200),
         expiresAt,
       });
@@ -171,14 +215,16 @@ export async function buildAutoList(): Promise<AutoListBuildResult> {
 
   const inserted = replaceAutoList(all);
   logger.info(
-    { inserted, breakoutAdds, excludedGapUp, strongSectors: strongSectorNames },
+    { inserted, strategicAdds, rotationAdds, breakoutAdds, excludedGapUp, strongSectors: strongSectorNames, hotUsEtfs },
     '자동목록 빌드 완료',
   );
   return {
     inserted,
     strongSectors: strongSectorNames,
-    topMomentum: all.length - breakoutAdds,
+    strategicAdds,
+    rotationAdds,
     breakoutAdds,
     excludedGapUp,
+    hotUsEtfs,
   };
 }
