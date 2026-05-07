@@ -27,9 +27,15 @@ let heartbeatTimer: ReturnType<typeof setInterval> | null = null;
 let initialized = false;
 let visibilityHandler: (() => void) | null = null;
 
-function getWsUrl(): string {
+async function getWsUrl(): Promise<string> {
   const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
-  return `${protocol}//${location.host}/ws`;
+  // 서버는 /ws 접속 시 1회용 token 쿼리 파라미터를 강제함 (TTL 30s).
+  // 클라이언트는 매 connect 마다 새 토큰을 발급받아 부착해야 함.
+  const tokenRes = await fetch('/api/ws-token', { credentials: 'same-origin' });
+  if (!tokenRes.ok) throw new Error(`ws-token fetch failed: ${tokenRes.status}`);
+  const { token } = await tokenRes.json();
+  if (!token) throw new Error('ws-token: empty token');
+  return `${protocol}//${location.host}/ws?token=${encodeURIComponent(token)}`;
 }
 
 function backoff(attempt: number): number {
@@ -54,11 +60,19 @@ function stopHeartbeat() {
   }
 }
 
-function connect() {
+async function connect() {
   if (ws?.readyState === WebSocket.OPEN || ws?.readyState === WebSocket.CONNECTING) return;
 
+  let url: string;
   try {
-    ws = new WebSocket(getWsUrl());
+    url = await getWsUrl();
+  } catch {
+    scheduleReconnect();
+    return;
+  }
+
+  try {
+    ws = new WebSocket(url);
   } catch {
     scheduleReconnect();
     return;
@@ -123,7 +137,7 @@ function scheduleReconnect() {
 
   retryTimer = setTimeout(() => {
     retryTimer = null;
-    connect();
+    void connect();
   }, delay);
 }
 
@@ -150,12 +164,12 @@ function disconnect() {
 export function useWebSocket() {
   if (!initialized) {
     initialized = true;
-    connect();
+    void connect();
 
     visibilityHandler = () => {
       if (!document.hidden && status.value !== 'connected') {
         retryCount = 0;
-        connect();
+        void connect();
       }
     };
     document.addEventListener('visibilitychange', visibilityHandler);
