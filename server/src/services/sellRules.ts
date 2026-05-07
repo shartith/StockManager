@@ -43,22 +43,36 @@ export interface HoldingContext {
   avgPrice: number;
   quantity: number;
   unrealizedPnLPercent: number;
+  /** 현재 포지션이 시작된 시점 (lot tracking 기반). 미지정 시 DB fallback 으로 추정. */
+  positionOpenedAt?: string | null;
 }
 
 // ── Buy timestamp ──
 
-export function getBuyTimestamp(stockId: number): Date | null {
+/**
+ * 현재 포지션의 시작 시점.
+ * 우선순위:
+ *   1) ctx.positionOpenedAt (lot tracking 결과 — 가장 정확)
+ *   2) auto_trades 의 가장 최근 FILLED BUY (datetime)
+ *   3) transactions 의 가장 최근 BUY 의 created_at
+ *
+ * BUG FIX: 기존 fallback 이 transactions.date (날짜만) 을 사용해 자정으로 파싱 →
+ * 매수 직후라도 KST 09:00 기준으로 1시간 누적 시 LOSS_TIME 오발. created_at 으로 교체.
+ */
+export function getBuyTimestamp(stockId: number, positionOpenedAt?: string | null): Date | null {
+  if (positionOpenedAt) return new Date(positionOpenedAt);
+
   const autoTrade = queryOne<{ created_at: string }>(
-    "SELECT created_at FROM auto_trades WHERE stock_id = ? AND order_type = 'BUY' AND status = 'FILLED' ORDER BY created_at DESC LIMIT 1",
+    "SELECT created_at FROM auto_trades WHERE stock_id = ? AND order_type = 'BUY' AND status = 'FILLED' ORDER BY datetime(created_at) DESC LIMIT 1",
     [stockId],
   );
   if (autoTrade?.created_at) return new Date(autoTrade.created_at);
 
-  const tx = queryOne<{ date: string }>(
-    "SELECT date FROM transactions WHERE stock_id = ? AND type = 'BUY' AND deleted_at IS NULL ORDER BY date DESC, id DESC LIMIT 1",
+  const tx = queryOne<{ created_at: string }>(
+    "SELECT created_at FROM transactions WHERE stock_id = ? AND type = 'BUY' AND deleted_at IS NULL ORDER BY datetime(created_at) DESC, id DESC LIMIT 1",
     [stockId],
   );
-  if (tx?.date) return new Date(tx.date);
+  if (tx?.created_at) return new Date(tx.created_at);
 
   return null;
 }
@@ -116,7 +130,7 @@ export function evaluateSellRules(ctx: HoldingContext): SellRuleResult {
 
   // Rule 7+8: STAGNANT_TIME — trailingActivate 미달 + sidewaysMinutes 경과 + 수익 상태
   // 사용자 안: "+3% 미달 + 1시간 정체 → 매도"
-  const buyTs = getBuyTimestamp(ctx.stockId);
+  const buyTs = getBuyTimestamp(ctx.stockId, ctx.positionOpenedAt);
   if (buyTs) {
     const heldMin = (Date.now() - buyTs.getTime()) / 60_000;
     const sidewaysMin = settings.sidewaysMinutes ?? 60;

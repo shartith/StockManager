@@ -34,6 +34,7 @@ import { getAccessToken } from './kisAuth';
 import { listActive as listActiveTargets } from './watchTargets';
 import {
   listActive as listActiveReserved,
+  listActiveByStock as listActiveReservedByStock,
   isTriggered,
   markExecuted,
   recordExecutionAttempt,
@@ -81,35 +82,95 @@ interface HoldingInfo {
   quantity: number;
   avgPrice: number;
   isFromToday: boolean;
+  /** 현재 포지션이 시작된 시점 (마지막으로 qty=0 직후의 첫 BUY created_at). null = 아직 매수 안 됨 */
+  positionOpenedAt: string | null;
 }
 
+interface TxRow {
+  stock_id: number;
+  ticker: string;
+  market: string;
+  sector: string;
+  type: 'BUY' | 'SELL';
+  quantity: number;
+  price: number;
+  created_at: string;
+}
+
+/**
+ * 시간순 lot-tracking 으로 현재 보유분의 정확한 평균 단가와 포지션 개시 시각을 계산.
+ *
+ * 기존 SQL은 SUM(BUY qty*price)/SUM(BUY qty) 을 사용해 누적 모든 BUY 를 평균 → 부분/전량
+ * 매도 후 재매수 시 cost basis 가 잘못 계산되어 STOP_LOSS / LOSS_TIME 이 잘못 트리거.
+ *
+ * 표준 평균원가 방식:
+ *   - BUY: cost += qty*price, qty += qty
+ *   - SELL: cost = cost * (qty - sold) / qty, qty -= sold
+ *   - qty <= 0 도달 시 cost/positionOpenedAt 모두 0/null 로 reset (포지션 종료)
+ *   - qty 0 → 양수 전환 시 새 BUY 의 created_at 을 positionOpenedAt 으로 기록
+ */
 function getHoldings(): HoldingInfo[] {
-  const rows = queryAll<{
-    stock_id: number; ticker: string; market: string; sector: string;
-    qty: number; avg_price: number;
-  }>(`
-    SELECT s.id as stock_id, s.ticker, COALESCE(s.market, 'KRX') as market,
+  const txs = queryAll<TxRow>(`
+    SELECT s.id as stock_id, s.ticker,
+           COALESCE(s.market, 'KRX') as market,
            COALESCE(s.sector, '') as sector,
-           SUM(CASE WHEN t.type='BUY' THEN t.quantity ELSE -t.quantity END) as qty,
-           CASE WHEN SUM(CASE WHEN t.type='BUY' THEN t.quantity ELSE 0 END) > 0
-             THEN SUM(CASE WHEN t.type='BUY' THEN t.quantity * t.price ELSE 0 END)
-                / SUM(CASE WHEN t.type='BUY' THEN t.quantity ELSE 0 END)
-             ELSE 0 END as avg_price
+           t.type, t.quantity, t.price, t.created_at
     FROM stocks s
     JOIN transactions t ON t.stock_id = s.id
     WHERE s.deleted_at IS NULL AND t.deleted_at IS NULL
-    GROUP BY s.id
-    HAVING qty > 0
+    ORDER BY s.id, datetime(t.created_at), t.id
   `);
-  return rows.map(r => ({
-    stockId: r.stock_id,
-    ticker: r.ticker,
-    market: r.market,
-    sector: r.sector,
-    quantity: r.qty,
-    avgPrice: r.avg_price,
-    isFromToday: isBoughtToday(r.stock_id),
-  }));
+
+  type Acc = {
+    ticker: string;
+    market: string;
+    sector: string;
+    qty: number;
+    cost: number;
+    positionOpenedAt: string | null;
+  };
+  const grouped = new Map<number, Acc>();
+
+  for (const tx of txs) {
+    let g = grouped.get(tx.stock_id);
+    if (!g) {
+      g = { ticker: tx.ticker, market: tx.market, sector: tx.sector, qty: 0, cost: 0, positionOpenedAt: null };
+      grouped.set(tx.stock_id, g);
+    }
+    if (tx.type === 'BUY') {
+      if (g.qty <= 0) g.positionOpenedAt = tx.created_at; // 신규 포지션 개시
+      g.cost += tx.quantity * tx.price;
+      g.qty += tx.quantity;
+    } else {
+      // SELL: cost 비례 차감, 전량 매도 시 reset
+      if (g.qty > 0) {
+        const sellQty = Math.min(tx.quantity, g.qty);
+        g.cost = g.cost * (g.qty - sellQty) / g.qty;
+        g.qty -= sellQty;
+      }
+      if (g.qty <= 0) {
+        g.qty = 0;
+        g.cost = 0;
+        g.positionOpenedAt = null;
+      }
+    }
+  }
+
+  const holdings: HoldingInfo[] = [];
+  for (const [stockId, g] of grouped) {
+    if (g.qty <= 0) continue;
+    holdings.push({
+      stockId,
+      ticker: g.ticker,
+      market: g.market,
+      sector: g.sector,
+      quantity: g.qty,
+      avgPrice: g.cost / g.qty,
+      isFromToday: isBoughtToday(stockId),
+      positionOpenedAt: g.positionOpenedAt,
+    });
+  }
+  return holdings;
 }
 
 // ── 거래량 검증 (HIGH #4) ──
@@ -184,6 +245,11 @@ async function evaluateBuyForTarget(
   const settings = getSettings();
   const entryGain = settings.entryGainPercent ?? 1.0;
   const cooldownMin = settings.reEntryCooldownMinutes ?? 30;
+
+  // 0. 예약 매수/매도가 걸린 종목은 자동매수 스킵 (사용자 정책: 예약주문이 우선)
+  if (listActiveReservedByStock(target.stockId).length > 0) {
+    return { bought: false, reason: 'reserved-order-active' };
+  }
 
   // 1. 이미 보유 중이면 스킵
   const existingHolding = currentHoldings.find(h => h.stockId === target.stockId);
@@ -277,7 +343,18 @@ async function evaluateBuyForTarget(
 
 // ── 매도 평가 (Rule 6, 7, 8, 9) ──
 
-async function evaluateSellForHolding(holding: HoldingInfo, token: string): Promise<{ sold: boolean; rule?: string }> {
+async function evaluateSellForHolding(holding: HoldingInfo, token: string): Promise<{ sold: boolean; rule?: string; skippedReason?: string }> {
+  // 안전 가드 1: 자동매매 엔진이 오늘 직접 진입(자동매수 / 예약체결)한 포지션만 자동매도.
+  // KIS 동기화된 장기보유분, 사용자가 직접 거래한 종목은 절대 건드리지 않음.
+  if (!holding.isFromToday) {
+    return { sold: false, skippedReason: 'not-engine-position' };
+  }
+
+  // 안전 가드 2: 예약 매수/매도가 걸린 종목은 자동매매 룰 미적용 → 예약 조건만 트리거.
+  if (listActiveReservedByStock(holding.stockId).length > 0) {
+    return { sold: false, skippedReason: 'reserved-order-active' };
+  }
+
   const snap = await getKisStockSnapshot(holding.ticker, token);
   const currentPrice = snap?.price ?? 0;
   if (currentPrice <= 0) return { sold: false };
@@ -291,6 +368,7 @@ async function evaluateSellForHolding(holding: HoldingInfo, token: string): Prom
     avgPrice: holding.avgPrice,
     quantity: holding.quantity,
     unrealizedPnLPercent,
+    positionOpenedAt: holding.positionOpenedAt,
   });
 
   if (!result.shouldSell) return { sold: false };
@@ -469,6 +547,7 @@ export async function runMonitorTick(): Promise<{
             quantity: 1,
             avgPrice: 0,
             isFromToday: true,
+            positionOpenedAt: new Date().toISOString(),
           });
         }
       }
@@ -493,9 +572,12 @@ export async function runEodProfitTake(): Promise<{ sold: number }> {
   if (!appKey || !appSecret) return { sold: 0 };
   const token = await getAccessToken();
 
-  const holdings = getHoldings();
+  // 엔진 진입분만 + 예약주문 미걸린 종목만
+  const holdings = getHoldings().filter(h => h.isFromToday);
   let sold = 0;
   for (const holding of holdings) {
+    if (listActiveReservedByStock(holding.stockId).length > 0) continue;
+
     const snap = await getKisStockSnapshot(holding.ticker, token);
     const currentPrice = snap?.price ?? 0;
     if (currentPrice <= 0) continue;
@@ -536,6 +618,9 @@ export async function runEodForceClose(): Promise<{ sold: number }> {
   const holdings = getHoldings().filter(h => h.isFromToday);
   let sold = 0;
   for (const holding of holdings) {
+    // 예약주문이 걸린 종목은 EOD 강제정리도 스킵 — 사용자 의도(예약 조건만 트리거)
+    if (listActiveReservedByStock(holding.stockId).length > 0) continue;
+
     try {
       const result = await executeOrder({
         stockId: holding.stockId,

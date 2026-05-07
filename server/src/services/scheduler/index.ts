@@ -25,8 +25,44 @@ import {
 import { buildAutoList } from '../autoListBuilder';
 import { syncKisBalance } from '../balanceSync';
 import { chaseStaleOrders } from '../orderChase';
+import { listActive } from '../watchTargets';
 
 export type { SchedulePhase, Market, ScheduleLog } from './types';
+
+/**
+ * 시작 시점 자가복구: 장중(08:50–15:00 KST 평일)에 스케줄러가 (re)등록될 때
+ * 오늘자 자동목록이 비어 있으면 즉시 buildAutoList 실행.
+ *
+ * 해소 시나리오:
+ *  - 08:50 cron 이후 시간대에 컨테이너 부팅
+ *  - 사용자가 settings 에서 scheduleKrx 를 ON 으로 막 토글한 직후
+ *  - 08:50 cron 이 어떤 이유로든 실패한 뒤
+ */
+async function runStartupAutoListIfNeeded(): Promise<void> {
+  const kstNow = new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Seoul' }));
+  const day = kstNow.getDay();
+  if (day === 0 || day === 6) return; // 주말
+
+  const minutes = kstNow.getHours() * 60 + kstNow.getMinutes();
+  const WINDOW_START = 8 * 60 + 50;   // 08:50
+  const WINDOW_END = 15 * 60;         // 15:00
+  if (minutes < WINDOW_START || minutes >= WINDOW_END) return;
+
+  // 활성 auto 목록이 이미 있으면 (다른 cron / 수동 빌드로) skip
+  try {
+    if (listActive('auto').length > 0) return;
+  } catch (err) {
+    logger.warn({ err }, '[Scheduler] startup auto-list check failed; will attempt rebuild');
+  }
+
+  try {
+    resetDailyState();
+    const result = await buildAutoList();
+    logger.info(result, '[Scheduler] 시작 시점 자동목록 자가복구');
+  } catch (err) {
+    logger.error({ err }, '[Scheduler] 시작 시점 buildAutoList 실패');
+  }
+}
 
 export function getSchedulerLogs(): ScheduleLog[] {
   return schedulerState.recentLogs;
@@ -108,6 +144,11 @@ export function startScheduler() {
     }, { timezone: tz }));
 
     logger.info('[Scheduler] KRX 매매 스케줄 등록 (08:50, 1분 모니터, 15:00 익절, 15:20 EOD 정리, 15:25 force-market, 15:50 reconcile)');
+
+    // 자가복구: 장중에 (re)등록되었는데 오늘 자동목록이 비어 있으면 즉시 빌드
+    void runStartupAutoListIfNeeded();
+  } else {
+    logger.warn('[Scheduler] scheduleKrx.enabled=false — 08:50 자동목록/매매 cron 미등록. 설정에서 활성화하세요.');
   }
 
   // 예약 주문 만료 정리 (30분마다)
