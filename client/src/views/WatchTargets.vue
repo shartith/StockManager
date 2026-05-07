@@ -1,16 +1,13 @@
 <template>
   <div>
-    <div class="flex items-center justify-between mb-6">
-      <div>
-        <h2 class="text-2xl font-bold text-txt-primary">감시대상</h2>
-        <p class="text-sm text-txt-tertiary mt-0.5">자동(섹터 로테이션) + 수동(직접 등록) 통합</p>
-      </div>
-      <div class="flex items-center gap-2">
-        <button @click="rebuildAuto" :disabled="rebuilding"
-          class="px-3 py-1.5 text-xs font-medium bg-accent text-white rounded-lg hover:bg-accent/90 disabled:opacity-50">
-          {{ rebuilding ? '빌드 중…' : '🤖 자동목록 재빌드' }}
-        </button>
-        <button @click="refresh" class="p-2 rounded-lg text-txt-tertiary hover:text-txt-primary hover:bg-surface-2"
+    <!-- 헤더 — 모바일: 제목 줄 + 액션 줄, 데스크톱: 한 줄 -->
+    <div class="mb-6">
+      <div class="flex items-start justify-between gap-2">
+        <div class="min-w-0 flex-1">
+          <h2 class="text-xl md:text-2xl font-bold text-txt-primary">감시대상</h2>
+          <p class="text-xs md:text-sm text-txt-tertiary mt-0.5">자동(섹터 로테이션) + 수동(직접 등록) 통합</p>
+        </div>
+        <button @click="refresh" class="p-2 rounded-lg text-txt-tertiary hover:text-txt-primary hover:bg-surface-2 shrink-0"
           aria-label="새로고침">
           <svg class="w-5 h-5" :class="{ 'animate-spin': loading }" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
@@ -18,6 +15,14 @@
           </svg>
         </button>
       </div>
+      <button @click="rebuildAuto" :disabled="rebuilding"
+        class="mt-3 w-full md:hidden px-4 py-2.5 text-sm font-medium bg-accent text-white rounded-lg hover:bg-accent/90 disabled:opacity-50">
+        {{ rebuilding ? '빌드 중…' : '🤖 자동목록 재빌드' }}
+      </button>
+      <button @click="rebuildAuto" :disabled="rebuilding"
+        class="hidden md:inline-flex mt-2 float-right px-3 py-1.5 text-xs font-medium bg-accent text-white rounded-lg hover:bg-accent/90 disabled:opacity-50">
+        {{ rebuilding ? '빌드 중…' : '🤖 자동목록 재빌드' }}
+      </button>
     </div>
 
     <!-- Tab: 자동 / 수동 / 전체 -->
@@ -47,13 +52,15 @@
         class="w-full mt-3 border border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-accent" />
     </div>
 
-    <!-- 목록 -->
+    <!-- 목록 — md+ 테이블 / 모바일 카드 -->
     <div class="glass-card overflow-hidden">
-      <div v-if="filtered.length === 0" class="p-12 text-center text-txt-tertiary text-sm">
+      <div v-if="filtered.length === 0" class="p-10 md:p-12 text-center text-txt-tertiary text-sm">
         {{ activeTab === 'auto' ? '자동목록이 비어 있습니다. 08:50에 자동 빌드되거나 위 버튼으로 즉시 빌드하세요.' :
            activeTab === 'manual' ? '수동 등록된 감시대상이 없습니다.' : '감시대상이 비어 있습니다.' }}
       </div>
-      <table v-else class="table-modern w-full">
+
+      <!-- 데스크톱 테이블 -->
+      <table v-if="filtered.length > 0" class="table-modern w-full hidden md:table">
         <thead>
           <tr>
             <th class="text-left">종목</th>
@@ -87,6 +94,35 @@
           </tr>
         </tbody>
       </table>
+
+      <!-- 모바일 카드 -->
+      <div v-if="filtered.length > 0" class="md:hidden divide-y divide-border-subtle">
+        <div v-for="t in filtered" :key="t.id" class="mobile-card">
+          <div class="flex items-start justify-between gap-2">
+            <div class="min-w-0 flex-1">
+              <div class="flex items-center gap-1.5 flex-wrap">
+                <span class="font-semibold text-sm">{{ t.name }}</span>
+                <span class="text-xs text-txt-tertiary">{{ t.ticker }}</span>
+              </div>
+              <div class="flex items-center gap-1.5 flex-wrap mt-1">
+                <span class="px-1.5 py-0.5 rounded-md text-[10px] font-medium"
+                  :class="t.source === 'auto' ? 'bg-accent-dim text-accent' : 'bg-profit/10 text-profit'">
+                  {{ t.source === 'auto' ? '🤖 자동' : '👤 수동' }}
+                </span>
+                <span v-if="t.category" class="px-1.5 py-0.5 rounded-md text-[10px] bg-surface-2 text-txt-secondary">
+                  {{ t.category }}
+                </span>
+                <span class="text-[10px] text-txt-tertiary">
+                  {{ t.expiresAt ? formatDate(t.expiresAt) : '무기한' }}
+                </span>
+              </div>
+            </div>
+            <button @click="remove(t.id)"
+              class="text-xs text-loss px-3 py-1.5 -mr-2 active:bg-red-50 rounded shrink-0">삭제</button>
+          </div>
+          <p v-if="t.reason" class="text-[11px] text-txt-secondary line-clamp-2 leading-snug">{{ t.reason }}</p>
+        </div>
+      </div>
     </div>
   </div>
 </template>

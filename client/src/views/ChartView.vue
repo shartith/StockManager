@@ -13,9 +13,35 @@
       </div>
     </div>
 
-    <div class="flex gap-4">
-      <!-- 왼쪽: 종목 리스트 -->
-      <div class="w-56 flex-shrink-0">
+    <div class="flex flex-col md:flex-row gap-4">
+      <!-- 모바일: 가로 스크롤 chip / 데스크톱: 좌측 세로 리스트 -->
+
+      <!-- 모바일 chip 리스트 -->
+      <div v-if="holdingStocks.length > 0 || watchlistStocks.length > 0" class="md:hidden">
+        <div v-if="holdingStocks.length > 0">
+          <p class="text-[10px] font-semibold text-blue-700 mb-1 px-1">📊 보유 종목</p>
+          <div class="stock-chip-list mb-2">
+            <button v-for="s in holdingStocks" :key="'mh-'+s.ticker" @click="quickLoad(s.ticker)"
+              class="stock-chip" :class="{ active: searchTicker === s.ticker }">
+              <div class="text-xs font-medium text-txt-primary">{{ s.ticker }}</div>
+              <div class="text-[10px] text-txt-tertiary truncate">{{ s.name }}</div>
+            </button>
+          </div>
+        </div>
+        <div v-if="watchlistStocks.length > 0">
+          <p class="text-[10px] font-semibold text-amber-700 mb-1 px-1">⭐ 관심 종목</p>
+          <div class="stock-chip-list">
+            <button v-for="s in watchlistStocks" :key="'mw-'+s.ticker" @click="quickLoad(s.ticker)"
+              class="stock-chip" :class="{ active: searchTicker === s.ticker }">
+              <div class="text-xs font-medium text-txt-primary">{{ s.ticker }}</div>
+              <div class="text-[10px] text-txt-tertiary truncate">{{ s.name }}</div>
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- 데스크톱 세로 리스트 -->
+      <div class="hidden md:block md:w-56 md:flex-shrink-0">
         <div class="bg-surface-1 rounded-xl border border-border shadow-sm overflow-hidden sticky top-4">
           <!-- 보유 종목 -->
           <div v-if="holdingStocks.length > 0">
@@ -53,36 +79,38 @@
 
       <!-- 오른쪽: 차트 영역 -->
       <div class="flex-1 min-w-0">
-        <!-- 검색 바 -->
-        <div class="bg-surface-1 rounded-xl border border-border shadow-sm p-4 mb-4">
-          <div class="flex gap-3">
+        <!-- 검색 바 — 모바일: 입력 줄 + (기간/조회) 줄, 데스크톱: 한 줄 -->
+        <div class="bg-surface-1 rounded-xl border border-border shadow-sm p-3 md:p-4 mb-4">
+          <div class="flex flex-col md:flex-row gap-2 md:gap-3">
             <div class="flex-1 relative">
               <input
                 v-model="searchTicker"
                 @keyup.enter="loadChart"
                 type="text"
-                placeholder="종목코드 입력 (예: 005930, 035720, AAPL)"
+                placeholder="종목코드 (예: 005930, AAPL)"
                 class="w-full border border-border rounded-lg px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-accent font-mono"
               />
             </div>
-            <div class="flex bg-surface-3 rounded-lg p-1">
+            <div class="flex gap-2">
+              <div class="flex bg-surface-3 rounded-lg p-1 flex-1 md:flex-none">
+                <button
+                  v-for="p in periods"
+                  :key="p.value"
+                  @click="selectPeriod(p.value)"
+                  class="flex-1 md:flex-none px-3 py-1.5 rounded text-xs font-medium transition-colors whitespace-nowrap"
+                  :class="period === p.value ? 'bg-surface-1 text-txt-primary shadow-sm' : 'text-txt-secondary hover:text-txt-primary'"
+                >
+                  {{ p.label }}
+                </button>
+              </div>
               <button
-                v-for="p in periods"
-                :key="p.value"
-                @click="selectPeriod(p.value)"
-                class="px-3 py-1.5 rounded text-xs font-medium transition-colors"
-                :class="period === p.value ? 'bg-surface-1 text-txt-primary shadow-sm' : 'text-txt-secondary hover:text-txt-primary'"
+                @click="loadChart"
+                :disabled="loading || !searchTicker.trim()"
+                class="bg-primary text-white px-4 md:px-5 py-2.5 rounded-lg text-sm font-medium hover:bg-primary-hover disabled:opacity-50 transition whitespace-nowrap shrink-0"
               >
-                {{ p.label }}
+                {{ loading ? '조회중' : '조회' }}
               </button>
             </div>
-            <button
-              @click="loadChart"
-              :disabled="loading || !searchTicker.trim()"
-              class="bg-primary text-white px-5 py-2.5 rounded-lg text-sm font-medium hover:bg-primary-hover disabled:opacity-50 transition"
-            >
-              {{ loading ? '조회 중...' : '조회' }}
-            </button>
           </div>
         </div>
 
@@ -93,60 +121,60 @@
 
     <!-- 차트 영역 -->
     <div v-if="chartData" class="bg-surface-1 rounded-xl border border-border shadow-sm overflow-hidden">
-      <!-- 종목 헤더 -->
-      <div class="p-5 border-b border-border-subtle">
-        <div class="flex items-center justify-between">
-          <div>
-            <h3 class="text-lg font-bold text-txt-primary">
-              {{ chartData.name }} <span class="text-txt-tertiary font-normal text-sm ml-2">{{ chartData.ticker }}</span>
+      <!-- 종목 헤더 — 모바일 컴팩트 -->
+      <div class="p-3 md:p-5 border-b border-border-subtle">
+        <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-1 md:gap-0">
+          <div class="min-w-0">
+            <h3 class="text-base md:text-lg font-bold text-txt-primary truncate">
+              {{ chartData.name }} <span class="text-txt-tertiary font-normal text-xs md:text-sm ml-1 md:ml-2">{{ chartData.ticker }}</span>
             </h3>
-            <div class="flex items-center gap-3 mt-1">
-              <span class="text-2xl font-bold" :class="chartData.changeRate >= 0 ? 'text-profit' : 'text-loss'">
-                {{ formatNumber(chartData.currentPrice) }}원
+            <div class="flex items-center gap-2 mt-1 flex-wrap">
+              <span class="text-xl md:text-2xl font-bold tabular-nums whitespace-nowrap" :class="chartData.changeRate >= 0 ? 'text-profit' : 'text-loss'">
+                {{ formatNumber(chartData.currentPrice) }}<span class="text-sm font-normal ml-0.5">원</span>
               </span>
-              <span class="text-sm font-medium px-2 py-0.5 rounded"
+              <span class="text-xs md:text-sm font-medium px-1.5 md:px-2 py-0.5 rounded whitespace-nowrap"
                 :class="chartData.changeRate >= 0 ? 'bg-red-50 text-profit' : 'bg-blue-50 text-loss'">
                 {{ chartData.changeRate >= 0 ? '▲' : '▼' }}
-                {{ Math.abs(chartData.changeAmount) }}원
+                {{ Math.abs(chartData.changeAmount).toLocaleString() }}
                 ({{ chartData.changeRate >= 0 ? '+' : '' }}{{ chartData.changeRate }}%)
               </span>
             </div>
           </div>
-          <div class="text-xs text-txt-tertiary">
+          <div class="text-[11px] md:text-xs text-txt-tertiary shrink-0">
             {{ period === 'D' ? '일봉' : period === 'W' ? '주봉' : period === 'M' ? '월봉' : '연봉' }}
-            · {{ chartData.candles.length }}개 데이터
+            · {{ chartData.candles.length }}개
           </div>
         </div>
       </div>
 
-      <!-- 지표/오버레이 토글 -->
-      <div class="px-5 py-2 border-b border-border-subtle bg-surface-2 flex flex-wrap gap-3 items-center">
-        <span class="text-xs font-medium text-txt-secondary">오버레이:</span>
-        <label class="flex items-center gap-1.5 cursor-pointer text-xs">
+      <!-- 지표/오버레이 토글 — 모바일 가로 스크롤 -->
+      <div class="px-3 md:px-5 py-2 border-b border-border-subtle bg-surface-2 flex gap-3 items-center overflow-x-auto whitespace-nowrap md:flex-wrap">
+        <span class="text-xs font-medium text-txt-secondary shrink-0">오버레이:</span>
+        <label class="flex items-center gap-1.5 cursor-pointer text-xs shrink-0">
           <input type="checkbox" v-model="showSma20" @change="rerender" class="accent-sky-500" />
           <span class="text-sky-600">SMA20</span>
         </label>
-        <label class="flex items-center gap-1.5 cursor-pointer text-xs">
+        <label class="flex items-center gap-1.5 cursor-pointer text-xs shrink-0">
           <input type="checkbox" v-model="showSma60" @change="rerender" class="accent-orange-500" />
           <span class="text-orange-600">SMA60</span>
         </label>
-        <label class="flex items-center gap-1.5 cursor-pointer text-xs">
+        <label class="flex items-center gap-1.5 cursor-pointer text-xs shrink-0">
           <input type="checkbox" v-model="showBollinger" @change="rerender" class="accent-purple-500" />
-          <span class="text-purple-600">Bollinger (20, 2σ)</span>
+          <span class="text-purple-600">Bollinger</span>
         </label>
-        <span class="text-xs text-txt-tertiary mx-2">|</span>
-        <label class="flex items-center gap-1.5 cursor-pointer text-xs">
+        <span class="text-xs text-txt-tertiary shrink-0">|</span>
+        <label class="flex items-center gap-1.5 cursor-pointer text-xs shrink-0">
           <input type="checkbox" v-model="showSignals" @change="rerender" class="accent-rose-500" />
-          <span class="text-rose-600">매매 신호 마커</span>
+          <span class="text-rose-600">매매신호</span>
         </label>
-        <span v-if="signalsCount > 0" class="text-xs text-txt-tertiary">({{ signalsCount }}건)</span>
+        <span v-if="signalsCount > 0" class="text-xs text-txt-tertiary shrink-0">({{ signalsCount }})</span>
       </div>
 
-      <!-- 캔들스틱 차트 -->
-      <div ref="chartContainer" class="w-full" style="height: 440px;"></div>
+      <!-- 캔들스틱 차트 — 모바일 360px, 데스크톱 440px -->
+      <div ref="chartContainer" class="w-full chart-canvas-main"></div>
 
       <!-- 거래량 차트 -->
-      <div ref="volumeContainer" class="w-full border-t border-border-subtle" style="height: 120px;"></div>
+      <div ref="volumeContainer" class="w-full border-t border-border-subtle chart-canvas-volume"></div>
     </div>
 
     <!-- 초기 상태 -->

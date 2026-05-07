@@ -1,6 +1,6 @@
 {
   "name": "stock-manager-client",
-  "version": "5.4.2",
+  "version": "5.4.4",
   "private": true,
   "type": "module",
   "scripts": {

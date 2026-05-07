@@ -455,3 +455,43 @@ body {
   width: 22px;
   height: 22px;
 }
+
+/* 차트 캔버스 — 모바일에서 더 큰 비율 차지 */
+.chart-canvas-main {
+  height: 360px;
+}
+.chart-canvas-volume {
+  height: 100px;
+}
+@media (min-width: 768px) {
+  .chart-canvas-main { height: 440px; }
+  .chart-canvas-volume { height: 120px; }
+}
+
+/* 차트 페이지 종목 리스트 — 모바일 가로 스크롤 chip 형태 */
+.stock-chip-list {
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+  padding: 8px 0 4px;
+}
+.stock-chip-list::-webkit-scrollbar { display: none; }
+.stock-chip {
+  flex-shrink: 0;
+  min-width: 90px;
+  padding: 8px 12px;
+  border-radius: 10px;
+  border: 1px solid var(--border-default);
+  background: var(--surface-1);
+  text-align: left;
+  transition: all var(--duration-fast) ease;
+}
+.stock-chip:active {
+  background: var(--surface-2);
+}
+.stock-chip.active {
+  border-color: var(--color-accent);
+  background: var(--color-accent-dim);
+}

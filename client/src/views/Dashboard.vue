@@ -1,25 +1,34 @@
 <template>
   <div>
-    <!-- 헤더 -->
-    <div class="flex items-center justify-between mb-6">
-      <div>
-        <h2 class="text-2xl font-bold text-txt-primary">대시보드</h2>
-        <p class="text-sm text-txt-tertiary mt-0.5">포트폴리오 실시간 현황</p>
+    <!-- 헤더 — 모바일: 제목 줄 / 액션 줄 분리, 데스크톱: 한 줄 -->
+    <div class="mb-6">
+      <div class="flex items-center justify-between gap-2 mb-3 md:mb-0">
+        <div class="min-w-0">
+          <h2 class="text-xl md:text-2xl font-bold text-txt-primary">대시보드</h2>
+          <p class="text-xs md:text-sm text-txt-tertiary mt-0.5">포트폴리오 실시간 현황</p>
+        </div>
+        <button @click="refresh"
+          class="p-2 rounded-lg text-txt-tertiary hover:text-txt-primary hover:bg-surface-2 transition-colors shrink-0 md:hidden"
+          :class="{ 'animate-spin': autoRefreshLoading }" aria-label="새로고침">
+          <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
+          </svg>
+        </button>
       </div>
-      <div class="flex items-center gap-2">
+      <div class="flex items-center gap-2 flex-wrap md:flex-nowrap md:justify-end md:-mt-12">
         <button v-if="kisConfigured" @click="showBalance = !showBalance"
-          class="flex items-center gap-2 px-4 py-2 glass-card text-accent text-sm font-medium hover:shadow-glow transition-all">
-          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          class="flex-1 md:flex-none flex items-center justify-center gap-2 px-3 md:px-4 py-2 glass-card text-accent text-sm font-medium hover:shadow-glow transition-all whitespace-nowrap">
+          <svg class="w-4 h-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6"/>
           </svg>
-          KIS 실시간 잔고
+          <span>KIS 잔고</span>
         </button>
         <button v-if="kisConfigured && store.summary?.holdings.length === 0" @click="importBalance" :disabled="importing"
-          class="flex items-center gap-2 px-4 py-2 bg-primary text-white rounded-xl text-sm font-medium hover:bg-primary-hover disabled:opacity-50 transition-colors">
-          {{ importing ? '가져오는 중...' : '계좌 잔고 가져오기' }}
+          class="flex-1 md:flex-none px-3 md:px-4 py-2 bg-primary text-white rounded-xl text-sm font-medium hover:bg-primary-hover disabled:opacity-50 transition-colors whitespace-nowrap">
+          {{ importing ? '가져오는 중...' : '계좌 가져오기' }}
         </button>
         <button @click="refresh"
-          class="p-2 rounded-lg text-txt-tertiary hover:text-txt-primary hover:bg-surface-2 transition-colors"
+          class="hidden md:inline-flex p-2 rounded-lg text-txt-tertiary hover:text-txt-primary hover:bg-surface-2 transition-colors"
           :class="{ 'animate-spin': autoRefreshLoading }" aria-label="새로고침">
           <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
@@ -134,12 +143,12 @@
       </div>
     </Transition>
 
-    <!-- 시장 동향 티커 스트립 -->
+    <!-- 시장 동향 티커 스트립 — 모바일은 2~3개 한 번에 보이도록 컴팩트 -->
     <div v-if="marketCtx" class="ticker-strip mb-6">
       <div v-for="item in marketItems" :key="item.label"
-        class="glass-card px-4 py-3 min-w-[140px]">
+        class="glass-card px-3 py-2 md:px-4 md:py-3 min-w-[110px] md:min-w-[140px]">
         <p class="text-[10px] text-txt-tertiary font-medium uppercase tracking-wider">{{ item.label }}</p>
-        <div class="flex items-baseline gap-2 mt-1">
+        <div class="flex items-baseline gap-1.5 mt-1 flex-wrap">
           <AnimatedNumber :value="item.price" :format="item.isUsd ? 'number' : 'number'" :decimals="item.decimals" class="text-sm font-bold text-txt-primary" />
           <TrendBadge v-if="item.change !== undefined" :value="item.change" :decimals="1" />
         </div>

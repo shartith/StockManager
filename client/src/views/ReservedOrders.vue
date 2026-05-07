@@ -72,12 +72,14 @@
       </p>
     </div>
 
-    <!-- 활성 예약 -->
+    <!-- 활성 예약 — md+ 테이블 / 모바일 카드 -->
     <div class="glass-card overflow-hidden">
-      <div v-if="orders.length === 0" class="p-12 text-center text-txt-tertiary text-sm">
+      <div v-if="orders.length === 0" class="p-10 md:p-12 text-center text-txt-tertiary text-sm">
         활성 예약 주문이 없습니다.
       </div>
-      <table v-else class="table-modern w-full">
+
+      <!-- 데스크톱 테이블 -->
+      <table v-if="orders.length > 0" class="table-modern w-full hidden md:table">
         <thead>
           <tr>
             <th class="text-left">종목</th>
@@ -112,6 +114,41 @@
           </tr>
         </tbody>
       </table>
+
+      <!-- 모바일 카드 -->
+      <div v-if="orders.length > 0" class="md:hidden divide-y divide-border-subtle">
+        <div v-for="o in orders" :key="o.id" class="mobile-card">
+          <div class="flex items-start justify-between gap-2">
+            <div class="min-w-0 flex-1">
+              <div class="flex items-center gap-1.5 flex-wrap">
+                <span class="font-semibold text-sm">{{ o.ticker }}</span>
+                <span class="px-2 py-0.5 rounded-md text-[10px] font-medium"
+                  :class="o.orderType === 'BUY' ? 'bg-profit/10 text-profit' : 'bg-loss/10 text-loss'">
+                  {{ o.orderType === 'BUY' ? '매수' : '매도' }}
+                </span>
+              </div>
+              <div class="text-[11px] text-txt-tertiary mt-0.5">{{ formatDate(o.createdAt) }}</div>
+            </div>
+            <button @click="cancel(o.id)"
+              class="text-xs text-loss px-3 py-1.5 -mr-2 active:bg-red-50 rounded shrink-0">취소</button>
+          </div>
+          <div class="grid grid-cols-3 gap-2 text-xs pt-1">
+            <div class="flex flex-col">
+              <span class="text-txt-tertiary text-[10px]">목표가</span>
+              <span class="font-medium tabular-nums">{{ o.targetPrice.toLocaleString() }}</span>
+            </div>
+            <div class="flex flex-col">
+              <span class="text-txt-tertiary text-[10px]">조건</span>
+              <span class="font-medium">{{ o.condition === 'BELOW' ? '이하' : '이상' }}</span>
+            </div>
+            <div class="flex flex-col">
+              <span class="text-txt-tertiary text-[10px]">수량</span>
+              <span class="font-medium tabular-nums">{{ o.quantity || '자동' }}</span>
+            </div>
+          </div>
+          <p v-if="o.reason" class="text-[11px] text-txt-secondary line-clamp-2 leading-snug">{{ o.reason }}</p>
+        </div>
+      </div>
     </div>
   </div>
 </template>
