@@ -17,6 +17,13 @@ export interface IntradayRow {
   trailingActive: boolean;
   lastSellAt: string | null;
   tradeDate: string | null;
+  // v5.4.0 Entry/Exit Plan 추적
+  t1Target: number | null;
+  t2Target: number | null;
+  dynamicSL: number | null;
+  t1Filled: boolean;
+  slMovedToBE: boolean;
+  entryAvgPrice: number | null;
 }
 
 interface RawRow {
@@ -27,6 +34,12 @@ interface RawRow {
   trailing_active: number;
   last_sell_at: string | null;
   trade_date: string | null;
+  t1_target: number | null;
+  t2_target: number | null;
+  dynamic_sl: number | null;
+  t1_filled: number | null;
+  sl_moved_to_be: number | null;
+  entry_avg_price: number | null;
 }
 
 function toState(r: RawRow): IntradayRow {
@@ -38,6 +51,12 @@ function toState(r: RawRow): IntradayRow {
     trailingActive: r.trailing_active === 1,
     lastSellAt: r.last_sell_at,
     tradeDate: r.trade_date,
+    t1Target: r.t1_target,
+    t2Target: r.t2_target,
+    dynamicSL: r.dynamic_sl,
+    t1Filled: r.t1_filled === 1,
+    slMovedToBE: r.sl_moved_to_be === 1,
+    entryAvgPrice: r.entry_avg_price,
   };
 }
 
@@ -61,6 +80,12 @@ export function getState(stockId: number): IntradayRow | null {
              peak_price = NULL,
              bought_today = 0,
              trailing_active = 0,
+             t1_target = NULL,
+             t2_target = NULL,
+             dynamic_sl = NULL,
+             t1_filled = 0,
+             sl_moved_to_be = 0,
+             entry_avg_price = NULL,
              trade_date = ?,
              updated_at = datetime('now')
        WHERE stock_id = ?`,
@@ -74,6 +99,12 @@ export function getState(stockId: number): IntradayRow | null {
       trailingActive: false,
       lastSellAt: row.last_sell_at,
       tradeDate: todayStr(),
+      t1Target: null,
+      t2Target: null,
+      dynamicSL: null,
+      t1Filled: false,
+      slMovedToBE: false,
+      entryAvgPrice: null,
     };
   }
   return toState(row);
@@ -85,6 +116,12 @@ function upsertRow(stockId: number, patch: Partial<{
   bought_today: number;
   trailing_active: number;
   last_sell_at: string | null;
+  t1_target: number | null;
+  t2_target: number | null;
+  dynamic_sl: number | null;
+  t1_filled: number;
+  sl_moved_to_be: number;
+  entry_avg_price: number | null;
 }>): void {
   // Ensure row exists
   execute(
@@ -156,6 +193,41 @@ export function isInCooldown(stockId: number, minutes: number): boolean {
 export function isBoughtToday(stockId: number): boolean {
   const cur = getState(stockId);
   return !!cur?.boughtToday;
+}
+
+/**
+ * Entry/Exit Plan 저장 — 매수 직후 호출. T1/T2/dynamicSL 동시 기록.
+ * entryAvgPrice 는 평단 기준 (매수 후 lot tracking 으로 계산된 값).
+ */
+export function setEntryExitPlan(stockId: number, args: {
+  t1Target: number;
+  t2Target: number;
+  dynamicSL: number;
+  entryAvgPrice: number;
+}): void {
+  upsertRow(stockId, {
+    t1_target: args.t1Target,
+    t2_target: args.t2Target,
+    dynamic_sl: args.dynamicSL,
+    entry_avg_price: args.entryAvgPrice,
+    t1_filled: 0,
+    sl_moved_to_be: 0,
+  });
+}
+
+/** T1 부분 익절 체결 — 이후 잔여 매도/트레일에서 t1Filled=true 상태로 분기. */
+export function markT1Filled(stockId: number): void {
+  upsertRow(stockId, { t1_filled: 1 });
+}
+
+/** SL 을 매수가(BE) 로 이동 — 무손실 보호 잠금. */
+export function moveSLToBE(stockId: number): void {
+  const cur = getState(stockId);
+  if (!cur || !cur.entryAvgPrice) return;
+  upsertRow(stockId, {
+    dynamic_sl: cur.entryAvgPrice,
+    sl_moved_to_be: 1,
+  });
 }
 
 /** 자동매매 시작 시점에 호출 — 보유 종목들의 boughtToday 상태를 transactions와 동기화. */

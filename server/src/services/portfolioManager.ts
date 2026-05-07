@@ -59,13 +59,22 @@ export interface PositionSizingResult {
  * @param price 주문가 (KRW)
  * @param cashAmount KIS API에서 가져온 현재 가용 현금
  */
+/**
+ * 매수 전 포지션 사이징 게이트.
+ *
+ * v5.4.0: confidenceMultiplier (1.0~1.5) 로 컨피던스 높은 종목에 보너스 자본 배분.
+ *         multiplier=1.0 일 때 기존 1/N 동일.
+ *         multiplier > 1.0 이면 perStockBudget 을 그만큼 늘리고, 단 cash×0.4 cap.
+ */
 export function checkPositionSizingRules(
   price: number,
   cashAmount: number,
+  confidenceMultiplier: number = 1.0,
 ): PositionSizingResult {
   const settings = getSettings();
   const { holdingCount } = getHoldingsState();
   const maxPositions = settings.positionMaxPositions;
+  const mult = Math.min(Math.max(confidenceMultiplier, 1.0), 1.5);
 
   if (holdingCount >= maxPositions) {
     return {
@@ -82,7 +91,7 @@ export function checkPositionSizingRules(
     return { allowed: false, reason: '가용 현금 없음', maxBuyAmount: 0, maxBuyQuantity: 0 };
   }
 
-  // Step 1: 단가가 가용현금 90% 초과면 차단 (1주도 못 살 정도)
+  // Step 1: 단가가 가용현금 90% 초과면 차단
   const maxAffordable = cashAmount * 0.9;
   if (price > maxAffordable) {
     return {
@@ -93,15 +102,14 @@ export function checkPositionSizingRules(
     };
   }
 
-  // Step 2: 종목당 한도 산정 (1/N)
-  const perStockBudget = cashAmount / maxPositions;
-  const budgetCeiling = perStockBudget * 1.05; // ±5% 허용
+  // Step 2: 종목당 한도 = (cash / N) × multiplier, cap 40% of cash
+  const baseBudget = cashAmount / maxPositions;
+  const weightedBudget = Math.min(baseBudget * mult, cashAmount * 0.4);
+  const budgetCeiling = weightedBudget * 1.05;
 
   // Step 3: 한도 내 → 정상 분할, 한도 초과 → 1주만
   let qty = Math.floor(budgetCeiling / price);
-  if (qty <= 0) {
-    qty = 1; // 한도 초과지만 maxAffordable 이내 → 1주 허용 (절대 2주 이상 X)
-  }
+  if (qty <= 0) qty = 1;
 
   return {
     allowed: true,

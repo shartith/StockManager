@@ -13,7 +13,7 @@
 
 import cron from 'node-cron';
 import logger from '../../logger';
-import { ScheduleLog, schedulerState } from './types';
+import { ScheduleLog, schedulerState, addLog, bumpDecisions, getDecisions } from './types';
 import { getSettings } from '../settings';
 import {
   resetDailyState,
@@ -28,6 +28,8 @@ import { syncKisBalance } from '../balanceSync';
 import { chaseStaleOrders } from '../orderChase';
 import { listActive } from '../watchTargets';
 import { runPreMarketStrategy, setLastPreMarketAnalysis } from '../preMarketStrategy';
+import { recordContextSnapshot } from '../marketContextMonitor';
+import { runHoldingsNewsAlert } from '../holdingsNewsAlert';
 
 export type { SchedulePhase, Market, ScheduleLog } from './types';
 
@@ -103,9 +105,20 @@ export function startScheduler() {
 
     // 09:00~14:59 — 1분 간격 monitoring (매수창은 09:05~09:55만 dailyStrategy 내부에서 게이팅)
     schedulerState.activeTasks.push(cron.schedule('* 9-14 * * 1-5', async () => {
+      // 시장 컨텍스트 (KOSPI/VIX) 분당 스냅샷 — 매도 룰에 contextLevel 주입용
+      void recordContextSnapshot();
       try {
         const r = await runMonitorTick();
-        if (r.bought + r.sold + r.reservedExecuted > 0 || r.brakeReason) {
+        const totalEvents = r.bought + r.sold + r.reservedExecuted;
+
+        // 일일 결정 카운터 갱신 (BUY=실제 체결, SELL=실제 체결+예약체결, HOLD=평가했으나 행동 없음)
+        const holdCount = Math.max(0, r.evaluated - r.bought) + Math.max(0, r.evaluatedSells - r.sold);
+        bumpDecisions({ buy: r.bought, sell: r.sold + r.reservedExecuted, hold: holdCount });
+
+        if (r.bought > 0) addLog('KRX', 'INTRADAY', 'completed', `BUY: ${r.bought}건 체결`);
+        if (r.sold > 0)   addLog('KRX', 'INTRADAY', 'completed', `SELL: ${r.sold}건 체결`);
+        if (r.reservedExecuted > 0) addLog('KRX', 'INTRADAY', 'completed', `예약 체결 ${r.reservedExecuted}건`);
+        if (totalEvents > 0 || r.brakeReason) {
           logger.info(r, '[Scheduler] 1min tick');
         }
       } catch (err) {
@@ -117,6 +130,10 @@ export function startScheduler() {
     schedulerState.activeTasks.push(cron.schedule('0 15 * * 1-5', async () => {
       try {
         const r = await runEodProfitTake();
+        if (r.sold > 0) {
+          bumpDecisions({ sell: r.sold });
+          addLog('KRX', 'PROFIT_TAKING', 'completed', `EOD SELL(익절): ${r.sold}건`);
+        }
         logger.info(r, '[Scheduler] 15:00 EOD profit take');
       } catch (err) {
         logger.error({ err }, '[Scheduler] runEodProfitTake failed');
@@ -127,6 +144,10 @@ export function startScheduler() {
     schedulerState.activeTasks.push(cron.schedule('20 15 * * 1-5', async () => {
       try {
         const r = await runEodForceClose();
+        if (r.sold > 0) {
+          bumpDecisions({ sell: r.sold });
+          addLog('KRX', 'PRE_CLOSE_30M', 'completed', `EOD SELL(강제정리): ${r.sold}건`);
+        }
         logger.info(r, '[Scheduler] 15:20 EOD force close');
       } catch (err) {
         logger.error({ err }, '[Scheduler] runEodForceClose failed');
@@ -156,6 +177,16 @@ export function startScheduler() {
         logger.info({ summary: report.summary }, '[Scheduler] 15:50 EOD report');
       } catch (err) {
         logger.error({ err }, '[Scheduler] runEodReport failed');
+      }
+    }, { timezone: tz }));
+
+    // 15:55 — 보유 종목 뉴스 LLM 알림 (Tier 3.3)
+    schedulerState.activeTasks.push(cron.schedule('55 15 * * 1-5', async () => {
+      try {
+        const r = await runHoldingsNewsAlert();
+        logger.info(r, '[Scheduler] 15:55 보유 종목 뉴스 알림');
+      } catch (err) {
+        logger.error({ err }, '[Scheduler] runHoldingsNewsAlert failed');
       }
     }, { timezone: tz }));
 
@@ -194,5 +225,6 @@ export function getSchedulerStatus() {
     krxEnabled: settings.scheduleKrx?.enabled ?? false,
     autoTradeEnabled: settings.autoTradeEnabled,
     recentLogs: schedulerState.recentLogs.slice(0, 20),
+    dailyDecisions: getDecisions(),
   };
 }

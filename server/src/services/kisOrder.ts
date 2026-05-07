@@ -21,6 +21,10 @@ export interface OrderRequest {
   quantity: number;
   price: number;        // 0이면 시장가
   reason?: string;      // 매수/매도 사유 (auto_trades.reason 기록용)
+  /** v5.4.0 — BUY 시점 컨피던스 가중치 (1.0~1.5). sizing 보너스. */
+  confidenceMultiplier?: number;
+  /** v5.4.0 — SELL 시점 호가 호의적이면 지정가, 아니면 시장가. quote book 기반 동적 결정. */
+  preferLimitOnSell?: boolean;
 }
 
 export interface OrderResult {
@@ -378,9 +382,21 @@ export async function executeOrder(req: OrderRequest): Promise<OrderResult> {
       // 매수: 현재가 -0.5% 지정가 (슬리피지 감소)
       orderPrice = Math.floor(currentPrice * 0.995);
     } else {
-      // 매도: 시장가 (빠른 체결 우선)
+      // 매도: 기본 시장가, preferLimitOnSell 일 때 호가 깊이 검사 후 지정가로 전환
       orderPrice = currentPrice;
       useMarketOrder = true;
+      if (req.preferLimitOnSell) {
+        try {
+          const { getQuoteBook } = await import('./quoteBook');
+          const qb = await getQuoteBook(req.ticker, req.market);
+          const orderValue = currentPrice * req.quantity;
+          // 스프레드 ≤ 0.2% AND 호가 깊이 ≥ 주문금액×2 → 지정가로 슬리피지 절약
+          if (qb && qb.spreadPercent <= 0.2 && qb.topBookDepthKrw >= orderValue * 2) {
+            orderPrice = currentPrice; // 현재가 그대로 지정가 (best bid 근접)
+            useMarketOrder = false;
+          }
+        } catch {}
+      }
     }
   }
 
@@ -393,8 +409,9 @@ export async function executeOrder(req: OrderRequest): Promise<OrderResult> {
       return { success: false, message: '주문가능금액 0 — KIS 잔고 확인 필요', quantity: 0, price: orderPrice, fee: 0 };
     }
 
-    // 2b. 포지션 사이징 게이트 (예산/종목 수)
-    const sizing = checkPositionSizingRules(orderPrice, cashAmount);
+    // 2b. 포지션 사이징 게이트 — 컨피던스 가중치 적용 (1.0~1.5, 미지정 시 1.0 = 균등)
+    const confidenceMultiplier = req.confidenceMultiplier ?? 1.0;
+    const sizing = checkPositionSizingRules(orderPrice, cashAmount, confidenceMultiplier);
     if (!sizing.allowed) {
       try {
         const { logSystemEvent } = await import('./systemEvent');

@@ -3,6 +3,7 @@ import { getAccessToken, getKisConfig } from '../services/kisAuth';
 import { getSettings } from '../services/settings';
 import { analyzeTechnical, CandleData } from '../services/technicalAnalysis';
 import { checkLlmStatus } from '../services/llm';
+import { runLlmDiagnostics } from '../services/llmDiagnose';
 import { collectAndCacheNews, getCachedNews } from '../services/newsCollector';
 import { queryOne } from '../db';
 import { asyncHandler } from '../middleware/errorHandler';
@@ -83,6 +84,17 @@ router.get('/:ticker', asyncHandler(async (req: Request, res: Response) => {
 router.get('/llm/status', asyncHandler(async (_req: Request, res: Response) => {
   const status = await checkLlmStatus();
   res.json(status);
+}));
+
+/**
+ * LLM 일관성 진단 — 사전 정의된 3개 시나리오(강세/약세/중립)에 대해
+ * 사용자 LLM 의 BUY/SELL/HOLD 판단을 받아 정답과 비교.
+ *
+ * 30초 ~ 90초 소요 (LLM 3회 호출, 각 ~10-30s).
+ */
+router.get('/llm/diagnose', asyncHandler(async (_req: Request, res: Response) => {
+  const summary = await runLlmDiagnostics();
+  res.json(summary);
 }));
 
 /** LLM 서버에 등록된 모델 조회 */

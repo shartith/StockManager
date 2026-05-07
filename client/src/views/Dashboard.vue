@@ -444,12 +444,12 @@ async function loadSystemStatus() {
     const { data } = await schedulerApi.getStatus();
     systemStatus.value.schedulerActive = data.active;
     systemStatus.value.taskCount = data.taskCount;
-    if (data.recentLogs) {
-      const today = new Date().toISOString().slice(0, 10);
-      const todayLogs = data.recentLogs.filter((l: any) => l.timestamp?.startsWith(today));
-      systemStatus.value.todayBuy = todayLogs.filter((l: any) => l.message?.includes('BUY')).length;
-      systemStatus.value.todaySell = todayLogs.filter((l: any) => l.message?.includes('SELL')).length;
-      systemStatus.value.todayHold = todayLogs.filter((l: any) => l.message?.includes('HOLD')).length;
+    // v5.3.2 — server side counter (dailyDecisions) 직접 사용. 이전엔 recentLogs 문자열 grep
+    // 이었는데 v5.x scheduler 가 addLog 호출을 누락해 항상 0/0/0 이었음.
+    if (data.dailyDecisions) {
+      systemStatus.value.todayBuy  = data.dailyDecisions.buy  ?? 0;
+      systemStatus.value.todaySell = data.dailyDecisions.sell ?? 0;
+      systemStatus.value.todayHold = data.dailyDecisions.hold ?? 0;
     }
   } catch {}
 

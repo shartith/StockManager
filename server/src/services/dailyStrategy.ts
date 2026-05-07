@@ -50,7 +50,16 @@ import {
   isBoughtToday,
   syncTodayFromTransactions,
   getState,
+  setEntryExitPlan,
+  markT1Filled,
+  moveSLToBE,
 } from './intradayState';
+import { getCachedEntryExitPlan } from './entryExitPlan';
+import { fetchDailyCandles } from './candleData';
+import { hasBearishPattern, hasBullishPattern } from './candlePatterns';
+import { calcRSI, calcSMA } from './technicalAnalysis';
+import { getContextLevel } from './marketContextMonitor';
+import { recordSetupOnBuy, recordResultOnSell } from './tradeSetupLog';
 import { checkMarketBrake } from './marketBrake';
 import { getQuoteBook } from './quoteBook';
 import { executeOrder, getDomesticOrderableAmount } from './kisOrder';
@@ -314,20 +323,113 @@ async function evaluateBuyForTarget(
     }
   } catch {}
 
+  // 10.5. Pre-trade technicals + 캔들 패턴 게이트 (v5.4.0)
+  //   - 약세 캔들 패턴 출현: 진입 차단
+  //   - RSI > 75 (과매수): 진입 차단
+  //   - 5MA 미달 (현재가 < 5MA × 0.99): 추세 약화 → 진입 차단
+  //   - 통과 시 컨피던스 가중치 계산 (1.0~1.5)
+  let confidenceMultiplier = 1.0;
+  let confidenceReasons: string[] = [];
+  let setupBullishPattern: string | null = null;
+  let setupRsi: number | null = null;
+  try {
+    const candles = await fetchDailyCandles(target.ticker, { days: 30 });
+    if (candles.length >= 6) {
+      const bear = hasBearishPattern(candles);
+      if (bear.found && bear.description) {
+        return { bought: false, reason: `약세 캔들 패턴 (${bear.description})` };
+      }
+      const closes = candles.map(c => c.close);
+      const rsi = calcRSI(closes, 14);
+      setupRsi = rsi;
+      if (rsi !== null && rsi > 75) {
+        return { bought: false, reason: `RSI ${rsi.toFixed(1)} 과매수 영역` };
+      }
+      const sma5 = calcSMA(closes, 5);
+      const sma20 = calcSMA(closes, 20);
+      if (sma5 !== null && snap.price < sma5 * 0.99) {
+        return { bought: false, reason: `5MA 이탈 (현재 ${snap.price} < 5MA ${sma5.toFixed(0)} × 0.99)` };
+      }
+      // 강세 패턴 감지 시 가중치 +0.15 + reason 표시
+      const bull = hasBullishPattern(candles);
+      if (bull.found && bull.description) {
+        confidenceMultiplier += 0.15;
+        confidenceReasons.push(`강세패턴(${bull.description})`);
+        setupBullishPattern = bull.pattern ?? null;
+      }
+      // RSI 50~65 (sweet spot, 과매수 직전 아님) 가중치 +0.10
+      if (rsi !== null && rsi >= 50 && rsi <= 65) {
+        confidenceMultiplier += 0.10;
+        confidenceReasons.push(`RSI ${rsi.toFixed(0)}`);
+      }
+      // 5MA > 20MA 정배열 가중치 +0.10
+      if (sma5 !== null && sma20 !== null && sma5 > sma20) {
+        confidenceMultiplier += 0.10;
+        confidenceReasons.push('정배열');
+      }
+      // 거래량 1.5x 초과 가중치 +0.05
+      if (volRatio > 1.5) {
+        confidenceMultiplier += 0.05;
+        confidenceReasons.push(`vol×${volRatio.toFixed(1)}`);
+      }
+      confidenceMultiplier = Math.min(confidenceMultiplier, 1.5);
+    }
+  } catch {}
+
   // 11. KIS 주문 실행 — quantity=0으로 위임 (executeOrder 내부 checkPositionSizingRules가 정책 적용:
   //     한도 내 floor(budget/price), 한도 초과 시 1주, 가용현금 90% 초과 시 차단)
   try {
+    const confidenceLabel = confidenceMultiplier > 1.0
+      ? ` | conf×${confidenceMultiplier.toFixed(2)} (${confidenceReasons.join(',')})`
+      : '';
     const result = await executeOrder({
       stockId: target.stockId,
       ticker: target.ticker,
       market: 'KRX',
       orderType: 'BUY',
       quantity: 0,
-      price: 0, // 시장가 (executeOrder 내부에서 -0.5% 지정가 변환)
-      reason: `시초가+${gainFromOpen.toFixed(1)}% 진입 (vol×${volRatio.toFixed(1)})`,
+      price: 0,
+      reason: `시초가+${gainFromOpen.toFixed(1)}% 진입 (vol×${volRatio.toFixed(1)})${confidenceLabel}`,
+      confidenceMultiplier,
     });
     if (result.success) {
       markBought(target.stockId, result.price);
+
+      // Setup feature 저장 (사후 분석용 — Tier 3.2)
+      recordSetupOnBuy({
+        stockId: target.stockId,
+        ticker: target.ticker,
+        sector: target.sector ?? null,
+        boughtPrice: result.price,
+        bullishPattern: setupBullishPattern,
+        rsi: setupRsi,
+        volRatio,
+        confidenceMultiplier,
+        gainFromOpen,
+        strategicCategory: target.category ?? null,
+        reason: target.reason,
+      });
+
+      // Entry/Exit Plan 계산 + 저장 (실패해도 매수 자체는 성공으로 처리)
+      try {
+        const plan = await getCachedEntryExitPlan(target.ticker, result.price);
+        if (plan) {
+          setEntryExitPlan(target.stockId, {
+            t1Target: plan.t1Target,
+            t2Target: plan.t2Target,
+            dynamicSL: plan.dynamicSL,
+            entryAvgPrice: result.price,
+          });
+          await logSystemEvent('INFO', 'ENTRY_EXIT_PLAN',
+            `매매 계획: ${target.ticker} T1 ${plan.t1Target.toLocaleString()} / T2 ${plan.t2Target.toLocaleString()} / SL ${plan.dynamicSL.toLocaleString()}`,
+            plan.reason,
+            target.ticker,
+          );
+        }
+      } catch (err) {
+        logger.warn({ err: (err as Error).message, ticker: target.ticker }, 'computeEntryExitPlan failed (룰 동작 영향 없음)');
+      }
+
       await logSystemEvent('INFO', 'AUTO_BUY',
         `자동매수: ${target.ticker} ${result.quantity}주 @ ${result.price.toLocaleString()}`,
         `시초가 ${opening} → 현재 ${snap.price} (+${gainFromOpen.toFixed(2)}%) | vol ${volRatio.toFixed(2)}x | ${target.reason}`,
@@ -361,6 +463,21 @@ async function evaluateSellForHolding(holding: HoldingInfo, token: string): Prom
 
   const unrealizedPnLPercent = ((currentPrice - holding.avgPrice) / holding.avgPrice) * 100;
 
+  // 약세 캔들 패턴 검출 (캐시된 일봉 사용 — 5분 cache, 1분 모니터에 부담 적음)
+  let bearishPattern: { pattern: string; description: string } | null = null;
+  try {
+    const candles = await fetchDailyCandles(holding.ticker, { days: 30 });
+    if (candles.length >= 6) {
+      const r = hasBearishPattern(candles);
+      if (r.found && r.pattern && r.description) {
+        bearishPattern = { pattern: r.pattern, description: r.description };
+      }
+    }
+  } catch {}
+
+  // 시장 컨텍스트 평가 (분당 cron 이 누적한 KOSPI/VIX 트렌드)
+  const ctx = getContextLevel();
+
   const result = evaluateSellRules({
     stockId: holding.stockId,
     ticker: holding.ticker,
@@ -369,9 +486,26 @@ async function evaluateSellForHolding(holding: HoldingInfo, token: string): Prom
     quantity: holding.quantity,
     unrealizedPnLPercent,
     positionOpenedAt: holding.positionOpenedAt,
+    bearishPattern,
+    contextLevel: ctx.level,
+    contextReason: ctx.reason,
   });
 
   if (!result.shouldSell) return { sold: false };
+
+  // 부분 매도 비율 → 정수 수량으로 변환. 최소 1주 보장. 잔여 0주 되지 않도록 cap.
+  const ratio = result.partialRatio ?? 1.0;
+  const isPartial = ratio < 1.0;
+  let sellQty = isPartial ? Math.floor(holding.quantity * ratio) : holding.quantity;
+  if (sellQty < 1) sellQty = 1;
+  if (sellQty >= holding.quantity) {
+    // 부분이 전량을 넘으면 전량으로 처리
+    sellQty = holding.quantity;
+  }
+
+  // v5.4.0 — 익절 룰일 때만 호가 호의적이면 지정가 (슬리피지 절약).
+  //          손절/패턴 룰은 항상 시장가 (빠른 청산 우선).
+  const isProfitRule = result.rule === 'PARTIAL_T1' || result.rule === 'FULL_T2' || result.rule === 'TARGET_PROFIT';
 
   try {
     const sellResult = await executeOrder({
@@ -379,15 +513,33 @@ async function evaluateSellForHolding(holding: HoldingInfo, token: string): Prom
       ticker: holding.ticker,
       market: 'KRX',
       orderType: 'SELL',
-      quantity: holding.quantity,
+      quantity: sellQty,
       price: 0,
       reason: result.rule ?? '',
+      preferLimitOnSell: isProfitRule,
     });
     if (sellResult.success) {
-      resetPeakPrice(holding.stockId);
-      markSold(holding.stockId);
+      const partialFlag = sellQty < holding.quantity;
+
+      if (partialFlag) {
+        // 부분 매도 — peak/cooldown 유지, T1_FILLED + Move-to-BE 마킹
+        if (result.rule === 'PARTIAL_T1') {
+          markT1Filled(holding.stockId);
+          moveSLToBE(holding.stockId);
+        }
+      } else {
+        // 전량 매도 — 기존 동작 유지 + setup 결과 기록
+        resetPeakPrice(holding.stockId);
+        markSold(holding.stockId);
+        recordResultOnSell({
+          stockId: holding.stockId,
+          rule: result.rule ?? 'UNKNOWN',
+          soldPrice: sellResult.price,
+        });
+      }
+
       await logSystemEvent('INFO', 'AUTO_SELL',
-        `자동매도(${result.rule}): ${holding.ticker} ${sellResult.quantity}주 @ ${sellResult.price.toLocaleString()}`,
+        `자동매도(${result.rule}${partialFlag ? ' · 분할' : ''}): ${holding.ticker} ${sellResult.quantity}주 @ ${sellResult.price.toLocaleString()}`,
         result.reason ?? '',
         holding.ticker,
       );
@@ -463,16 +615,19 @@ async function evaluateReservedOrders(token: string): Promise<number> {
  * 09:05~09:55 매수창 + 10:00~14:55 모니터링.
  * 매수 윈도우 외에도 매도/예약 평가는 항상 실행.
  */
-export async function runMonitorTick(): Promise<{
-  evaluated: number;
+export interface MonitorTickResult {
+  evaluated: number;          // 매수 후보 평가 수 (target 기준)
+  evaluatedSells: number;     // 매도 후보 평가 수 (holding 기준)
   bought: number;
   sold: number;
   reservedExecuted: number;
   brakeReason?: string;
-}> {
+}
+
+export async function runMonitorTick(): Promise<MonitorTickResult> {
   const settings = getSettings();
   if (!settings.autoTradeEnabled) {
-    return { evaluated: 0, bought: 0, sold: 0, reservedExecuted: 0 };
+    return { evaluated: 0, evaluatedSells: 0, bought: 0, sold: 0, reservedExecuted: 0 };
   }
 
   const now = new Date();
@@ -484,7 +639,7 @@ export async function runMonitorTick(): Promise<{
   const { appKey, appSecret } = await import('./kisAuth').then(m => m.getKisConfig());
   if (!appKey || !appSecret) {
     logger.debug('KIS not configured, skip tick');
-    return { evaluated: 0, bought: 0, sold: 0, reservedExecuted: 0 };
+    return { evaluated: 0, evaluatedSells: 0, bought: 0, sold: 0, reservedExecuted: 0 };
   }
   const token = await getAccessToken();
 
@@ -500,6 +655,7 @@ export async function runMonitorTick(): Promise<{
 
   // 매도 평가 — 항상 실행
   const holdings = getHoldings();
+  const evaluatedSells = holdings.length;
   let sold = 0;
   for (const holding of holdings) {
     const r = await evaluateSellForHolding(holding, token);
@@ -526,7 +682,7 @@ export async function runMonitorTick(): Promise<{
       if (cashAmount <= 0) {
         await logSystemEvent('WARN', 'NO_CASH',
           '주문가능금액 0 — 매수 평가 스킵', 'KIS API 잔고 확인 필요', '');
-        return { evaluated: 0, bought: 0, sold, reservedExecuted };
+        return { evaluated: 0, evaluatedSells, bought: 0, sold, reservedExecuted };
       }
 
       const targets = listActiveTargets();
@@ -555,9 +711,9 @@ export async function runMonitorTick(): Promise<{
   }
 
   if (bought + sold + reservedExecuted > 0 || brakeReason) {
-    logger.info({ evaluated, bought, sold, reservedExecuted, brakeReason }, 'fiveMinTick');
+    logger.info({ evaluated, evaluatedSells, bought, sold, reservedExecuted, brakeReason }, 'fiveMinTick');
   }
-  return { evaluated, bought, sold, reservedExecuted, brakeReason };
+  return { evaluated, evaluatedSells, bought, sold, reservedExecuted, brakeReason };
 }
 
 // ── EOD ──

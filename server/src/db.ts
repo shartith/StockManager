@@ -238,6 +238,44 @@ export async function initializeDB(): Promise<Db> {
     )
   `);
 
+  // ── Entry/Exit Plan (v5.4.0) ──
+  // computeEntryExitPlan 결과를 종목별로 저장 — Partial Exit (T1/T2), 동적 SL,
+  // SL move-to-BE 추적. 매수 직후에 setEntryExitPlan 으로 기록되고,
+  // 매도 룰 평가 시 evaluateExitPlan 이 사용.
+  try { dbRun('ALTER TABLE intraday_state ADD COLUMN t1_target REAL'); } catch {}
+  try { dbRun('ALTER TABLE intraday_state ADD COLUMN t2_target REAL'); } catch {}
+  try { dbRun('ALTER TABLE intraday_state ADD COLUMN dynamic_sl REAL'); } catch {}
+  try { dbRun('ALTER TABLE intraday_state ADD COLUMN t1_filled INTEGER DEFAULT 0'); } catch {}
+  try { dbRun('ALTER TABLE intraday_state ADD COLUMN sl_moved_to_be INTEGER DEFAULT 0'); } catch {}
+  try { dbRun('ALTER TABLE intraday_state ADD COLUMN entry_avg_price REAL'); } catch {}
+
+  // ── Trade Setup 사후 분석 (v5.4.0) ──
+  // 매수 시점 setup features 저장 → 매도 시 result 갱신 → EOD 누적 통계.
+  // 향후 종목·섹터·패턴별 승률 학습 토대.
+  dbRun(`
+    CREATE TABLE IF NOT EXISTS trade_setups (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      stock_id INTEGER NOT NULL,
+      ticker TEXT NOT NULL,
+      sector TEXT,
+      bought_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      bought_price REAL NOT NULL,
+      sold_at DATETIME,
+      sold_price REAL,
+      result_rule TEXT,
+      result_pnl_percent REAL,
+      bullish_pattern TEXT,
+      rsi REAL,
+      vol_ratio REAL,
+      confidence_multiplier REAL,
+      gain_from_open REAL,
+      strategic_category TEXT,
+      reason TEXT
+    )
+  `);
+  dbRun(`CREATE INDEX IF NOT EXISTS idx_trade_setups_stock ON trade_setups (stock_id, bought_at)`);
+  dbRun(`CREATE INDEX IF NOT EXISTS idx_trade_setups_open ON trade_setups (sold_at) WHERE sold_at IS NULL`);
+
   // ── Audit log ──
   dbRun(`
     CREATE TABLE IF NOT EXISTS audit_log (

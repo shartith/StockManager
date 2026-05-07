@@ -28,12 +28,23 @@ export type SellRule =
   | 'STOP_LOSS'
   | 'TRAILING_STOP'
   | 'STAGNANT_TIME'
-  | 'LOSS_TIME';
+  | 'LOSS_TIME'
+  // v5.4.0 Entry/Exit Plan 룰
+  | 'PARTIAL_T1'         // 1차 목표 도달 → 50% 분할 익절
+  | 'FULL_T2'            // 2차 목표 도달 → 잔여 전량 익절
+  | 'DYNAMIC_SL'         // 지지선 - ATR×0.5 이탈 → 동적 손절
+  | 'SL_BE_LOCK'         // BE 잠금 후 매수가 이탈 → 무손실 청산
+  // v5.4.0 패턴 룰
+  | 'BEARISH_PATTERN'    // 일봉 약세 패턴 출현 → 추세 약화 청산
+  | 'CONTEXT_DEFENSIVE'  // 시장 컨텍스트 방어 모드 + 소수익/손실 → 조기 청산
+  | 'CONTEXT_CRITICAL';  // 시장 컨텍스트 위기 모드 → 무조건 청산
 
 export interface SellRuleResult {
   shouldSell: boolean;
   rule?: SellRule;
   reason?: string;
+  /** 부분 매도 비율 (0.0 ~ 1.0). 미지정이면 전량(1.0). */
+  partialRatio?: number;
 }
 
 export interface HoldingContext {
@@ -45,6 +56,11 @@ export interface HoldingContext {
   unrealizedPnLPercent: number;
   /** 현재 포지션이 시작된 시점 (lot tracking 기반). 미지정 시 DB fallback 으로 추정. */
   positionOpenedAt?: string | null;
+  /** 일봉 약세 패턴 검출 결과. 호출자가 비동기 fetch 후 주입. */
+  bearishPattern?: { pattern: string; description: string } | null;
+  /** v5.4.0 — 시장 컨텍스트 평가 (NORMAL / DEFENSIVE / CRITICAL). 호출자가 marketContextMonitor 에서 주입. */
+  contextLevel?: 'NORMAL' | 'DEFENSIVE' | 'CRITICAL';
+  contextReason?: string;
 }
 
 // ── Buy timestamp ──
@@ -97,6 +113,74 @@ export function evaluateSellRules(ctx: HoldingContext): SellRuleResult {
   const peak = updatePeak(ctx.stockId, ctx.currentPrice, shouldActivate);
   const state = getState(ctx.stockId);
   const trailingActive = state?.trailingActive ?? false;
+
+  // ── 시장 컨텍스트 (v5.4.0) — 시장 전반 위기 시 보유분 보호 ──
+  // CRITICAL: 무조건 청산 (KOSPI -2%/세션고점 OR VIX > 30)
+  // DEFENSIVE + PnL ≤ +0.5%: 조기 청산 (수익 미보장 상태에서 시장 약세)
+  if (ctx.contextLevel === 'CRITICAL') {
+    return {
+      shouldSell: true,
+      rule: 'CONTEXT_CRITICAL',
+      reason: `시장 위기 컨텍스트 — 보유분 일괄 청산 (${ctx.contextReason ?? ''}, PnL ${ctx.unrealizedPnLPercent.toFixed(1)}%)`,
+    };
+  }
+  if (ctx.contextLevel === 'DEFENSIVE' && ctx.unrealizedPnLPercent <= 0.5) {
+    return {
+      shouldSell: true,
+      rule: 'CONTEXT_DEFENSIVE',
+      reason: `시장 방어 컨텍스트 + 수익 미보장 — 조기 청산 (${ctx.contextReason ?? ''}, PnL ${ctx.unrealizedPnLPercent.toFixed(1)}%)`,
+    };
+  }
+
+  // ── 약세 패턴 (v5.4.0) — 일봉 차트 약세 신호 + 손실/소수익 상태일 때 조기 청산 ──
+  // 큰 수익 중인 종목까지 패턴만으로 끊지 않도록 PnL < +1% 일 때만 발동.
+  // DEFENSIVE 컨텍스트에서는 임계값을 +2% 까지 확장 (시장 약세 시 조기 보호).
+  const bearishPnLThreshold = ctx.contextLevel === 'DEFENSIVE' ? 2.0 : 1.0;
+  if (ctx.bearishPattern && ctx.unrealizedPnLPercent < bearishPnLThreshold) {
+    return {
+      shouldSell: true,
+      rule: 'BEARISH_PATTERN',
+      reason: `약세 캔들 패턴 (${ctx.bearishPattern.description}) — 추세 약화로 조기 청산 (PnL ${ctx.unrealizedPnLPercent.toFixed(1)}%)`,
+    };
+  }
+
+  // ── Entry/Exit Plan 룰 (v5.4.0) — 사용자가 사전 계산한 가격 기반 ──
+  // STOP_LOSS / TARGET_PROFIT 보다 우선 평가 (더 정밀한 가격 기반 룰).
+  if (state) {
+    // PARTIAL_T1 — 1차 목표 미도달 시 50% 분할 익절 (한 번만)
+    if (state.t1Target !== null && !state.t1Filled && ctx.currentPrice >= state.t1Target) {
+      return {
+        shouldSell: true,
+        rule: 'PARTIAL_T1',
+        reason: `1차 목표가 ${state.t1Target.toLocaleString()} 도달 (현재 ${ctx.currentPrice.toLocaleString()}, +${ctx.unrealizedPnLPercent.toFixed(1)}%) — 50% 분할 익절`,
+        partialRatio: 0.5,
+      };
+    }
+    // FULL_T2 — 2차 목표 도달 시 잔여 전량 익절
+    if (state.t2Target !== null && ctx.currentPrice >= state.t2Target) {
+      return {
+        shouldSell: true,
+        rule: 'FULL_T2',
+        reason: `2차 목표가 ${state.t2Target.toLocaleString()} 도달 (현재 ${ctx.currentPrice.toLocaleString()}, +${ctx.unrealizedPnLPercent.toFixed(1)}%) — 잔여 전량 익절`,
+      };
+    }
+    // SL_BE_LOCK — SL이 BE로 이동된 상태에서 매수가 이탈 시 무손실 청산
+    if (state.slMovedToBE && state.dynamicSL !== null && ctx.currentPrice <= state.dynamicSL) {
+      return {
+        shouldSell: true,
+        rule: 'SL_BE_LOCK',
+        reason: `BE 잠금 발동 (매수가 ${state.dynamicSL.toLocaleString()} 이탈, 현재 ${ctx.currentPrice.toLocaleString()}) — 무손실 청산`,
+      };
+    }
+    // DYNAMIC_SL — 지지선 - ATR×0.5 이탈 시 (BE 이동 전, 평단 -2% 임계보다 먼저 작동 가능)
+    if (!state.slMovedToBE && state.dynamicSL !== null && ctx.currentPrice <= state.dynamicSL) {
+      return {
+        shouldSell: true,
+        rule: 'DYNAMIC_SL',
+        reason: `동적 손절선 ${state.dynamicSL.toLocaleString()} 이탈 (현재 ${ctx.currentPrice.toLocaleString()}) — 추세 이탈`,
+      };
+    }
+  }
 
   // Rule 7-1: 목표 수익률 도달 → 즉시 익절
   if (ctx.unrealizedPnLPercent >= settings.targetProfitRate) {
