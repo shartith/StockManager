@@ -1,7 +1,8 @@
 <template>
   <div :class="darkMode ? 'dark' : ''" class="min-h-screen bg-surface-0 text-txt-primary">
-    <!-- 모바일 헤더 -->
-    <header class="fixed top-0 left-0 right-0 h-14 bg-surface-1 border-b border-border flex items-center justify-between px-4 z-30 md:hidden">
+    <!-- 모바일 헤더 (상단) -->
+    <header class="fixed top-0 left-0 right-0 h-14 bg-surface-1 border-b border-border flex items-center justify-between px-4 z-30 md:hidden"
+      style="padding-top: env(safe-area-inset-top, 0); height: calc(56px + env(safe-area-inset-top, 0));">
       <button @click="sidebarOpen = !sidebarOpen" aria-label="메뉴 열기"
         class="p-2 rounded-lg hover:bg-surface-2 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-accent">
         <svg class="w-5 h-5 text-txt-secondary" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -29,14 +30,14 @@
       <div v-if="sidebarOpen" class="fixed inset-0 bg-black/40 backdrop-blur-sm z-20 md:hidden" @click="sidebarOpen = false" />
     </Transition>
 
-    <!-- 사이드바 -->
+    <!-- 사이드바 (데스크톱: 고정, 모바일: 슬라이드인) -->
     <aside
       role="navigation"
       aria-label="메인 내비게이션"
-      class="fixed top-0 left-0 h-full bg-surface-1 border-r border-border flex flex-col z-30 transition-all duration-300 ease-expo"
+      class="fixed top-0 left-0 h-full bg-surface-1 border-r border-border flex flex-col z-40 md:z-30 transition-transform duration-300 ease-expo"
       :class="[
         sidebarOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0',
-        collapsed ? 'w-[68px]' : 'w-56'
+        collapsed ? 'w-[68px]' : 'w-64 md:w-56'
       ]"
     >
       <!-- 로고 -->
@@ -145,10 +146,13 @@
       </div>
     </aside>
 
-    <!-- 메인 콘텐츠 -->
+    <!-- 메인 콘텐츠 — pt-14 모바일 헤더, pb-20 모바일 하단 탭바, md+ 사이드바 ml -->
     <main role="main"
-      class="pt-14 md:pt-0 min-h-screen transition-[margin] duration-300 ease-expo"
-      :class="collapsed ? 'md:ml-[68px]' : 'md:ml-56'"
+      class="md:pt-0 md:pb-0 min-h-screen transition-[margin] duration-300 ease-expo"
+      :class="[
+        collapsed ? 'md:ml-[68px]' : 'md:ml-56',
+        'mobile-main',
+      ]"
     >
       <div class="p-4 md:p-6 max-w-[1600px] mx-auto">
         <router-view v-slot="{ Component }">
@@ -158,6 +162,21 @@
         </router-view>
       </div>
     </main>
+
+    <!-- 모바일 하단 탭바 (5개 핵심 메뉴) — 데스크톱 hidden -->
+    <nav class="mobile-tabbar md:hidden" role="navigation" aria-label="모바일 하단 메뉴">
+      <router-link
+        v-for="item in primaryMenu"
+        :key="item.path"
+        :to="item.path"
+        class="mobile-tab"
+        :class="{ active: $route.path === item.path }"
+        :aria-current="$route.path === item.path ? 'page' : undefined"
+      >
+        <component :is="item.icon" />
+        <span>{{ item.shortLabel }}</span>
+      </router-link>
+    </nav>
 
     <!-- 알림 패널 -->
     <Transition name="fade">
@@ -325,6 +344,15 @@ const menuItems = [
   { path: '/chart', label: '주식 차트', icon: IconChart },
   { path: '/portfolio', label: '포트폴리오', icon: IconBriefcase },
   { path: '/transactions', label: '거래 내역', icon: IconList },
+];
+
+// 모바일 하단 탭 — 가장 자주 쓰는 5개로 압축. 나머지는 햄버거 → 사이드바.
+const primaryMenu = [
+  { path: '/',                 shortLabel: '대시보드', icon: IconDashboard },
+  { path: '/watch-targets',    shortLabel: '감시',     icon: IconStar      },
+  { path: '/portfolio',        shortLabel: '보유',     icon: IconBriefcase },
+  { path: '/chart',            shortLabel: '차트',     icon: IconChart     },
+  { path: '/transactions',     shortLabel: '거래',     icon: IconList      },
 ];
 
 // Toast

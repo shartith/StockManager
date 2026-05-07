@@ -255,12 +255,14 @@
         />
       </div>
 
-      <!-- 보유 종목 테이블 -->
+      <!-- 보유 종목 — md+ 테이블 / 모바일 카드 -->
       <div class="solid-card overflow-hidden">
-        <div class="p-5 border-b border-border">
+        <div class="p-4 md:p-5 border-b border-border">
           <h3 class="text-sm font-semibold text-txt-secondary">보유 종목 현황</h3>
         </div>
-        <div class="overflow-x-auto">
+
+        <!-- 데스크톱 테이블 -->
+        <div class="overflow-x-auto hidden md:block">
           <table class="table-modern">
             <thead>
               <tr>
@@ -296,6 +298,42 @@
               </tr>
             </tbody>
           </table>
+        </div>
+
+        <!-- 모바일 카드 -->
+        <div class="md:hidden divide-y divide-border-subtle">
+          <div v-if="store.summary.holdings.length === 0" class="text-center py-10 text-txt-tertiary text-sm px-4">
+            <p class="mb-2">보유 종목이 없습니다</p>
+            <p v-if="kisConfigured" class="text-xs">상단 <strong>계좌 잔고 가져오기</strong> 로 KIS 계좌에서 바로 불러올 수 있습니다.</p>
+          </div>
+          <div v-for="h in store.summary.holdings" :key="h.stockId" class="mobile-card">
+            <div class="flex items-baseline justify-between gap-2">
+              <div class="min-w-0 flex-1">
+                <div class="font-semibold text-sm">{{ h.ticker }}</div>
+                <div class="text-[11px] text-txt-tertiary truncate">{{ h.name }}</div>
+              </div>
+              <div class="text-right">
+                <div class="text-sm font-bold tabular-nums">
+                  {{ h.currentValue ? formatByMarket(h.currentValue, h.market) : formatByMarket(h.totalCost, h.market) }}
+                </div>
+                <div class="text-[11px] text-txt-tertiary">평가금액</div>
+              </div>
+            </div>
+            <div class="grid grid-cols-3 gap-2 text-xs pt-1">
+              <div class="flex flex-col">
+                <span class="text-txt-tertiary">수량</span>
+                <span class="font-medium tabular-nums">{{ h.quantity }}</span>
+              </div>
+              <div class="flex flex-col">
+                <span class="text-txt-tertiary">평단</span>
+                <span class="font-medium tabular-nums">{{ formatByMarket(h.avgPrice, h.market) }}</span>
+              </div>
+              <div class="flex flex-col">
+                <span class="text-txt-tertiary">현재가</span>
+                <span class="font-medium tabular-nums">{{ h.currentPrice ? formatByMarket(h.currentPrice, h.market) : '-' }}</span>
+              </div>
+            </div>
+          </div>
         </div>
       </div>
     </template>

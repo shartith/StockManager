@@ -107,9 +107,9 @@
       </div>
     </div>
 
-    <!-- 거래 내역 테이블 -->
+    <!-- 거래 내역 테이블 (md+) -->
     <div class="bg-surface-1 rounded-xl shadow-sm border border-border">
-      <div class="overflow-x-auto">
+      <div class="overflow-x-auto hidden md:block">
         <table class="w-full text-sm">
           <thead class="bg-surface-2 text-txt-secondary">
             <tr>
@@ -159,6 +159,66 @@
             </tr>
           </tbody>
         </table>
+        <PaginationBar
+          v-model:page="txPage"
+          v-model:pageSize="txPageSize"
+          :total="filteredTransactions.length"
+        />
+      </div>
+
+      <!-- 모바일 카드 뷰 (md 이하) -->
+      <div class="md:hidden divide-y divide-border-subtle">
+        <div v-if="filteredTransactions.length === 0" class="text-center py-8 text-txt-tertiary text-sm">
+          거래 내역이 없습니다
+        </div>
+        <div v-for="t in pagedTransactions" :key="t.id" class="mobile-card">
+          <div class="flex items-center justify-between gap-2">
+            <div class="min-w-0 flex-1">
+              <div class="flex items-center gap-1.5 flex-wrap">
+                <span class="font-semibold text-sm">{{ t.ticker }}</span>
+                <span class="text-txt-tertiary text-xs truncate">{{ t.stock_name }}</span>
+              </div>
+              <div class="text-[11px] text-txt-tertiary mt-0.5">{{ t.date }}</div>
+            </div>
+            <div class="flex items-center gap-1 shrink-0">
+              <span class="px-2 py-0.5 rounded text-xs font-medium"
+                :class="t.type === 'BUY' ? 'bg-red-100 text-red-700' : 'bg-blue-100 text-blue-700'">
+                {{ t.type === 'BUY' ? '매수' : '매도' }}
+              </span>
+              <span v-if="t.is_paper" class="px-1.5 py-0.5 rounded text-[10px] bg-purple-200 text-purple-800 font-bold">가상</span>
+              <span v-else-if="isAutoTrade(t)" class="px-1.5 py-0.5 rounded text-[10px] bg-purple-100 text-purple-700">자동</span>
+            </div>
+          </div>
+          <div class="grid grid-cols-2 gap-x-4 gap-y-1.5 text-xs">
+            <div class="flex justify-between">
+              <span class="text-txt-tertiary">수량</span>
+              <span class="font-medium">{{ t.quantity }}</span>
+            </div>
+            <div class="flex justify-between">
+              <span class="text-txt-tertiary">가격</span>
+              <span class="font-medium">{{ formatNumber(t.price) }}</span>
+            </div>
+            <div class="flex justify-between">
+              <span class="text-txt-tertiary">금액</span>
+              <span class="font-medium">{{ formatNumber(t.quantity * t.price) }}</span>
+            </div>
+            <div class="flex justify-between">
+              <span class="text-txt-tertiary">수수료</span>
+              <span class="text-txt-secondary">{{ formatNumber(t.fee) }}</span>
+            </div>
+            <div class="col-span-2 flex justify-between border-t border-border-subtle pt-1.5 mt-0.5">
+              <span class="text-txt-tertiary">실질금액</span>
+              <span class="font-bold" :class="t.type === 'BUY' ? 'text-profit' : 'text-loss'">
+                {{ t.type === 'BUY' ? '-' : '+' }}{{ formatNumber(getNetAmount(t)) }}
+              </span>
+            </div>
+          </div>
+          <div v-if="t.memo" class="text-[11px] text-txt-tertiary line-clamp-2 mt-1">{{ t.memo }}</div>
+          <div class="flex justify-end pt-1">
+            <button v-if="!t.is_paper" @click="deleteTransaction(t.id)"
+              class="text-xs text-red-500 px-3 py-1.5 -mr-2 active:bg-red-50 rounded">삭제</button>
+          </div>
+        </div>
         <PaginationBar
           v-model:page="txPage"
           v-model:pageSize="txPageSize"

@@ -352,3 +352,106 @@ body {
 ::-webkit-scrollbar-thumb:hover {
   background: var(--text-secondary);
 }
+
+/* ── Mobile Optimizations (v5.4.1) ─────────────────────────────────
+   iOS Safari 줌-인 방지: input/select/textarea 가 16px 미만이면 포커스 시
+   확대됨. 모바일에서만 16px 강제 (데스크톱 텍스트 크기 영향 없음).
+
+   Safe area: 노치/홈인디케이터 영역 padding 반영.
+
+   터치 타겟: 모바일에서 .nav-item, .btn-* 최소 44x44px (Apple HIG / Google MD).
+   ─────────────────────────────────────────────────────────────── */
+@media (max-width: 768px) {
+  /* iOS 자동 줌 방지 */
+  input, select, textarea {
+    font-size: 16px !important;
+  }
+
+  /* 터치 타겟 — 모바일에서만 최소 사이즈 강제 */
+  .nav-item {
+    min-height: 44px;
+  }
+  button, [role="button"], a.nav-item {
+    -webkit-tap-highlight-color: rgba(6, 182, 212, 0.15);
+  }
+
+  /* Safe area */
+  body {
+    padding-bottom: env(safe-area-inset-bottom, 0);
+  }
+}
+
+/* 모바일 카드 행 — Portfolio 패턴 재사용용 */
+.mobile-card {
+  padding: 12px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.mobile-card-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  font-size: 12px;
+  gap: 8px;
+}
+.mobile-card-label {
+  color: var(--text-tertiary);
+  flex-shrink: 0;
+}
+.mobile-card-value {
+  color: var(--text-primary);
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+  word-break: break-all;
+}
+
+/* 모바일 메인 콘텐츠 — 상단 헤더 + 하단 탭바 회피 */
+.mobile-main {
+  /* 모바일: 헤더(56px) + safe-area-top, 탭바(56px) + safe-area-bottom */
+  padding-top: calc(56px + env(safe-area-inset-top, 0));
+  padding-bottom: calc(56px + env(safe-area-inset-bottom, 0) + 8px);
+}
+@media (min-width: 768px) {
+  .mobile-main {
+    padding-top: 0;
+    padding-bottom: 0;
+  }
+}
+
+/* 모바일 하단 탭 — App.vue 와 함께 사용 */
+.mobile-tabbar {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  background: var(--surface-1);
+  border-top: 1px solid var(--border-default);
+  padding-bottom: env(safe-area-inset-bottom, 0);
+  z-index: 30;
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+}
+.mobile-tab {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  padding: 8px 4px 6px;
+  min-height: 56px;
+  color: var(--text-tertiary);
+  font-size: 10px;
+  font-weight: 500;
+  transition: color var(--duration-fast) ease;
+}
+.mobile-tab:active {
+  background: var(--surface-2);
+}
+.mobile-tab.active {
+  color: var(--color-accent);
+}
+.mobile-tab svg {
+  width: 22px;
+  height: 22px;
+}
