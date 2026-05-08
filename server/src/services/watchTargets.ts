@@ -138,6 +138,10 @@ export function upsert(args: {
       return refreshed;
     }
 
+    // active row 가 없는데 같은 stock_id 의 soft-deleted row 가 남아 있으면
+    // UNIQUE(stock_id) 제약으로 INSERT 가 실패한다. 좀비 row 정리 후 신규 등록.
+    execute(`DELETE FROM watch_targets WHERE stock_id = ?`, [stockId]);
+
     execute(
       `INSERT INTO watch_targets (stock_id, source, category, reason, expires_at)
        VALUES (?, ?, ?, ?, ?)`,
@@ -158,15 +162,14 @@ export function remove(id: number): boolean {
   return result.changes > 0;
 }
 
-/** 만료된 자동목록 정리 (expires_at < now AND source='auto') */
+/** 만료된 자동목록 정리 (expires_at < now AND source='auto').
+ *  hard delete — UNIQUE(stock_id) 충돌 방지를 위해 좀비 row 를 남기지 않는다. */
 export function purgeExpiredAuto(): number {
   const result = execute(
-    `UPDATE watch_targets
-       SET deleted_at = datetime('now')
+    `DELETE FROM watch_targets
      WHERE source = 'auto'
        AND expires_at IS NOT NULL
-       AND datetime(expires_at) <= datetime('now')
-       AND deleted_at IS NULL`,
+       AND datetime(expires_at) <= datetime('now')`,
   );
   if (result.changes > 0) {
     logger.info({ count: result.changes }, 'auto watch_targets expired');
@@ -185,11 +188,10 @@ export function replaceAutoList(items: Array<{
   expiresAt: string; // ISO datetime, 보통 다음날 09:00
 }>): number {
   return withTransaction(() => {
-    // 기존 자동 항목 soft delete
-    execute(
-      `UPDATE watch_targets SET deleted_at = datetime('now')
-       WHERE source = 'auto' AND deleted_at IS NULL`,
-    );
+    // 기존 auto 항목 hard delete.
+    // watch_targets.stock_id 에 UNIQUE 제약이 걸려 있어 soft delete 만으로는
+    // 같은 stock_id 재삽입이 UNIQUE constraint failed 로 막힌다. manual 은 보존.
+    execute(`DELETE FROM watch_targets WHERE source = 'auto'`);
 
     let inserted = 0;
     for (const item of items) {

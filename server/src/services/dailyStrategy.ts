@@ -72,6 +72,22 @@ const SAME_SECTOR_MAX = 2;        // 동일 섹터 최대 보유 (HIGH #9)
 const MIN_VOLUME_RATIO = 0.8;     // 5일 평균 대비 거래량 비율 (HIGH #4)
 const POSITION_TOLERANCE = 0.05;  // ±5% (사용자 안)
 
+// ── 알림 dedup (대시보드 noise 방지) ──
+//   매수창(09:05~09:55) 동안 매분 tick 이 돌면서 동일 사유 알림이 폭주하는 문제.
+//   같은 트리거 종류(KOSPI/VIX) 가 30분 내 재발생하면 silent.
+//   process restart 시 초기화 → 재시작 직후 1회는 항상 emit.
+const ALERT_DEDUP_MS = 30 * 60 * 1000;
+let lastBrakeEmitAt = 0;
+let lastBrakeKey = '';
+let lastNoCashEmitAt = 0;
+
+function brakeTriggerKey(reason: string): string {
+  const triggers: string[] = [];
+  if (reason.includes('KOSPI')) triggers.push('KOSPI');
+  if (reason.includes('VIX')) triggers.push('VIX');
+  return triggers.join('/') || 'OTHER';
+}
+
 // ── Daily 시작 ──
 
 export function resetDailyState(): void {
@@ -674,14 +690,25 @@ export async function runMonitorTick(): Promise<MonitorTickResult> {
     const brake = await checkMarketBrake();
     if (brake.shouldBrake) {
       brakeReason = brake.reason;
-      await logSystemEvent('WARN', 'MARKET_BRAKE',
-        `시장 브레이크 — 신규 매수 차단`, brake.reason, '');
+      const now = Date.now();
+      const key = brakeTriggerKey(brake.reason);
+      const sameKeyRecently = key === lastBrakeKey && now - lastBrakeEmitAt < ALERT_DEDUP_MS;
+      if (!sameKeyRecently) {
+        await logSystemEvent('WARN', 'MARKET_BRAKE',
+          `시장 브레이크 — 신규 매수 차단`, brake.reason, '');
+        lastBrakeEmitAt = now;
+        lastBrakeKey = key;
+      }
     } else {
       // KIS 가용 현금 사전 체크 (실제 sizing은 executeOrder 내부에서 매번 재조회)
       const cashAmount = await getDomesticOrderableAmount().catch(() => 0);
       if (cashAmount <= 0) {
-        await logSystemEvent('WARN', 'NO_CASH',
-          '주문가능금액 0 — 매수 평가 스킵', 'KIS API 잔고 확인 필요', '');
+        const now = Date.now();
+        if (now - lastNoCashEmitAt >= ALERT_DEDUP_MS) {
+          await logSystemEvent('WARN', 'NO_CASH',
+            '주문가능금액 0 — 매수 평가 스킵', 'KIS API 잔고 확인 필요', '');
+          lastNoCashEmitAt = now;
+        }
         return { evaluated: 0, evaluatedSells, bought: 0, sold, reservedExecuted };
       }
 

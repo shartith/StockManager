@@ -45,6 +45,13 @@ ${ticker ? `종목: ${ticker}` : ''}`;
   }
 }
 
+// 정상 운영성 알림은 LLM 조언이 무의미 (매번 거의 동일한 일반론이 생성).
+// 카테고리 기반 skip — 사용자가 받는 가치가 비용 대비 낮음.
+const SKIP_LLM_ADVICE_CATEGORIES = new Set<string>([
+  'MARKET_BRAKE',  // 시장 변동 자동 차단 — 시스템 정상 동작
+  'NO_CASH',       // 주문가능금액 0 — 사실 통지면 충분
+]);
+
 /** 시스템 이벤트 기록 (WARN 이상이면 LLM 조언 포함) */
 export async function logSystemEvent(
   severity: EventSeverity,
@@ -53,9 +60,9 @@ export async function logSystemEvent(
   detail: string = '',
   ticker: string = '',
 ): Promise<number> {
-  // WARN 이상이면 LLM에 조언 질의
+  // WARN 이상 + LLM 조언이 의미 있는 카테고리만 LLM 호출
   let aiAdvice = '';
-  if (severity !== 'INFO') {
+  if (severity !== 'INFO' && !SKIP_LLM_ADVICE_CATEGORIES.has(String(category))) {
     aiAdvice = await getAiAdvice(severity, category, title, detail, ticker).catch(() => '');
   }
 
