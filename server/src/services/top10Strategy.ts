@@ -156,88 +156,151 @@ export async function runTop10Rebalance(reason: string): Promise<RebalanceResult
     }
   }
 
-  // 2. 매수 — Top 10 신규 진입자 (보유에 없는 것)
-  const heldTickers = new Set(holdings.map((h) => h.ticker));
-  const newEntries = top10.filter((s) => !heldTickers.has(s.ticker));
+  // 2. 매수 — 시총 우선 진입 (1주씩) + 보유 재분배 (1주씩 누적)
+  //
+  // 흐름:
+  //   1) 매도 후 가용 현금 재조회 — Top10 이탈 매도로 늘어났을 수 있어
+  //      이전 라운드까지 못 샀던 고가 종목(SK하이닉스 등)이 진입 가능해질 수 있음.
+  //   2) 미보유 Top 10 종목을 시총 1위부터 순차 시도 — 1주 가격이 잔고 이내면 1주 매수.
+  //      가격 초과 시 skip 하고 다음 시총 순위 종목 시도.
+  //   3) 미보유 처리 후 — 보유 종목 중 평가금액 최저 + 1주 가격이 잔고 이내인 종목 1주 추가.
+  //      잔고로 1주도 못 사는 시점까지 반복 (REBAL_MAX_ITER 안전장치).
+  const brake = await checkMarketBrake();
+  if (brake.shouldBrake) {
+    result.brakeReason = brake.reason;
+    logger.info(
+      { reason: brake.reason },
+      '[Top10] 시장 브레이크 — 신규/재분배 매수 차단',
+    );
+  } else {
+    let cash = await getDomesticOrderableAmount().catch(() => 0);
 
-  if (newEntries.length > 0) {
-    const brake = await checkMarketBrake();
-    if (brake.shouldBrake) {
-      result.brakeReason = brake.reason;
-      logger.info(
-        { reason: brake.reason, candidates: newEntries.length },
-        '[Top10] 시장 브레이크 — 신규 매수 차단',
-      );
-    } else {
-      const cashAmount = await getDomesticOrderableAmount().catch(() => 0);
-      if (cashAmount <= 0) {
-        for (const s of newEntries) {
+    // 보유 수량 추적 — 매수마다 in-memory 갱신 (Top 10 종목만)
+    const holdingQty: Record<string, number> = {};
+    for (const h of holdings) {
+      if (top10Set.has(h.ticker)) holdingQty[h.ticker] = h.quantity;
+    }
+
+    // 매수 집계 — 종목별 누적 (result.bought 출력용)
+    const buyTally: Record<string, { name: string; qty: number; lastPrice: number }> = {};
+    const recordBuy = (
+      s: { ticker: string; name: string; closePrice: number },
+      fillPrice: number,
+    ): void => {
+      cash -= fillPrice;
+      const e = buyTally[s.ticker] ?? { name: s.name, qty: 0, lastPrice: fillPrice };
+      e.qty += 1;
+      e.lastPrice = fillPrice;
+      buyTally[s.ticker] = e;
+      holdingQty[s.ticker] = (holdingQty[s.ticker] ?? 0) + 1;
+    };
+
+    // 2a. 미보유 Top 10 — 시총 1위부터 (top10 배열은 이미 rank 순)
+    for (const s of top10) {
+      if ((holdingQty[s.ticker] ?? 0) > 0) continue;
+      if (s.closePrice <= 0) {
+        result.skipped.push({ ticker: s.ticker, name: s.name, reason: '가격 정보 없음' });
+        continue;
+      }
+      if (s.closePrice > cash) {
+        // 잔고 부족 — 다음 시총 순위 시도 (재분배 후에도 잔고가 부족하면 다음 라운드 또는
+        // Top10 이탈 매도로 잔고가 충분해질 때 자연 매수)
+        result.skipped.push({
+          ticker: s.ticker,
+          name: s.name,
+          reason: `1주(${s.closePrice.toLocaleString()}원) > 잔고(${cash.toLocaleString()}원)`,
+        });
+        continue;
+      }
+      try {
+        const stockId = ensureStockId(s.ticker, s.name, s.market);
+        const r = await executeOrder({
+          stockId,
+          ticker: s.ticker,
+          market: 'KRX',
+          orderType: 'BUY',
+          quantity: 1,
+          price: 0,
+          reason: `Top10 #${s.rank} 신규 진입`,
+        });
+        if (r.success) {
+          recordBuy(s, r.price || s.closePrice);
+          logger.info(
+            { ticker: s.ticker, rank: s.rank, price: r.price },
+            '[Top10] 신규 BUY 체결',
+          );
+        } else {
           result.skipped.push({
             ticker: s.ticker,
             name: s.name,
-            reason: '주문가능금액 0',
+            reason: `BUY 실패: ${r.message}`,
           });
         }
-      } else {
-        const perStockBudget = Math.floor(cashAmount / newEntries.length);
-
-        for (const s of newEntries) {
-          if (s.closePrice <= 0) {
-            result.skipped.push({ ticker: s.ticker, name: s.name, reason: '가격 정보 없음' });
-            continue;
-          }
-
-          let quantity = Math.floor(perStockBudget / s.closePrice);
-          if (quantity === 0) {
-            if (s.closePrice > cashAmount) {
-              result.skipped.push({
-                ticker: s.ticker,
-                name: s.name,
-                reason: `1주(${s.closePrice.toLocaleString()}원) > 가용현금(${cashAmount.toLocaleString()}원)`,
-              });
-              continue;
-            }
-            quantity = 1;
-          }
-
-          try {
-            const stockId = ensureStockId(s.ticker, s.name, s.market);
-            const r = await executeOrder({
-              stockId,
-              ticker: s.ticker,
-              market: 'KRX',
-              orderType: 'BUY',
-              quantity,
-              price: 0,
-              reason: `Top10 #${s.rank} 신규 진입 (${s.marketCapHangeul})`,
-            });
-            if (r.success) {
-              result.bought.push({
-                ticker: s.ticker,
-                name: s.name,
-                quantity,
-                price: r.price,
-              });
-              logger.info(
-                { ticker: s.ticker, qty: quantity, price: r.price },
-                '[Top10] BUY 체결',
-              );
-            } else {
-              result.skipped.push({
-                ticker: s.ticker,
-                name: s.name,
-                reason: `BUY 실패: ${r.message}`,
-              });
-            }
-          } catch (err) {
-            result.skipped.push({
-              ticker: s.ticker,
-              name: s.name,
-              reason: `BUY 예외: ${(err as Error).message}`,
-            });
-          }
-        }
+      } catch (err) {
+        result.skipped.push({
+          ticker: s.ticker,
+          name: s.name,
+          reason: `BUY 예외: ${(err as Error).message}`,
+        });
       }
+    }
+
+    // 2b. 보유 재분배 — 평가금액 최저 + 1주 가격 ≤ 잔고 인 종목 1주씩 반복 매수
+    const REBAL_MAX_ITER = 30;
+    for (let i = 0; i < REBAL_MAX_ITER; i++) {
+      if (cash <= 0) break;
+
+      const candidates = top10
+        .filter((s) => (holdingQty[s.ticker] ?? 0) > 0 && s.closePrice > 0 && s.closePrice <= cash)
+        .map((s) => ({ stock: s, evalAmt: (holdingQty[s.ticker] ?? 0) * s.closePrice }))
+        .sort((a, b) => a.evalAmt - b.evalAmt);
+
+      if (candidates.length === 0) break;
+      const target = candidates[0].stock;
+
+      try {
+        const stockId = ensureStockId(target.ticker, target.name, target.market);
+        const r = await executeOrder({
+          stockId,
+          ticker: target.ticker,
+          market: 'KRX',
+          orderType: 'BUY',
+          quantity: 1,
+          price: 0,
+          reason: 'Top10 재분배 — 평가 최저',
+        });
+        if (r.success) {
+          recordBuy(target, r.price || target.closePrice);
+          logger.info(
+            { ticker: target.ticker, price: r.price, iter: i },
+            '[Top10] 재분배 BUY 체결',
+          );
+        } else {
+          result.skipped.push({
+            ticker: target.ticker,
+            name: target.name,
+            reason: `재분배 BUY 실패: ${r.message}`,
+          });
+          break; // 같은 종목 무한 실패 방지
+        }
+      } catch (err) {
+        result.skipped.push({
+          ticker: target.ticker,
+          name: target.name,
+          reason: `재분배 BUY 예외: ${(err as Error).message}`,
+        });
+        break;
+      }
+    }
+
+    // buyTally → result.bought
+    for (const [ticker, info] of Object.entries(buyTally)) {
+      result.bought.push({
+        ticker,
+        name: info.name,
+        quantity: info.qty,
+        price: info.lastPrice,
+      });
     }
   }
 
