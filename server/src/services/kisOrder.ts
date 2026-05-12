@@ -10,6 +10,26 @@ import { queryOne, queryAll, execute } from '../db';
 import { kisApiCall } from './apiQueue';
 import logger from '../logger';
 
+/**
+ * 한국 주식 호가 단위 (Tick Size) — 2023년 1월 이후 KOSPI/KOSDAQ 동일.
+ * KIS API는 호가 단위 어긋난 주문을 APBK0506 으로 거부하므로 매수 가격을 반드시 보정해야 한다.
+ *
+ * v5.4까지 매수 100% 실패의 직접 원인 — 본 함수 부재로 currentPrice * 0.995 가
+ * 호가 단위와 어긋난 가격이 그대로 KIS 에 제출됨 (예: SK텔레콤 106,664 → 100원 단위 미준수).
+ */
+export function roundDownToTick(price: number): number {
+  if (price <= 0) return 0;
+  let tick: number;
+  if (price < 2_000)        tick = 1;
+  else if (price < 5_000)   tick = 5;
+  else if (price < 20_000)  tick = 10;
+  else if (price < 50_000)  tick = 50;
+  else if (price < 200_000) tick = 100;
+  else if (price < 500_000) tick = 500;
+  else                      tick = 1_000;
+  return Math.floor(price / tick) * tick;
+}
+
 // ─── 타입 ─────────────────────────────────────────────
 
 export interface OrderRequest {
@@ -378,13 +398,16 @@ export async function executeOrder(req: OrderRequest): Promise<OrderResult> {
 
   if (orderPrice <= 0) {
     if (req.orderType === 'BUY') {
-      // 매수: 현재가 -0.5% 지정가 (슬리피지 감소)
-      orderPrice = Math.floor(currentPrice * 0.995);
+      // 매수: 현재가 -0.5% 지정가 + 호가 단위 보정 (v5.6.1 — APBK0506 거부 방지)
+      orderPrice = roundDownToTick(currentPrice * 0.995);
     } else {
       // 매도: 시장가 (Top10 이탈 즉시 정리)
       orderPrice = currentPrice;
       useMarketOrder = true;
     }
+  } else if (req.orderType === 'BUY') {
+    // 외부에서 가격 명시 시에도 호가 단위 보정
+    orderPrice = roundDownToTick(orderPrice);
   }
 
   // 2. 매수 시: 가용 현금 안전망 (Top10 전략은 호출 시 quantity=1 명시)
