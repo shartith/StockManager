@@ -94,6 +94,12 @@ export const watchTargetsApi = {
   rebuildAuto: () => api.post('/watch-targets/auto/rebuild'),
 };
 
+// Top 10 시총 (v5.5.0)
+export const topMarketCapApi = {
+  get: (refresh?: boolean) => api.get('/top-market-cap', { params: refresh ? { refresh: 1 } : {} }),
+  rebalance: (reason?: string) => api.post('/top-market-cap/rebalance', { reason }),
+};
+
 // 지정가 대기 주문
 export const reservedOrdersApi = {
   getAll: () => api.get('/reserved-orders'),

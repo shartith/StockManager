@@ -74,6 +74,11 @@ export const saveConfigSchema = z.object({
   // 자동매매 ON/OFF (한도는 KIS 잔고에서 자동 산정)
   autoTradeEnabled: z.boolean().default(false),
 
+  // 전략 모드 — v5.5.0 도입
+  //   'top10'  : 시총 Top 10 추종 (매일 09:00 + 매시간 rebalance, Top 10 이탈 매도 / 신규 진입 매수)
+  //   'legacy' : 기존 12-Rule 매매 엔진 (섹터 로테이션 + 매수창 09:05~09:55)
+  strategyMode: z.enum(['top10', 'legacy']).default('top10'),
+
   // 매매 스케줄
   scheduleKrx: z.object({
     enabled: z.boolean(),

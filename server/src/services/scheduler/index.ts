@@ -30,6 +30,8 @@ import { listActive } from '../watchTargets';
 import { runPreMarketStrategy, setLastPreMarketAnalysis } from '../preMarketStrategy';
 import { recordContextSnapshot } from '../marketContextMonitor';
 import { runHoldingsNewsAlert } from '../holdingsNewsAlert';
+import { runTop10Rebalance } from '../top10Strategy';
+import { refreshTop10 } from '../topMarketCap';
 
 export type { SchedulePhase, Market, ScheduleLog } from './types';
 
@@ -77,7 +79,73 @@ export function startScheduler() {
   const settings = getSettings();
   const tz = 'Asia/Seoul';
 
-  if (settings.scheduleKrx?.enabled) {
+  if (settings.scheduleKrx?.enabled && settings.strategyMode === 'top10') {
+    // ─── Top 10 추종 전략 (v5.5.0+) ─────────────────────────────
+    // 09:00 — 장 시작 즉시 rebalance (시총 Top 10 재산정 후 이탈/진입 처리)
+    // 10:00~14:00 매시간 — 시총 재산정 + 변경 시 rebalance (idempotent)
+    // 15:25 — EOD 미체결 force-market (안전망)
+    // 15:50 — EOD reconcile + 일일 리포트
+
+    schedulerState.activeTasks.push(cron.schedule('0 9 * * 1-5', async () => {
+      try {
+        const r = await runTop10Rebalance('09:00 daily');
+        bumpDecisions({ buy: r.bought.length, sell: r.sold.length });
+        if (!r.noop) {
+          addLog('KRX', 'INTRADAY', 'completed',
+            `[Top10] 09:00 rebalance — 매도 ${r.sold.length}건, 매수 ${r.bought.length}건`);
+        }
+        logger.info(
+          { sold: r.sold.length, bought: r.bought.length, skipped: r.skipped.length, brake: r.brakeReason },
+          '[Scheduler] 09:00 Top10 rebalance',
+        );
+      } catch (err) {
+        logger.error({ err }, '[Scheduler] Top10 09:00 rebalance failed');
+      }
+    }, { timezone: tz }));
+
+    schedulerState.activeTasks.push(cron.schedule('0 10-14 * * 1-5', async () => {
+      try {
+        const r = await runTop10Rebalance('hourly');
+        bumpDecisions({ buy: r.bought.length, sell: r.sold.length });
+        if (!r.noop) {
+          addLog('KRX', 'INTRADAY', 'completed',
+            `[Top10] hourly — 매도 ${r.sold.length}건, 매수 ${r.bought.length}건`);
+        }
+      } catch (err) {
+        logger.error({ err }, '[Scheduler] Top10 hourly rebalance failed');
+      }
+    }, { timezone: tz }));
+
+    schedulerState.activeTasks.push(cron.schedule('25 15 * * 1-5', async () => {
+      try {
+        const r = await chaseStaleOrders(true);
+        logger.info(r, '[Scheduler] 15:25 EOD force-market');
+      } catch (err) {
+        logger.error({ err }, '[Scheduler] EOD force-market failed');
+      }
+    }, { timezone: tz }));
+
+    schedulerState.activeTasks.push(cron.schedule('50 15 * * 1-5', async () => {
+      try {
+        const sync = await syncKisBalance('EOD 자동 reconcile');
+        logger.info(sync, '[Scheduler] 15:50 EOD reconcile');
+      } catch (err) {
+        logger.error({ err }, '[Scheduler] EOD reconcile failed');
+      }
+      try {
+        const report = await runEodReport();
+        logger.info({ summary: report.summary }, '[Scheduler] 15:50 EOD report');
+      } catch (err) {
+        logger.error({ err }, '[Scheduler] runEodReport failed');
+      }
+    }, { timezone: tz }));
+
+    logger.info('[Scheduler] Top10 전략 cron 등록 (09:00 + 10~14시 매시간 rebalance, 15:25 force-market, 15:50 reconcile)');
+
+    // 서버 시작 직후 Top 10 prefetch (UI에서 첫 조회를 빠르게)
+    void refreshTop10().catch((err) => logger.warn({ err }, '[Top10] startup prefetch failed'));
+  } else if (settings.scheduleKrx?.enabled && settings.strategyMode === 'legacy') {
+    // ─── 기존 12-Rule 매매 엔진 ─────────────────────────────────
     // 08:30 — 미국 마감 기반 전략 후보 prewarm (US ETF fetch → KRX 섹터 매핑 → 체인링크)
     schedulerState.activeTasks.push(cron.schedule('30 8 * * 1-5', async () => {
       try {

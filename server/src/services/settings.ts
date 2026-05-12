@@ -60,6 +60,11 @@ export interface AppSettings {
   // 자동매매 (ON/OFF만)
   autoTradeEnabled: boolean;
 
+  // 전략 모드 (v5.5.0)
+  //   'top10'  : 시총 Top 10 추종 (단순)
+  //   'legacy' : 12-Rule 매매 엔진 (섹터 로테이션)
+  strategyMode: 'top10' | 'legacy';
+
   // KRX 스케줄
   scheduleKrx: MarketScheduleConfig;
 
@@ -106,6 +111,8 @@ const DEFAULT_SETTINGS: AppSettings = {
   dartEnabled: false,
 
   autoTradeEnabled: false,
+
+  strategyMode: 'top10',
 
   scheduleKrx: { enabled: false },
 

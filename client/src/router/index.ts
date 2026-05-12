@@ -4,6 +4,7 @@ const router = createRouter({
   history: createWebHistory(),
   routes: [
     { path: '/', name: 'dashboard', component: () => import('@/views/Dashboard.vue') },
+    { path: '/top-market-cap', name: 'top-market-cap', component: () => import('@/views/TopMarketCap.vue') },
     { path: '/portfolio', name: 'portfolio', component: () => import('@/views/Portfolio.vue') },
     { path: '/watch-targets', name: 'watch-targets', component: () => import('@/views/WatchTargets.vue') },
     { path: '/reserved-orders', name: 'reserved-orders', component: () => import('@/views/ReservedOrders.vue') },

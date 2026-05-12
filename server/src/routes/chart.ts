@@ -47,6 +47,8 @@ router.get('/config/form', (_req: Request, res: Response) => {
 
     autoTradeEnabled: settings.autoTradeEnabled,
 
+    strategyMode: settings.strategyMode,
+
     scheduleKrx: settings.scheduleKrx,
 
     sellRulesEnabled: settings.sellRulesEnabled,
@@ -100,6 +102,8 @@ router.post('/config', validate(saveConfigSchema), (req: Request, res: Response)
     dartEnabled: !!dartEnabled,
 
     autoTradeEnabled: !!autoTradeEnabled,
+
+    strategyMode: req.body.strategyMode === 'legacy' ? 'legacy' : 'top10',
 
     ...(scheduleKrx ? { scheduleKrx } : {}),
 

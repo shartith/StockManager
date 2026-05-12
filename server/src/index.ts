@@ -22,6 +22,7 @@ import analysisRouter from './routes/analysis';
 import notificationsRouter from './routes/notifications';
 import watchTargetsRouter from './routes/watchTargets';
 import reservedOrdersRouter from './routes/reservedOrders';
+import topMarketCapRouter from './routes/topMarketCap';
 import { getSettings } from './services/settings';
 import { startScheduler, stopScheduler, getSchedulerStatus } from './services/scheduler';
 import { getRecentEvents, getUnresolvedEvents, getEventCounts, resolveEvent, deleteEvent, deleteAllEvents } from './services/systemEvent';
@@ -119,6 +120,7 @@ app.use('/api/analysis', analysisRouter);
 app.use('/api/notifications', notificationsRouter);
 app.use('/api/watch-targets', watchTargetsRouter);
 app.use('/api/reserved-orders', reservedOrdersRouter);
+app.use('/api/top-market-cap', topMarketCapRouter);
 
 // ── WS token endpoint ──
 app.get('/api/ws-token', (_req, res) => {

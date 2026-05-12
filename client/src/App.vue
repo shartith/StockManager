@@ -339,6 +339,7 @@ let pollTimer: ReturnType<typeof setInterval> | null = null;
 
 const menuItems = [
   { path: '/', label: '대시보드', icon: IconDashboard },
+  { path: '/top-market-cap', label: '시총 Top 10', icon: IconTrending },
   { path: '/watch-targets', label: '감시대상', icon: IconStar },
   { path: '/reserved-orders', label: '예약 주문', icon: IconBell },
   { path: '/chart', label: '주식 차트', icon: IconChart },
@@ -349,7 +350,7 @@ const menuItems = [
 // 모바일 하단 탭 — 가장 자주 쓰는 5개로 압축. 나머지는 햄버거 → 사이드바.
 const primaryMenu = [
   { path: '/',                 shortLabel: '대시보드', icon: IconDashboard },
-  { path: '/watch-targets',    shortLabel: '감시',     icon: IconStar      },
+  { path: '/top-market-cap',   shortLabel: 'Top10',    icon: IconTrending  },
   { path: '/portfolio',        shortLabel: '보유',     icon: IconBriefcase },
   { path: '/chart',            shortLabel: '차트',     icon: IconChart     },
   { path: '/transactions',     shortLabel: '거래',     icon: IconList      },
