@@ -270,22 +270,7 @@ export async function getKisFundamentals(ticker: string): Promise<FundamentalDat
       };
     }, `fundamental-${ticker}`);
 
-    // DART 재무제표 병합 (활성화된 경우)
-    try {
-      if (settings.dartEnabled && settings.dartApiKey && ticker.length === 6) {
-        const { getDartFinancials } = require('./dartApi');
-        const dartData = await getDartFinancials(ticker);
-        if (dartData) {
-          if (dartData.roe) data.roe = dartData.roe;
-          if (dartData.revenue) data.revenue = dartData.revenue;
-          if (dartData.revenueGrowth !== undefined) data.revenueGrowth = dartData.revenueGrowth;
-          if (dartData.operatingIncome) data.operatingIncome = dartData.operatingIncome;
-          if (dartData.operatingMargin) data.operatingMargin = dartData.operatingMargin;
-          if (dartData.netIncome) data.netIncome = dartData.netIncome;
-          if (dartData.reportDate) data.dartReportDate = dartData.reportDate;
-        }
-      }
-    } catch {}
+    // (v5.6.0: DART 재무제표 병합 제거 — 라이트 모드)
 
     fundamentalCache.set(ticker, { data, fetchedAt: Date.now() });
     return data;

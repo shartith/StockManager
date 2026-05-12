@@ -18,10 +18,7 @@ import stocksRouter from './routes/stocks';
 import transactionsRouter from './routes/transactions';
 import portfolioRouter from './routes/portfolio';
 import chartRouter from './routes/chart';
-import analysisRouter from './routes/analysis';
 import notificationsRouter from './routes/notifications';
-import watchTargetsRouter from './routes/watchTargets';
-import reservedOrdersRouter from './routes/reservedOrders';
 import topMarketCapRouter from './routes/topMarketCap';
 import { getSettings } from './services/settings';
 import { startScheduler, stopScheduler, getSchedulerStatus } from './services/scheduler';
@@ -116,10 +113,7 @@ app.use('/api/stocks', stocksRouter);
 app.use('/api/transactions', transactionsRouter);
 app.use('/api/portfolio', portfolioRouter);
 app.use('/api/chart', chartRouter);
-app.use('/api/analysis', analysisRouter);
 app.use('/api/notifications', notificationsRouter);
-app.use('/api/watch-targets', watchTargetsRouter);
-app.use('/api/reserved-orders', reservedOrdersRouter);
 app.use('/api/top-market-cap', topMarketCapRouter);
 
 // ── WS token endpoint ──
@@ -140,21 +134,6 @@ app.get('/api/health', async (_req, res) => {
     checks.database = 'ok';
   } catch {
     checks.database = 'error';
-  }
-
-  // LLM check (외부 OpenAI 호환 서버; llmUrl 은 /v1 포함 full base URL)
-  const settings = getSettings();
-  const llmUrl = process.env.LLM_URL || settings.llmUrl || 'https://ai.unids.kr/v1';
-  try {
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 3000);
-    const headers: Record<string, string> = {};
-    if (settings.llmApiKey) headers['Authorization'] = `Bearer ${settings.llmApiKey}`;
-    const llmRes = await fetch(`${llmUrl}/models`, { signal: controller.signal, headers });
-    clearTimeout(timeout);
-    checks.llm = llmRes.ok ? 'ok' : 'error';
-  } catch {
-    checks.llm = 'unreachable';
   }
 
   // Scheduler check

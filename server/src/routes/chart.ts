@@ -4,7 +4,6 @@ import { getSettings, saveSettings } from '../services/settings';
 import { startScheduler } from '../services/scheduler';
 import { getMarketContext } from '../services/stockPrice';
 import { getDomesticOrderableAmount } from '../services/kisOrder';
-import { getQuoteBook, type Market } from '../services/quoteBook';
 import { syncKisBalance } from '../services/balanceSync';
 import { validate } from '../middleware/validate';
 import { asyncHandler } from '../middleware/errorHandler';
@@ -21,11 +20,10 @@ router.get('/config', (_req: Request, res: Response) => {
     hasAccount: !!(settings.kisAccountNo),
     appKey: settings.kisAppKey ? settings.kisAppKey.slice(0, 4) + '****' : '',
     accountNo: settings.kisAccountNo ? settings.kisAccountNo.slice(0, 4) + '****' : '',
-    mcpEnabled: settings.mcpEnabled,
   });
 });
 
-// 설정 폼 복원용 조회 (AppSecret, AI API Key 제외)
+// 설정 폼 복원용 조회 (AppSecret 제외)
 router.get('/config/form', (_req: Request, res: Response) => {
   const settings = getSettings();
   res.json({
@@ -33,50 +31,23 @@ router.get('/config/form', (_req: Request, res: Response) => {
     accountNo: settings.kisAccountNo,
     accountProductCode: settings.kisAccountProductCode,
     isVirtual: settings.kisVirtual,
-    mcpEnabled: settings.mcpEnabled,
     hasSecret: !!settings.kisAppSecret,
 
-    llmProvider: settings.llmProvider,
-    llmUrl: settings.llmUrl,
-    llmModel: settings.llmModel,
-    llmEnabled: settings.llmEnabled,
-    hasLlmApiKey: !!settings.llmApiKey,
-
-    dartEnabled: settings.dartEnabled,
-    hasDartKey: !!settings.dartApiKey,
-
     autoTradeEnabled: settings.autoTradeEnabled,
-
-    strategyMode: settings.strategyMode,
-
     scheduleKrx: settings.scheduleKrx,
 
-    sellRulesEnabled: settings.sellRulesEnabled,
-    targetProfitRate: settings.targetProfitRate,
-    hardStopLossRate: settings.hardStopLossRate,
-    trailingStopRate: settings.trailingStopRate,
-    trailingActivatePercent: settings.trailingActivatePercent,
-    sidewaysMinutes: settings.sidewaysMinutes,
-    lossMinutes: settings.lossMinutes,
-    profitThresholdPercent: settings.profitThresholdPercent,
-
-    positionMaxPositions: settings.positionMaxPositions,
-    eodProfitTakePercent: settings.eodProfitTakePercent,
-    entryGainPercent: settings.entryGainPercent,
     marketBrakeEnabled: settings.marketBrakeEnabled,
     marketBrakeKospiPercent: settings.marketBrakeKospiPercent,
     marketBrakeVixLevel: settings.marketBrakeVixLevel,
-    gapUpMaxPercent: settings.gapUpMaxPercent,
-    reEntryCooldownMinutes: settings.reEntryCooldownMinutes,
   });
 });
 
 // 설정 저장
 router.post('/config', validate(saveConfigSchema), (req: Request, res: Response) => {
-  const { appKey, appSecret, accountNo, accountProductCode, isVirtual, mcpEnabled,
-    llmProvider, llmUrl, llmModel, llmEnabled, llmApiKey,
-    dartApiKey, dartEnabled,
+  const {
+    appKey, appSecret, accountNo, accountProductCode, isVirtual,
     autoTradeEnabled, scheduleKrx,
+    marketBrakeEnabled, marketBrakeKospiPercent, marketBrakeVixLevel,
   } = req.body;
 
   const currentSettings = getSettings();
@@ -90,41 +61,14 @@ router.post('/config', validate(saveConfigSchema), (req: Request, res: Response)
     kisAccountNo: accountNo || '',
     kisAccountProductCode: accountProductCode || '01',
     kisVirtual: !!isVirtual,
-    mcpEnabled: !!mcpEnabled,
-
-    llmProvider: llmProvider === 'ollama' ? 'ollama' : 'openai',
-    llmUrl: llmUrl || 'https://ai.unids.kr/v1',
-    llmModel: llmModel || '',
-    llmEnabled: llmEnabled !== false,
-    ...(typeof llmApiKey === 'string' && llmApiKey.length > 0 ? { llmApiKey } : {}),
-
-    ...(dartApiKey ? { dartApiKey } : {}),
-    dartEnabled: !!dartEnabled,
 
     autoTradeEnabled: !!autoTradeEnabled,
 
-    strategyMode: req.body.strategyMode === 'legacy' ? 'legacy' : 'top10',
-
     ...(scheduleKrx ? { scheduleKrx } : {}),
 
-    sellRulesEnabled: req.body.sellRulesEnabled ?? true,
-    targetProfitRate: Number(req.body.targetProfitRate) || 3.0,
-    hardStopLossRate: Number(req.body.hardStopLossRate) || 2.0,
-    trailingStopRate: Number(req.body.trailingStopRate) || 1.5,
-    trailingActivatePercent: Number(req.body.trailingActivatePercent) || 3.0,
-    sidewaysMinutes: Number(req.body.sidewaysMinutes) || 60,
-    lossMinutes: Number(req.body.lossMinutes) || 60,
-    profitThresholdPercent: Number(req.body.profitThresholdPercent) || 0.5,
-
-    positionMaxPositions: Number(req.body.positionMaxPositions) || 5,
-    eodProfitTakePercent: Number(req.body.eodProfitTakePercent) || 3.0,
-
-    entryGainPercent: Number(req.body.entryGainPercent) || 1.0,
-    marketBrakeEnabled: req.body.marketBrakeEnabled ?? true,
-    marketBrakeKospiPercent: Number(req.body.marketBrakeKospiPercent) || 2.0,
-    marketBrakeVixLevel: Number(req.body.marketBrakeVixLevel) || 30,
-    gapUpMaxPercent: Number(req.body.gapUpMaxPercent) || 3.0,
-    reEntryCooldownMinutes: Number(req.body.reEntryCooldownMinutes) ?? 30,
+    marketBrakeEnabled: marketBrakeEnabled ?? true,
+    marketBrakeKospiPercent: Number(marketBrakeKospiPercent) || 2.0,
+    marketBrakeVixLevel: Number(marketBrakeVixLevel) || 30,
   });
 
   process.env.KIS_APP_KEY = appKey;
@@ -337,30 +281,6 @@ router.post('/balance/import', asyncHandler(async (_req: Request, res: Response)
     imported: result.added,
     skipped: result.unchanged,
   });
-}));
-
-// 호가(Bid/Ask) 조회
-router.get('/quote-book/:ticker', asyncHandler(async (req: Request, res: Response) => {
-  const tickerParam = req.params.ticker;
-  const ticker = Array.isArray(tickerParam) ? tickerParam[0] : tickerParam;
-  if (!ticker) {
-    res.status(400).json({ error: 'ticker required' });
-    return;
-  }
-  const market = ((req.query.market as string) || 'KRX').toUpperCase() as Market;
-
-  if (market !== 'KRX') {
-    res.status(400).json({ error: 'market must be KRX' });
-    return;
-  }
-
-  const qb = await getQuoteBook(ticker, market);
-  if (!qb) {
-    res.status(404).json({ error: '호가 조회 실패 또는 미지원 시장' });
-    return;
-  }
-
-  res.json(qb);
 }));
 
 export default router;

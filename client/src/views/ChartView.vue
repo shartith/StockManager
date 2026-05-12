@@ -193,7 +193,7 @@
 import { ref, onMounted, onUnmounted, watch, nextTick } from 'vue';
 import { useRoute } from 'vue-router';
 import { createChart, createSeriesMarkers, IChartApi, ISeriesApi, CandlestickSeries, HistogramSeries, LineSeries, ColorType } from 'lightweight-charts';
-import { chartApi, stocksApi, watchTargetsApi } from '@/api';
+import { chartApi, stocksApi, topMarketCapApi } from '@/api';
 
 const searchTicker = ref('');
 const period = ref('D');
@@ -450,9 +450,9 @@ async function loadStockLists() {
     holdingStocks.value = data.map((s: any) => ({ ticker: s.ticker, name: s.name }));
   } catch {}
   try {
-    const { data } = await watchTargetsApi.getAll();
+    const { data } = await topMarketCapApi.get();
     const holdingSet = new Set(holdingStocks.value.map(s => s.ticker));
-    watchlistStocks.value = (data.items || [])
+    watchlistStocks.value = (data.top10 || [])
       .filter((w: any) => !holdingSet.has(w.ticker))
       .map((w: any) => ({ ticker: w.ticker, name: w.name }));
   } catch {}

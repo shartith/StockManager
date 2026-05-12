@@ -28,85 +28,28 @@ export const createTransactionSchema = z.object({
   memo: z.string().default(''),
 });
 
-// ── Alerts ──
-
-export const createAlertSchema = z.object({
-  stock_id: z.number({ error: '종목 ID는 필수입니다' }).positive(),
-  type: z.enum(['PRICE_ABOVE', 'PRICE_BELOW', 'PROFIT_TARGET']),
-  value: z.number({ error: '값은 필수입니다' }),
-});
-
-export const updateAlertSchema = z.object({
-  is_active: z.boolean(),
-});
-
-// ── Chart / Config (v5.0.0 슬림화) ──
+// ── Config (v5.6.0 라이트 모드 — Top 10 전략 전용) ──
 
 export const saveConfigSchema = z.object({
+  // KIS 인증
   appKey: z.string().min(1, 'AppKey는 필수입니다'),
   appSecret: z.string().optional(),
   accountNo: z.string().default(''),
   accountProductCode: z.string().default('01'),
   isVirtual: z.boolean().default(true),
-  mcpEnabled: z.boolean().default(false),
 
-  // 외부 OpenAI 호환 LLM
-  llmUrl: z.string()
-    .refine(val => {
-      if (!val) return true;
-      try {
-        const u = new URL(val);
-        if (u.protocol !== 'http:' && u.protocol !== 'https:') return false;
-        const blocked = ['169.254.169.254', '100.100.100.200', 'metadata.google.internal'];
-        if (blocked.includes(u.hostname)) return false;
-        return true;
-      } catch { return false; }
-    }, { message: 'llmUrl은 유효한 http/https URL이어야 합니다' })
-    .default('https://ai.unids.kr/v1'),
-  llmModel: z.string().default(''),
-  llmEnabled: z.boolean().default(true),
-  llmApiKey: z.string().default(''),
-  llmProvider: z.enum(['ollama', 'openai']).default('openai'),
-
-  dartApiKey: z.string().optional(),
-  dartEnabled: z.boolean().default(false),
-
-  // 자동매매 ON/OFF (한도는 KIS 잔고에서 자동 산정)
+  // 자동매매 ON/OFF
   autoTradeEnabled: z.boolean().default(false),
 
-  // 전략 모드 — v5.5.0 도입
-  //   'top10'  : 시총 Top 10 추종 (매일 09:00 + 매시간 rebalance, Top 10 이탈 매도 / 신규 진입 매수)
-  //   'legacy' : 기존 12-Rule 매매 엔진 (섹터 로테이션 + 매수창 09:05~09:55)
-  strategyMode: z.enum(['top10', 'legacy']).default('top10'),
-
-  // 매매 스케줄
+  // 매매 스케줄 (KRX)
   scheduleKrx: z.object({
     enabled: z.boolean(),
   }).optional(),
 
-  // 매도 규칙
-  sellRulesEnabled: z.boolean().default(true),
-  targetProfitRate: z.number().min(0.5).max(50).default(3.0),
-  hardStopLossRate: z.number().min(0.5).max(50).default(2.0),
-  trailingStopRate: z.number().min(0.3).max(20).default(1.5),
-  trailingActivatePercent: z.number().min(0.5).max(20).default(3.0),
-  sidewaysMinutes: z.number().int().min(5).max(360).default(60),
-  lossMinutes: z.number().int().min(5).max(360).default(60),
-  profitThresholdPercent: z.number().min(0).max(5).default(0.5),
-
-  // 포지션 사이징
-  positionMaxPositions: z.number().int().min(1).max(20).default(5),
-
-  // EOD
-  eodProfitTakePercent: z.number().min(0.5).max(20).default(3.0),
-
-  // 매수 게이트
-  entryGainPercent: z.number().min(0.1).max(10).default(1.0),
+  // 시장 브레이크 (안전망)
   marketBrakeEnabled: z.boolean().default(true),
   marketBrakeKospiPercent: z.number().min(0.5).max(10).default(2.0),
   marketBrakeVixLevel: z.number().min(15).max(80).default(30),
-  gapUpMaxPercent: z.number().min(0.5).max(15).default(3.0),
-  reEntryCooldownMinutes: z.number().int().min(0).max(360).default(30),
 });
 
 // ── System Events ──

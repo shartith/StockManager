@@ -340,10 +340,8 @@ let pollTimer: ReturnType<typeof setInterval> | null = null;
 const menuItems = [
   { path: '/', label: '대시보드', icon: IconDashboard },
   { path: '/top-market-cap', label: '시총 Top 10', icon: IconTrending },
-  { path: '/watch-targets', label: '감시대상', icon: IconStar },
-  { path: '/reserved-orders', label: '예약 주문', icon: IconBell },
-  { path: '/chart', label: '주식 차트', icon: IconChart },
   { path: '/portfolio', label: '포트폴리오', icon: IconBriefcase },
+  { path: '/chart', label: '주식 차트', icon: IconChart },
   { path: '/transactions', label: '거래 내역', icon: IconList },
 ];
 

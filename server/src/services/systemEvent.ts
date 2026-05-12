@@ -4,7 +4,6 @@
  */
 
 import { execute, queryAll, queryOne, logAudit } from '../db';
-import { getSettings } from './settings';
 import logger from '../logger';
 
 export type EventSeverity = 'INFO' | 'WARN' | 'ERROR' | 'CRITICAL';
@@ -22,37 +21,7 @@ export type EventCategory =
   | 'DATA_ERROR'         // 데이터 오류
   | 'GENERAL';           // 일반
 
-/** LLM에 이벤트 대응 방안 질의 */
-async function getAiAdvice(severity: string, category: string, title: string, detail: string, ticker: string): Promise<string> {
-  try {
-    const settings = getSettings();
-    if (!settings.llmEnabled || !settings.llmUrl) return '';
-
-    const system = '당신은 자동매매 시스템의 운영 이벤트에 대한 대응 방안을 조언하는 전문가입니다.';
-    const prompt = `자동매매 시스템에서 다음 이벤트가 발생했습니다. 즉시 취할 수 있는 조치와 향후 방지 방안을 2~3문장으로 제안하세요.
-
-심각도: ${severity}
-분류: ${category}
-제목: ${title}
-상세: ${detail}
-${ticker ? `종목: ${ticker}` : ''}`;
-
-    const { callLlm } = await import('./llm');
-    const text = await callLlm(settings.llmModel, settings.llmUrl, prompt, system, 300, settings.llmApiKey);
-    return text.trim();
-  } catch {
-    return '';
-  }
-}
-
-// 정상 운영성 알림은 LLM 조언이 무의미 (매번 거의 동일한 일반론이 생성).
-// 카테고리 기반 skip — 사용자가 받는 가치가 비용 대비 낮음.
-const SKIP_LLM_ADVICE_CATEGORIES = new Set<string>([
-  'MARKET_BRAKE',  // 시장 변동 자동 차단 — 시스템 정상 동작
-  'NO_CASH',       // 주문가능금액 0 — 사실 통지면 충분
-]);
-
-/** 시스템 이벤트 기록 (WARN 이상이면 LLM 조언 포함) */
+/** 시스템 이벤트 기록 (v5.6.0: LLM 조언 제거 — 단순 로그) */
 export async function logSystemEvent(
   severity: EventSeverity,
   category: EventCategory | string,
@@ -60,21 +29,12 @@ export async function logSystemEvent(
   detail: string = '',
   ticker: string = '',
 ): Promise<number> {
-  // WARN 이상 + LLM 조언이 의미 있는 카테고리만 LLM 호출
-  let aiAdvice = '';
-  if (severity !== 'INFO' && !SKIP_LLM_ADVICE_CATEGORIES.has(String(category))) {
-    aiAdvice = await getAiAdvice(severity, category, title, detail, ticker).catch(() => '');
-  }
-
-  const fullDetail = aiAdvice ? `${detail}\n\n[AI 조언] ${aiAdvice}` : detail;
-
   const { lastId } = execute(
     'INSERT INTO system_events (severity, category, title, detail, ticker) VALUES (?, ?, ?, ?, ?)',
-    [severity, category, title, fullDetail, ticker]
+    [severity, category, title, detail, ticker]
   );
   if (severity === 'ERROR' || severity === 'CRITICAL') {
     logger.error({ severity, category, title, ticker }, 'System event');
-    if (aiAdvice) logger.info({ aiAdvice: aiAdvice.slice(0, 100) }, 'AI advice for system event');
   }
   return lastId;
 }

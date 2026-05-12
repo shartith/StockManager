@@ -2,7 +2,7 @@
   <div class="space-y-6">
     <div>
       <h2 class="text-2xl font-bold text-txt-primary">설정</h2>
-      <p class="text-sm text-txt-tertiary mt-0.5">v5.2.0 — 12-Rule 심플 매매 전략</p>
+      <p class="text-sm text-txt-tertiary mt-0.5">v5.6.0 — Top 10 시총 추종 (라이트 모드)</p>
     </div>
 
     <!-- 데이터 새로고침 -->
@@ -42,314 +42,150 @@
       <ToggleSwitch v-model="form.isVirtual" label="모의투자 사용" />
     </div>
 
-    <!-- LLM (Rule 12 / 뉴스 요약 전용) -->
+    <!-- 자동매매 -->
     <div class="solid-card p-5 space-y-3">
-      <div class="flex items-center justify-between">
-        <h3 class="text-sm font-semibold text-txt-primary">LLM (Rule 12 / 뉴스 요약 전용)</h3>
-        <ToggleSwitch v-model="form.llmEnabled" />
-      </div>
-      <p class="text-xs text-txt-tertiary">v5에서 LLM은 매매 판단에 직접 사용하지 않음. 저평가 후보 추천 + 뉴스 요약만 담당.</p>
-      <div v-if="form.llmEnabled" class="grid grid-cols-1 md:grid-cols-2 gap-3">
-        <div>
-          <label class="block text-xs font-medium text-txt-secondary mb-1">서버 URL (/v1 포함)</label>
-          <input v-model="form.llmUrl" type="text" placeholder="https://ai.unids.kr/v1"
-            class="w-full border border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-accent" />
-        </div>
-        <div>
-          <label class="block text-xs font-medium text-txt-secondary mb-1">모델명 (빈 값 = 자동선택)</label>
-          <input v-model="form.llmModel" type="text"
-            class="w-full border border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-accent" />
-        </div>
-        <div class="md:col-span-2">
-          <label class="block text-xs font-medium text-txt-secondary mb-1">API Key {{ form.hasLlmApiKey ? '(저장됨, 변경 시만 입력)' : '' }}</label>
-          <input v-model="form.llmApiKey" type="password" :placeholder="form.hasLlmApiKey ? '*****' : ''"
-            class="w-full border border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-accent" />
-        </div>
-      </div>
+      <h3 class="text-sm font-semibold text-txt-primary">자동매매</h3>
+      <ToggleSwitch v-model="form.autoTradeEnabled" label="자동매매 활성" />
+      <ToggleSwitch v-model="scheduleEnabled" label="KRX 스케줄 활성 (09:00 + 매시 10~14시 rebalance)" />
+      <p class="text-xs text-txt-tertiary">
+        매일 09:00에 시총 Top 10 추종 rebalance (이탈 매도 + 신규 진입). 매시 10~14시에 시총 재산정 후 변경분 적용.
+      </p>
     </div>
 
-    <!-- DART -->
+    <!-- 시장 브레이크 -->
     <div class="solid-card p-5 space-y-3">
       <div class="flex items-center justify-between">
-        <h3 class="text-sm font-semibold text-txt-primary">DART 공시 감시</h3>
-        <ToggleSwitch v-model="form.dartEnabled" />
-      </div>
-      <div v-if="form.dartEnabled">
-        <label class="block text-xs font-medium text-txt-secondary mb-1">DART API Key {{ form.hasDartKey ? '(저장됨)' : '' }}</label>
-        <input v-model="form.dartApiKey" type="password" :placeholder="form.hasDartKey ? '*****' : ''"
-          class="w-full md:w-2/3 border border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-accent" />
-      </div>
-    </div>
-
-    <!-- 자동매매 — ON/OFF + 스케줄 토글만 -->
-    <div class="solid-card p-5 space-y-3">
-      <div class="flex items-center justify-between">
-        <h3 class="text-sm font-semibold text-txt-primary">자동매매</h3>
-        <ToggleSwitch v-model="form.autoTradeEnabled" />
+        <h3 class="text-sm font-semibold text-txt-primary">시장 브레이크 (안전망)</h3>
+        <ToggleSwitch v-model="form.marketBrakeEnabled" />
       </div>
       <p class="text-xs text-txt-tertiary">
-        매매 한도는 KIS 잔고와 종목당 운영 수량으로 자동 산정됩니다.
+        KOSPI 또는 VIX 가 임계값을 넘으면 신규 매수 차단 (이탈 매도는 항상 진행).
       </p>
-      <div class="pt-2 border-t border-border-subtle">
-        <ToggleSwitch v-model="form.scheduleKrx.enabled">
-          <span class="text-sm text-txt-secondary">
-            KRX 스케줄러 — 08:50 자동목록 빌드 → 09:05~09:55 매수창 → 10:00~14:55 모니터 → 15:00 익절 / 15:20 EOD 정리 / 15:50 reconcile
-          </span>
-        </ToggleSwitch>
-      </div>
-    </div>
-
-    <!-- 매수 전략 -->
-    <div class="solid-card p-5 space-y-3">
-      <h3 class="text-sm font-semibold text-txt-primary">매수 전략 (Rule 4, 5 + 시장 보호)</h3>
       <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
         <div>
-          <label class="block text-xs font-medium text-txt-secondary mb-1">동시 보유 종목 수 (Rule 4)</label>
-          <input v-model.number="form.positionMaxPositions" type="number" min="1" max="20"
-            class="w-full border border-border rounded-lg px-3 py-2 text-sm tabular-nums focus:outline-none focus:ring-2 focus:ring-accent" />
-          <p class="text-xs text-txt-tertiary mt-1">예산을 N등분 (±5% 허용), 한도 초과 종목은 1주만 매수</p>
+          <label class="block text-xs font-medium text-txt-secondary mb-1">KOSPI 하락 임계값 (%)</label>
+          <input v-model.number="form.marketBrakeKospiPercent" type="number" step="0.1" min="0.5" max="10"
+            class="w-full border border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-accent" />
         </div>
         <div>
-          <label class="block text-xs font-medium text-txt-secondary mb-1">시초가 대비 매수 트리거 (%) — Rule 5</label>
-          <input v-model.number="form.entryGainPercent" type="number" min="0.1" step="0.1"
-            class="w-full border border-border rounded-lg px-3 py-2 text-sm tabular-nums focus:outline-none focus:ring-2 focus:ring-accent" />
-        </div>
-        <div>
-          <label class="block text-xs font-medium text-txt-secondary mb-1">갭상승 제외 임계값 (%)</label>
-          <input v-model.number="form.gapUpMaxPercent" type="number" min="0.5" step="0.5"
-            class="w-full border border-border rounded-lg px-3 py-2 text-sm tabular-nums focus:outline-none focus:ring-2 focus:ring-accent" />
-          <p class="text-xs text-txt-tertiary mt-1">전일 대비 N% 이상 갭상승 종목은 자동목록 제외</p>
-        </div>
-        <div>
-          <label class="block text-xs font-medium text-txt-secondary mb-1">재진입 cooldown (분)</label>
-          <input v-model.number="form.reEntryCooldownMinutes" type="number" min="0" step="5"
-            class="w-full border border-border rounded-lg px-3 py-2 text-sm tabular-nums focus:outline-none focus:ring-2 focus:ring-accent" />
-        </div>
-      </div>
-      <div class="pt-3 border-t border-border-subtle space-y-3">
-        <ToggleSwitch v-model="form.marketBrakeEnabled">
-          <span class="text-sm text-txt-secondary">🚨 시장 브레이크 — KOSPI/VIX 폭락 시 신규 매수 차단</span>
-        </ToggleSwitch>
-        <div v-if="form.marketBrakeEnabled" class="grid grid-cols-2 gap-3 pl-6">
-          <div>
-            <label class="block text-xs font-medium text-txt-secondary mb-1">KOSPI 차단 임계 (%)</label>
-            <input v-model.number="form.marketBrakeKospiPercent" type="number" min="0.5" step="0.5"
-              class="w-full border border-border rounded-lg px-3 py-2 text-sm tabular-nums focus:outline-none focus:ring-2 focus:ring-accent" />
-          </div>
-          <div>
-            <label class="block text-xs font-medium text-txt-secondary mb-1">VIX 차단 임계</label>
-            <input v-model.number="form.marketBrakeVixLevel" type="number" min="15" step="1"
-              class="w-full border border-border rounded-lg px-3 py-2 text-sm tabular-nums focus:outline-none focus:ring-2 focus:ring-accent" />
-          </div>
-        </div>
-      </div>
-    </div>
-
-    <!-- 매도 규칙 -->
-    <div class="solid-card p-5 space-y-3">
-      <div class="flex items-center justify-between">
-        <h3 class="text-sm font-semibold text-txt-primary">매도 규칙 (Rule 6~11)</h3>
-        <ToggleSwitch v-model="form.sellRulesEnabled" />
-      </div>
-      <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
-        <div>
-          <label class="block text-xs font-medium text-txt-secondary mb-1">목표 수익률 (%) — Rule 7-1</label>
-          <input v-model.number="form.targetProfitRate" type="number" min="0.1" step="0.1"
-            class="w-full border border-border rounded-lg px-3 py-2 text-sm tabular-nums focus:outline-none focus:ring-2 focus:ring-accent" />
-        </div>
-        <div>
-          <label class="block text-xs font-medium text-txt-secondary mb-1">손절선 (%) — Rule 6</label>
-          <input v-model.number="form.hardStopLossRate" type="number" min="0.1" step="0.1"
-            class="w-full border border-border rounded-lg px-3 py-2 text-sm tabular-nums focus:outline-none focus:ring-2 focus:ring-accent" />
-        </div>
-        <div>
-          <label class="block text-xs font-medium text-txt-secondary mb-1">트레일링 폭 (%) — Rule 7-2</label>
-          <input v-model.number="form.trailingStopRate" type="number" min="0.1" step="0.1"
-            class="w-full border border-border rounded-lg px-3 py-2 text-sm tabular-nums focus:outline-none focus:ring-2 focus:ring-accent" />
-        </div>
-        <div>
-          <label class="block text-xs font-medium text-txt-secondary mb-1">트레일링 활성 임계 (%)</label>
-          <input v-model.number="form.trailingActivatePercent" type="number" min="0.5" step="0.5"
-            class="w-full border border-border rounded-lg px-3 py-2 text-sm tabular-nums focus:outline-none focus:ring-2 focus:ring-accent" />
-          <p class="text-xs text-txt-tertiary mt-1">+N% 도달 후에만 트레일링 활성 (sticky)</p>
-        </div>
-        <div>
-          <label class="block text-xs font-medium text-txt-secondary mb-1">정체 시간 (분) — Rule 7+8</label>
-          <input v-model.number="form.sidewaysMinutes" type="number" min="5"
-            class="w-full border border-border rounded-lg px-3 py-2 text-sm tabular-nums focus:outline-none focus:ring-2 focus:ring-accent" />
-        </div>
-        <div>
-          <label class="block text-xs font-medium text-txt-secondary mb-1">손실 강제손절 시간 (분) — Rule 9</label>
-          <input v-model.number="form.lossMinutes" type="number" min="5"
-            class="w-full border border-border rounded-lg px-3 py-2 text-sm tabular-nums focus:outline-none focus:ring-2 focus:ring-accent" />
-        </div>
-        <div>
-          <label class="block text-xs font-medium text-txt-secondary mb-1">EOD 익절 임계 (%) — Rule 10</label>
-          <input v-model.number="form.eodProfitTakePercent" type="number" min="0.5" step="0.5"
-            class="w-full border border-border rounded-lg px-3 py-2 text-sm tabular-nums focus:outline-none focus:ring-2 focus:ring-accent" />
-        </div>
-        <div>
-          <label class="block text-xs font-medium text-txt-secondary mb-1">수익 정의 임계 (%)</label>
-          <input v-model.number="form.profitThresholdPercent" type="number" min="0" step="0.1"
-            class="w-full border border-border rounded-lg px-3 py-2 text-sm tabular-nums focus:outline-none focus:ring-2 focus:ring-accent" />
-          <p class="text-xs text-txt-tertiary mt-1">수수료 보전 — 이 값 미만은 손익무관 처리</p>
+          <label class="block text-xs font-medium text-txt-secondary mb-1">VIX 상승 임계값</label>
+          <input v-model.number="form.marketBrakeVixLevel" type="number" step="1" min="15" max="80"
+            class="w-full border border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-accent" />
         </div>
       </div>
     </div>
 
     <!-- 저장 -->
-    <div class="flex items-center justify-between sticky bottom-0 py-4 bg-surface backdrop-blur">
-      <p v-if="saveMessage" class="text-sm" :class="saveError ? 'text-loss' : 'text-profit'">{{ saveMessage }}</p>
+    <div class="sticky bottom-4 z-10">
       <button @click="save" :disabled="saving"
-        class="ml-auto px-6 py-2 bg-accent text-white rounded-lg text-sm font-medium hover:bg-accent/90 disabled:opacity-50">
-        {{ saving ? '저장 중…' : '설정 저장' }}
+        class="w-full md:w-auto md:float-right px-6 py-3 bg-accent text-white rounded-lg font-medium hover:bg-accent/90 disabled:opacity-50 shadow-lg">
+        {{ saving ? '저장 중…' : '💾 설정 저장' }}
       </button>
     </div>
+
+    <!-- 알림 -->
+    <Transition name="fade">
+      <div v-if="message" class="fixed bottom-6 right-6 px-4 py-3 rounded-lg shadow-lg"
+        :class="messageType === 'error' ? 'bg-loss text-white' : 'bg-profit text-white'">
+        {{ message }}
+      </div>
+    </Transition>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted } from 'vue';
-import { chartApi } from '@/api';
-import { setRefreshInterval, getRefreshInterval } from '@/composables/useAutoRefresh';
+import { ref, computed, onMounted, inject } from 'vue';
+import axios from 'axios';
 import ToggleSwitch from '@/components/ToggleSwitch.vue';
 
+interface AutoRefreshInjector { setIntervalMs: (n: number) => void }
+const autoRefresh = inject<AutoRefreshInjector | null>('autoRefresh', null);
+
 const refreshOptions = [
-  { label: '10초', value: 10000 },
-  { label: '30초', value: 30000 },
-  { label: '60초', value: 60000 },
-  { label: '수동', value: 0 },
+  { value: 10000, label: '10초' },
+  { value: 30000, label: '30초' },
+  { value: 60000, label: '1분 (기본)' },
+  { value: 180000, label: '3분' },
+  { value: 600000, label: '10분' },
 ];
-const refreshInterval = ref(getRefreshInterval());
-function onRefreshIntervalChange() {
-  setRefreshInterval(refreshInterval.value);
+const refreshInterval = ref<number>(Number(localStorage.getItem('refreshIntervalMs') ?? 60000));
+
+function onRefreshIntervalChange(): void {
+  localStorage.setItem('refreshIntervalMs', String(refreshInterval.value));
+  autoRefresh?.setIntervalMs(refreshInterval.value);
 }
 
-interface FormState {
-  appKey: string;
-  appSecret: string;
-  hasSecret: boolean;
-  accountNo: string;
-  accountProductCode: string;
-  isVirtual: boolean;
-  mcpEnabled: boolean;
-  llmProvider: 'openai' | 'ollama';
-  llmUrl: string;
-  llmModel: string;
-  llmEnabled: boolean;
-  llmApiKey: string;
-  hasLlmApiKey: boolean;
-  dartApiKey: string;
-  dartEnabled: boolean;
-  hasDartKey: boolean;
-  autoTradeEnabled: boolean;
-  scheduleKrx: { enabled: boolean };
-  sellRulesEnabled: boolean;
-  targetProfitRate: number;
-  hardStopLossRate: number;
-  trailingStopRate: number;
-  trailingActivatePercent: number;
-  sidewaysMinutes: number;
-  lossMinutes: number;
-  profitThresholdPercent: number;
-  positionMaxPositions: number;
-  eodProfitTakePercent: number;
-  entryGainPercent: number;
-  marketBrakeEnabled: boolean;
-  marketBrakeKospiPercent: number;
-  marketBrakeVixLevel: number;
-  gapUpMaxPercent: number;
-  reEntryCooldownMinutes: number;
-}
+const form = ref({
+  appKey: '',
+  appSecret: '',
+  accountNo: '',
+  accountProductCode: '01',
+  isVirtual: true,
+  hasSecret: false,
 
-const form = ref<FormState>({
-  appKey: '', appSecret: '', hasSecret: false,
-  accountNo: '', accountProductCode: '01', isVirtual: true, mcpEnabled: false,
-  llmProvider: 'openai', llmUrl: 'https://ai.unids.kr/v1', llmModel: '',
-  llmEnabled: true, llmApiKey: '', hasLlmApiKey: false,
-  dartApiKey: '', dartEnabled: false, hasDartKey: false,
   autoTradeEnabled: false,
-  scheduleKrx: { enabled: false },
-  sellRulesEnabled: true,
-  targetProfitRate: 3.0,
-  hardStopLossRate: 2.0,
-  trailingStopRate: 1.5,
-  trailingActivatePercent: 3.0,
-  sidewaysMinutes: 60,
-  lossMinutes: 60,
-  profitThresholdPercent: 0.5,
-  positionMaxPositions: 5,
-  eodProfitTakePercent: 3.0,
-  entryGainPercent: 1.0,
+
   marketBrakeEnabled: true,
   marketBrakeKospiPercent: 2.0,
   marketBrakeVixLevel: 30,
-  gapUpMaxPercent: 3.0,
-  reEntryCooldownMinutes: 30,
 });
 
+const scheduleEnabled = ref(false);
+
 const saving = ref(false);
-const saveMessage = ref('');
-const saveError = ref(false);
+const message = ref('');
+const messageType = ref<'success' | 'error'>('success');
 
-async function loadConfig() {
+async function load(): Promise<void> {
   try {
-    const { data } = await chartApi.getFormConfig();
-    Object.assign(form.value, {
-      appKey: data.appKey || '',
-      hasSecret: data.hasSecret,
-      accountNo: data.accountNo || '',
-      accountProductCode: data.accountProductCode || '01',
-      isVirtual: data.isVirtual,
-      mcpEnabled: data.mcpEnabled,
-      llmProvider: data.llmProvider || 'openai',
-      llmUrl: data.llmUrl || 'https://ai.unids.kr/v1',
-      llmModel: data.llmModel || '',
-      llmEnabled: data.llmEnabled !== false,
-      hasLlmApiKey: data.hasLlmApiKey,
-      dartEnabled: data.dartEnabled,
-      hasDartKey: data.hasDartKey,
-      autoTradeEnabled: data.autoTradeEnabled,
-      scheduleKrx: data.scheduleKrx ?? { enabled: false },
-      sellRulesEnabled: data.sellRulesEnabled,
-      targetProfitRate: data.targetProfitRate,
-      hardStopLossRate: data.hardStopLossRate,
-      trailingStopRate: data.trailingStopRate,
-      trailingActivatePercent: data.trailingActivatePercent,
-      sidewaysMinutes: data.sidewaysMinutes,
-      lossMinutes: data.lossMinutes,
-      profitThresholdPercent: data.profitThresholdPercent,
-      positionMaxPositions: data.positionMaxPositions,
-      eodProfitTakePercent: data.eodProfitTakePercent,
-      entryGainPercent: data.entryGainPercent,
-      marketBrakeEnabled: data.marketBrakeEnabled ?? true,
-      marketBrakeKospiPercent: data.marketBrakeKospiPercent,
-      marketBrakeVixLevel: data.marketBrakeVixLevel,
-      gapUpMaxPercent: data.gapUpMaxPercent,
-      reEntryCooldownMinutes: data.reEntryCooldownMinutes,
-    });
+    const { data } = await axios.get('/api/chart/config/form');
+    form.value.appKey = data.appKey || '';
+    form.value.accountNo = data.accountNo || '';
+    form.value.accountProductCode = data.accountProductCode || '01';
+    form.value.isVirtual = data.isVirtual !== false;
+    form.value.hasSecret = !!data.hasSecret;
+
+    form.value.autoTradeEnabled = !!data.autoTradeEnabled;
+    scheduleEnabled.value = !!(data.scheduleKrx?.enabled);
+
+    form.value.marketBrakeEnabled = data.marketBrakeEnabled !== false;
+    form.value.marketBrakeKospiPercent = data.marketBrakeKospiPercent ?? 2.0;
+    form.value.marketBrakeVixLevel = data.marketBrakeVixLevel ?? 30;
   } catch {
-    saveError.value = true;
-    saveMessage.value = '설정 불러오기 실패';
+    /* form은 기본값 유지 */
   }
 }
 
-async function save() {
+async function save(): Promise<void> {
   saving.value = true;
-  saveError.value = false;
-  saveMessage.value = '';
   try {
-    await chartApi.saveConfig({ ...form.value });
-    saveMessage.value = '설정 저장 완료';
-    await loadConfig();
-    setTimeout(() => { saveMessage.value = ''; }, 3000);
+    await axios.post('/api/chart/config', {
+      appKey: form.value.appKey,
+      appSecret: form.value.appSecret || undefined,
+      accountNo: form.value.accountNo,
+      accountProductCode: form.value.accountProductCode,
+      isVirtual: form.value.isVirtual,
+
+      autoTradeEnabled: form.value.autoTradeEnabled,
+      scheduleKrx: { enabled: scheduleEnabled.value },
+
+      marketBrakeEnabled: form.value.marketBrakeEnabled,
+      marketBrakeKospiPercent: form.value.marketBrakeKospiPercent,
+      marketBrakeVixLevel: form.value.marketBrakeVixLevel,
+    });
+    message.value = '✓ 설정 저장됨';
+    messageType.value = 'success';
+    form.value.appSecret = '';
+    await load();
   } catch (err: any) {
-    saveError.value = true;
-    saveMessage.value = err.response?.data?.error || '저장 실패';
-  } finally {
-    saving.value = false;
+    message.value = err.response?.data?.error || '저장 실패';
+    messageType.value = 'error';
   }
+  saving.value = false;
+  setTimeout(() => { message.value = ''; }, 3000);
 }
 
-onMounted(loadConfig);
+onMounted(() => {
+  void load();
+});
 </script>

@@ -8,7 +8,6 @@ import { getAccessToken, getKisConfig } from './kisAuth';
 import { getSettings } from './settings';
 import { queryOne, queryAll, execute } from '../db';
 import { kisApiCall } from './apiQueue';
-import { checkPositionSizingRules } from './portfolioManager';
 import logger from '../logger';
 
 // ─── 타입 ─────────────────────────────────────────────
@@ -382,54 +381,24 @@ export async function executeOrder(req: OrderRequest): Promise<OrderResult> {
       // 매수: 현재가 -0.5% 지정가 (슬리피지 감소)
       orderPrice = Math.floor(currentPrice * 0.995);
     } else {
-      // 매도: 기본 시장가, preferLimitOnSell 일 때 호가 깊이 검사 후 지정가로 전환
+      // 매도: 시장가 (Top10 이탈 즉시 정리)
       orderPrice = currentPrice;
       useMarketOrder = true;
-      if (req.preferLimitOnSell) {
-        try {
-          const { getQuoteBook } = await import('./quoteBook');
-          const qb = await getQuoteBook(req.ticker, req.market);
-          const orderValue = currentPrice * req.quantity;
-          // 스프레드 ≤ 0.2% AND 호가 깊이 ≥ 주문금액×2 → 지정가로 슬리피지 절약
-          if (qb && qb.spreadPercent <= 0.2 && qb.topBookDepthKrw >= orderValue * 2) {
-            orderPrice = currentPrice; // 현재가 그대로 지정가 (best bid 근접)
-            useMarketOrder = false;
-          }
-        } catch {}
-      }
     }
   }
 
-  // 2. 매수 시: KIS 잔고 + 포지션 사이징 + 수량 계산
+  // 2. 매수 시: 가용 현금 안전망 (Top10 전략은 호출 시 quantity=1 명시)
   let quantity = req.quantity;
   if (req.orderType === 'BUY') {
-    // 2a. KIS 가용 현금 조회 (실시간)
     const cashAmount = await getDomesticOrderableAmount().catch(() => 0);
     if (cashAmount <= 0) {
       return { success: false, message: '주문가능금액 0 — KIS 잔고 확인 필요', quantity: 0, price: orderPrice, fee: 0 };
     }
-
-    // 2b. 포지션 사이징 게이트 — 컨피던스 가중치 적용 (1.0~1.5, 미지정 시 1.0 = 균등)
-    const confidenceMultiplier = req.confidenceMultiplier ?? 1.0;
-    const sizing = checkPositionSizingRules(orderPrice, cashAmount, confidenceMultiplier);
-    if (!sizing.allowed) {
-      try {
-        const { logSystemEvent } = await import('./systemEvent');
-        await logSystemEvent('INFO', 'TRADE_BLOCKED',
-          `매수 차단 (포지션 규칙): ${req.ticker}`,
-          sizing.reason ?? '', req.ticker);
-      } catch {}
-      return { success: false, message: `포지션 규칙: ${sizing.reason}`, quantity: 0, price: orderPrice, fee: 0 };
-    }
-
-    // 2c. 수량 결정 — sizing이 산정한 maxBuyQuantity 우선
+    // quantity 미지정 시 가용현금 90% 한도로 최대 매수 수량 산정
     if (quantity <= 0) {
-      quantity = sizing.maxBuyQuantity;
+      quantity = Math.floor((cashAmount * 0.9) / orderPrice);
     }
-    // 사이징 상한 + 가용현금 안전망
-    if (sizing.maxBuyQuantity > 0 && quantity > sizing.maxBuyQuantity) {
-      quantity = sizing.maxBuyQuantity;
-    }
+    // 가용현금 90% 초과 시 차감
     if (orderPrice * quantity > cashAmount * 0.9) {
       quantity = Math.floor((cashAmount * 0.9) / orderPrice);
     }
@@ -437,36 +406,6 @@ export async function executeOrder(req: OrderRequest): Promise<OrderResult> {
 
   if (quantity <= 0) {
     return { success: false, message: '주문 수량 0 — 주문가능금액 부족 또는 가격 대비 한도 부족', quantity: 0, price: orderPrice, fee: 0 };
-  }
-
-  // 2.5. 호가 품질 최후 방어선 (매수 주문 한정)
-  if (req.orderType === 'BUY') {
-    try {
-      const { getQuoteBook } = await import('./quoteBook');
-      const { logSystemEvent } = await import('./systemEvent');
-      const qb = await getQuoteBook(req.ticker, req.market);
-      if (qb) {
-        const orderValue = orderPrice * quantity;
-        // 호가 깊이가 주문금액의 2배 미만이면 취소 (슬리피지 과도)
-        if (qb.topBookDepthKrw < orderValue * 2) {
-          await logSystemEvent('WARN', 'LOW_LIQUIDITY',
-            `매수 주문 취소 — 호가 깊이 부족`,
-            `depth ${qb.topBookDepthKrw.toLocaleString()}원 < 주문금액 2배 ${(orderValue * 2).toLocaleString()}원 (spread ${qb.spreadPercent.toFixed(2)}%)`,
-            req.ticker);
-          return { success: false, message: `호가 깊이 부족 — 주문 취소 (depth ${qb.topBookDepthKrw.toLocaleString()}원)`, quantity, price: orderPrice, fee: 0 };
-        }
-        // 스프레드가 1.0% 초과면 취소 (체결 시 즉시 손실 과대)
-        if (qb.spreadPercent > 1.0) {
-          await logSystemEvent('WARN', 'WIDE_SPREAD',
-            `매수 주문 취소 — 스프레드 과대`,
-            `스프레드 ${qb.spreadPercent.toFixed(2)}% > 1.0% 임계값 (호가 품질 ${qb.quality})`,
-            req.ticker);
-          return { success: false, message: `스프레드 과대 ${qb.spreadPercent.toFixed(2)}% — 주문 취소`, quantity, price: orderPrice, fee: 0 };
-        }
-      }
-    } catch (err) {
-      logger.debug({ err, ticker: req.ticker }, 'Quote book pre-order check skipped');
-    }
   }
 
   // 3. 리스크 체크

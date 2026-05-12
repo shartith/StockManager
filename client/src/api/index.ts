@@ -73,47 +73,12 @@ export const chartApi = {
   getBalance: () => api.get('/chart/balance'),
   getMarketContext: () => api.get('/chart/market-context'),
   importBalance: () => api.post('/chart/balance/import'),
-  getQuoteBook: (ticker: string, market: string = 'KRX') =>
-    api.get(`/chart/quote-book/${ticker}`, { params: { market } }),
 };
 
-// 기술적 분석 + 뉴스
-export const analysisApi = {
-  getAnalysis: (ticker: string) => api.get(`/analysis/${ticker}`),
-  getLlmStatus: () => api.get('/analysis/llm/status'),
-  getLlmModels: () => api.get('/analysis/llm/models'),
-  getNews: (ticker: string, refresh?: boolean) => api.get(`/analysis/${ticker}/news`, { params: { refresh } }),
-};
-
-// 감시대상 (자동/수동 통합)
-export const watchTargetsApi = {
-  getAll: (source?: 'auto' | 'manual') => api.get('/watch-targets', { params: source ? { source } : {} }),
-  addManual: (data: { ticker: string; name: string; sector?: string; reason?: string }) =>
-    api.post('/watch-targets/manual', data),
-  remove: (id: number) => api.delete(`/watch-targets/${id}`),
-  rebuildAuto: () => api.post('/watch-targets/auto/rebuild'),
-};
-
-// Top 10 시총 (v5.5.0)
+// Top 10 시총
 export const topMarketCapApi = {
   get: (refresh?: boolean) => api.get('/top-market-cap', { params: refresh ? { refresh: 1 } : {} }),
   rebalance: (reason?: string) => api.post('/top-market-cap/rebalance', { reason }),
-};
-
-// 지정가 대기 주문
-export const reservedOrdersApi = {
-  getAll: () => api.get('/reserved-orders'),
-  create: (data: {
-    ticker: string;
-    name?: string;
-    orderType: 'BUY' | 'SELL';
-    targetPrice: number;
-    condition: 'BELOW' | 'ABOVE';
-    quantity?: number;
-    reason?: string;
-    expiresAt?: string | null;
-  }) => api.post('/reserved-orders', data),
-  cancel: (id: number) => api.delete(`/reserved-orders/${id}`),
 };
 
 // 시스템 알림

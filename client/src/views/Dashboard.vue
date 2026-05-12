@@ -163,12 +163,6 @@
           스케줄러 {{ systemStatus.schedulerActive ? `활성 (${systemStatus.taskCount}개)` : '비활성' }}
         </span>
       </div>
-      <div class="glass-card px-4 py-2.5 flex items-center gap-2">
-        <span class="status-dot" :class="systemStatus.llmConnected ? 'connected' : 'disconnected'" />
-        <span class="text-xs text-txt-secondary">
-          LLM {{ systemStatus.llmConnected ? '연결됨' : '미연결' }}
-        </span>
-      </div>
       <div class="glass-card px-4 py-2.5 flex items-center gap-3">
         <span class="text-xs text-txt-tertiary">오늘의 신호</span>
         <span class="text-xs font-bold text-profit">매수 {{ systemStatus.todayBuy }}</span>
@@ -352,7 +346,7 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, inject, type Ref } from 'vue';
 import { usePortfolioStore } from '@/stores/portfolio';
-import { chartApi, schedulerApi, analysisApi, systemEventsApi } from '@/api';
+import { chartApi, schedulerApi, systemEventsApi } from '@/api';
 import { useAutoRefresh } from '@/composables/useAutoRefresh';
 
 // v4.7.3: pull the toast singleton provided by App.vue so destructive
@@ -380,7 +374,6 @@ const showEvents = ref(false);
 const systemStatus = ref({
   schedulerActive: false,
   taskCount: 0,
-  llmConnected: false,
   todayBuy: 0,
   todaySell: 0,
   todayHold: 0,
@@ -498,11 +491,6 @@ async function loadSystemStatus() {
       systemStatus.value.todaySell = data.dailyDecisions.sell ?? 0;
       systemStatus.value.todayHold = data.dailyDecisions.hold ?? 0;
     }
-  } catch {}
-
-  try {
-    const { data } = await analysisApi.getLlmStatus();
-    systemStatus.value.llmConnected = data.connected;
   } catch {}
 }
 
