@@ -19,17 +19,20 @@ import {
 import logger from '../logger';
 
 export const dbReconcileDeps: ReconcileDeps = {
-  getCurrentSmHoldings(markets) {
-    const placeholders = markets.map(() => '?').join(',');
+  // 시장 필터 없이 보유분 전체를 조회한다 (KRX 단일 시장 앱).
+  // 같은 종목이 'KRX'/'KOSPI'/'KOSDAQ'/'' 등 제각각 market 값으로 저장될 수 있어
+  // (insert 경로별 정규화 불일치) market 으로 거르면 findStockId(시장 무시)와 어긋나
+  // 보유분이 0 으로 오인된다 → 가져오기/EOD reconcile 마다 phantom BUY 가 누적된다.
+  // findStockId 와 동일하게 시장을 무시해 멱등성을 보장한다.
+  getCurrentSmHoldings() {
     return queryAll<SmHoldingRow>(
       `SELECT s.id as stock_id, s.ticker, s.market,
               COALESCE(SUM(CASE WHEN t.type = 'BUY' THEN t.quantity ELSE -t.quantity END), 0) as current_qty
        FROM stocks s
        LEFT JOIN transactions t ON t.stock_id = s.id AND t.deleted_at IS NULL
-       WHERE s.market IN (${placeholders}) AND s.deleted_at IS NULL
+       WHERE s.deleted_at IS NULL
        GROUP BY s.id
        HAVING current_qty > 0`,
-      [...markets],
     );
   },
   findStockId(ticker) {

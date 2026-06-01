@@ -21,6 +21,7 @@ import { getSettings } from './settings';
 import { executeOrder, getDomesticOrderableAmount } from './kisOrder';
 import { checkMarketBrake } from './marketBrake';
 import { logSystemEvent } from './systemEvent';
+import { normalizeMarket } from './marketNormalizer';
 import { queryAll, queryOne, execute } from '../db';
 import logger from '../logger';
 
@@ -88,8 +89,10 @@ function ensureStockId(ticker: string, name: string, market: 'KOSPI' | 'KOSDAQ')
   if (existing) return existing.id;
 
   execute(
+    // market 정규화 필수: 'KOSPI'/'KOSDAQ' 원본을 그대로 넣으면 balanceSync 의
+    // 보유분 조회와 어긋나 가져오기 때 중복 매수로 잡힌다 → 항상 'KRX' 로 통일.
     'INSERT INTO stocks (ticker, name, market, sector) VALUES (?, ?, ?, ?)',
-    [ticker, name, market, ''],
+    [ticker, name, normalizeMarket(market), ''],
   );
   const inserted = queryOne<{ id: number }>(
     'SELECT id FROM stocks WHERE ticker = ?',

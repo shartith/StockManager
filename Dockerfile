@@ -64,6 +64,8 @@ COPY --from=builder --chown=app:app /app/server/dist         ./server/dist
 COPY --from=builder --chown=app:app /app/client/dist         ./client/dist
 COPY --from=builder --chown=app:app /app/server/package.json ./server/package.json
 COPY --from=builder --chown=app:app /app/package.json        ./package.json
+# 운영 정비 스크립트(예: phantom BUY 정리) — docker compose exec 로 컨테이너 내 실행용
+COPY --from=builder --chown=app:app /app/server/scripts       ./server/scripts
 
 # Persistent data dir (DB, settings.json) — mount a named volume here
 RUN mkdir -p /data && chown -R app:app /data /app

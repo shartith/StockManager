@@ -335,6 +335,8 @@ export async function initializeDB(): Promise<Db> {
   // 3) market 코드 정규화 (KRX 단일)
   try { dbRun("UPDATE stocks SET market='KRX' WHERE UPPER(market) IN ('KOSPI', 'KOSDAQ')"); } catch {}
   try { dbRun("DELETE FROM stocks WHERE UPPER(market) IN ('NYSE', 'NASDAQ', 'NASD', 'NYS', 'AMEX', 'AMS')"); } catch {}
+  // 빈/NULL market 도 'KRX' 로 통일 — balanceSync 보유분 조회와 어긋나 가져오기 중복 매수를 유발하던 잔존 행 정리.
+  try { dbRun("UPDATE stocks SET market='KRX' WHERE market IS NULL OR TRIM(market)=''"); } catch {}
 
   return db;
 }
