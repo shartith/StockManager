@@ -50,6 +50,10 @@ export const saveConfigSchema = z.object({
   marketBrakeEnabled: z.boolean().default(true),
   marketBrakeKospiPercent: z.number().min(0.5).max(10).default(2.0),
   marketBrakeVixLevel: z.number().min(15).max(80).default(30),
+
+  // v6.0 종목 선택 방식 + 200일선 레짐 필터
+  selectionMode: z.enum(['marketcap', 'momentum']).optional(),
+  regimeFilterEnabled: z.boolean().optional(),
 });
 
 // ── System Events ──

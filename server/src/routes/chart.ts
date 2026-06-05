@@ -40,6 +40,9 @@ router.get('/config/form', (_req: Request, res: Response) => {
     marketBrakeEnabled: settings.marketBrakeEnabled,
     marketBrakeKospiPercent: settings.marketBrakeKospiPercent,
     marketBrakeVixLevel: settings.marketBrakeVixLevel,
+
+    selectionMode: settings.selectionMode,
+    regimeFilterEnabled: settings.regimeFilterEnabled,
   });
 });
 
@@ -49,6 +52,7 @@ router.post('/config', validate(saveConfigSchema), (req: Request, res: Response)
     appKey, appSecret, accountNo, accountProductCode, isVirtual,
     autoTradeEnabled, scheduleKrx,
     marketBrakeEnabled, marketBrakeKospiPercent, marketBrakeVixLevel,
+    selectionMode, regimeFilterEnabled,
   } = req.body;
 
   const currentSettings = getSettings();
@@ -70,6 +74,11 @@ router.post('/config', validate(saveConfigSchema), (req: Request, res: Response)
     marketBrakeEnabled: marketBrakeEnabled ?? true,
     marketBrakeKospiPercent: Number(marketBrakeKospiPercent) || 2.0,
     marketBrakeVixLevel: Number(marketBrakeVixLevel) || 30,
+
+    ...(selectionMode === 'momentum' || selectionMode === 'marketcap'
+      ? { selectionMode }
+      : {}),
+    ...(typeof regimeFilterEnabled === 'boolean' ? { regimeFilterEnabled } : {}),
   });
 
   process.env.KIS_APP_KEY = appKey;

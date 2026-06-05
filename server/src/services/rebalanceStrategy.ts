@@ -28,7 +28,8 @@ import { fetchTop10, isRankImproving, type TopStock } from './topMarketCap';
 import { getSettings } from './settings';
 import { executeOrder, getDomesticOrderableAmount } from './kisOrder';
 import { checkMarketBrake } from './marketBrake';
-import { getKospiDailyChange, detectDyingMarket } from './marketSignals';
+import { getKospiDailyChange, detectDyingMarket, getKospiRegime } from './marketSignals';
+import { fetchMomentumScores, rankByMomentum } from './momentumRank';
 import { logSystemEvent } from './systemEvent';
 import { normalizeMarket } from './marketNormalizer';
 import { fetchYahooQuote } from './stockPrice';
@@ -296,8 +297,35 @@ interface BuildContextResult {
   kospiChange: number | null;
 }
 
+/**
+ * v6.0: selectionMode==='momentum' 이면 시총 유니버스(Top 30)를 가격 모멘텀으로 재랭킹.
+ * 시총 순위를 모멘텀 순위로 교체하므로 하위 매수/매도 로직은 변경 없이 그대로 동작.
+ * 모멘텀 점수 조회 실패 시 시총 순서 그대로 폴백(전략이 멈추지 않음).
+ */
+async function applyMomentumRanking(
+  topResult: Awaited<ReturnType<typeof fetchTop10>>,
+): Promise<Awaited<ReturnType<typeof fetchTop10>>> {
+  const universe = topResult.topExtended ?? topResult.top10; // 시총 Top 30
+  const scores = await fetchMomentumScores(universe);
+  if (scores.size === 0) {
+    logger.warn('[Rebal] 모멘텀 점수 없음 — 시총 순위 폴백');
+    return topResult;
+  }
+  const reranked = rankByMomentum(universe, scores);
+  return {
+    ...topResult,
+    topExtended: reranked,
+    top20: reranked.slice(0, 20),
+    top10: reranked.slice(0, 10),
+  };
+}
+
 async function buildContext(): Promise<BuildContextResult> {
-  const topResult = await fetchTop10(true);
+  const settings = getSettings();
+  let topResult = await fetchTop10(true);
+  if (settings.selectionMode === 'momentum') {
+    topResult = await applyMomentumRanking(topResult);
+  }
   const positionRows = getCurrentPositions();
 
   // 현재가 일괄 조회 (보유 + Top 20)
@@ -666,12 +694,18 @@ export async function runRebalanceStrategy(
   // ───────── 매수 단계 ─────────
   const brake = await checkMarketBrake();
   const dying = await detectDyingMarket();
+  // v6.0 200일선 레짐 필터 (settings 토글) — 약세장이면 신규 매수 중단, 보유는 유지
+  const regime = settings.regimeFilterEnabled ? await getKospiRegime() : null;
+  const regimeOff = !!regime?.belowMa200;
   if (brake.shouldBrake) {
     result.brakeReason = brake.reason;
     logger.info({ reason: brake.reason }, '[Rebal] marketBrake — 매수 차단');
   } else if (dying.isDying) {
     result.dyingMarketReason = dying.reason;
     logger.info({ reason: dying.reason }, '[Rebal] 죽는 시장 — 매수 차단 (보유 유지)');
+  } else if (regimeOff) {
+    result.dyingMarketReason = `200일선 약세장 (KOSPI ${regime!.price.toFixed(0)} < MA200 ${regime!.ma200.toFixed(0)})`;
+    logger.info({ price: regime!.price, ma200: regime!.ma200 }, '[Rebal] 200일선 레짐 필터 — 매수 차단 (보유 유지)');
   } else {
     // 매도 후 잔고 갱신을 위해 positions 다시 — 단 잔고는 executeBuyPhase 내부에서 KIS 재조회
     const refreshedPositions = ctx.positions.filter(
@@ -692,7 +726,7 @@ export async function runRebalanceStrategy(
     await logSystemEvent(
       'INFO',
       'GENERAL',
-      `[Rebal] v5.7 — 매도 ${result.sold.length}건, 매수 ${result.bought.length}건 (${reason})`,
+      `[Rebal] 매도 ${result.sold.length}건, 매수 ${result.bought.length}건 (${reason})`,
       JSON.stringify({
         kospi: ctx.kospiChange,
         sold: result.sold,

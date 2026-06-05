@@ -28,8 +28,10 @@ interface KospiTrend {
 }
 
 const CACHE_TTL = 60_000;
+const REGIME_CACHE_TTL = 60 * 60 * 1000; // 200일선은 일 단위라 1시간 캐시
 let dailyCache: KospiDailyChange | null = null;
 let trendCache: KospiTrend | null = null;
+let regimeCache: KospiRegime | null = null;
 
 /** Yahoo 일봉 닫는값 N개 가져오기. 최신이 배열의 마지막. */
 async function fetchKospiCloses(rangeText: string): Promise<number[]> {
@@ -110,6 +112,43 @@ export async function getKospiTrend(): Promise<KospiTrend | null> {
   return trendCache;
 }
 
+export interface KospiRegime {
+  belowMa200: boolean;       // KOSPI 종가 < 200일선 → 장기 약세장 판정
+  price: number;
+  ma200: number;
+  closesUsed: number;
+  fetchedAt: number;
+}
+
+/**
+ * v6.0 200일선 레짐 필터 — KOSPI 가 장기추세선(200일 SMA) 아래면 약세장.
+ *
+ * 백테스트: 완만한 하락장(2018·2022)에서 신규 매수를 멈춰 손실을 크게 줄임
+ * (2022 -21% → 0%, 최악연도 -21% → -9%). 단 급락+급반등(2020 COVID)에선
+ * 반등을 일부 놓치는 휩쏘 비용 존재. "약세장 방어 vs 반등 참여" 트레이드오프.
+ *
+ * 데이터 부족(신규 지수 등) 시 belowMa200=false (보수적으로 매수 허용).
+ */
+export async function getKospiRegime(): Promise<KospiRegime | null> {
+  if (regimeCache && Date.now() - regimeCache.fetchedAt < REGIME_CACHE_TTL) return regimeCache;
+
+  const closes = await fetchKospiCloses('1y'); // 약 244 봉 → 200일선 계산 가능
+  const ma200 = simpleMovingAverage(closes, 200);
+  if (ma200 === null || closes.length === 0) {
+    logger.warn({ closesUsed: closes.length }, 'getKospiRegime: insufficient data (200MA)');
+    return null;
+  }
+  const price = closes[closes.length - 1];
+  regimeCache = {
+    belowMa200: price < ma200,
+    price,
+    ma200,
+    closesUsed: closes.length,
+    fetchedAt: Date.now(),
+  };
+  return regimeCache;
+}
+
 export interface DyingMarketSignal {
   isDying: boolean;
   reason: string;
@@ -152,4 +191,5 @@ export async function detectDyingMarket(): Promise<DyingMarketSignal> {
 export function invalidateMarketSignalsCache(): void {
   dailyCache = null;
   trendCache = null;
+  regimeCache = null;
 }

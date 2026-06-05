@@ -52,6 +52,27 @@
       </p>
     </div>
 
+    <!-- 매매 전략 (v6.0) -->
+    <div class="solid-card p-5 space-y-3">
+      <h3 class="text-sm font-semibold text-txt-primary">매매 전략</h3>
+      <div>
+        <label class="block text-xs font-medium text-txt-secondary mb-1">종목 선택 방식</label>
+        <select v-model="form.selectionMode"
+          class="w-full border border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-accent">
+          <option value="marketcap">시총 Top 10 추종 (기존)</option>
+          <option value="momentum">가격 모멘텀 Top 10 (백테스트 복리 2배)</option>
+        </select>
+        <p class="text-xs text-txt-tertiary mt-1">
+          모멘텀: 시총 Top 30 중 최근 120일 가장 강하게 오른 10종목 매수.
+          <span class="text-amber-500">전환 시 자동매매 OFF 로 며칠 dry-run 관찰 권장.</span>
+        </p>
+      </div>
+      <ToggleSwitch v-model="form.regimeFilterEnabled" label="200일선 레짐 필터 (약세장 매수 중단)" />
+      <p class="text-xs text-txt-tertiary">
+        KOSPI 가 200일 이동평균선 아래면 신규 매수 중단(보유는 유지). 약세장 손실 방어 ↔ 급반등 일부 포기.
+      </p>
+    </div>
+
     <!-- 시장 브레이크 -->
     <div class="solid-card p-5 space-y-3">
       <div class="flex items-center justify-between">
@@ -128,6 +149,9 @@ const form = ref({
   marketBrakeEnabled: true,
   marketBrakeKospiPercent: 2.0,
   marketBrakeVixLevel: 30,
+
+  selectionMode: 'marketcap' as 'marketcap' | 'momentum',
+  regimeFilterEnabled: false,
 });
 
 const scheduleEnabled = ref(false);
@@ -151,6 +175,9 @@ async function load(): Promise<void> {
     form.value.marketBrakeEnabled = data.marketBrakeEnabled !== false;
     form.value.marketBrakeKospiPercent = data.marketBrakeKospiPercent ?? 2.0;
     form.value.marketBrakeVixLevel = data.marketBrakeVixLevel ?? 30;
+
+    form.value.selectionMode = data.selectionMode === 'momentum' ? 'momentum' : 'marketcap';
+    form.value.regimeFilterEnabled = !!data.regimeFilterEnabled;
   } catch {
     /* form은 기본값 유지 */
   }
@@ -172,6 +199,9 @@ async function save(): Promise<void> {
       marketBrakeEnabled: form.value.marketBrakeEnabled,
       marketBrakeKospiPercent: form.value.marketBrakeKospiPercent,
       marketBrakeVixLevel: form.value.marketBrakeVixLevel,
+
+      selectionMode: form.value.selectionMode,
+      regimeFilterEnabled: form.value.regimeFilterEnabled,
     });
     message.value = '✓ 설정 저장됨';
     messageType.value = 'success';

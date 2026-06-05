@@ -51,6 +51,13 @@ export interface AppSettings {
   marketBrakeEnabled: boolean;
   marketBrakeKospiPercent: number;
   marketBrakeVixLevel: number;
+
+  // v6.0 종목 선택 방식
+  //   'marketcap' = 시총 Top 10 추종 (v5.8 기존)
+  //   'momentum'  = 시총 Top 30 중 가격 모멘텀(120일) 상위 매수 (백테스트 복리 2배)
+  selectionMode: 'marketcap' | 'momentum';
+  // 200일선 레짐 필터 — KOSPI 가 200일선 아래면 신규 매수 중단(보유 유지). 약세장 방어.
+  regimeFilterEnabled: boolean;
 }
 
 const DEFAULT_SETTINGS: AppSettings = {
@@ -67,6 +74,10 @@ const DEFAULT_SETTINGS: AppSettings = {
   marketBrakeEnabled: true,
   marketBrakeKospiPercent: 2.0,
   marketBrakeVixLevel: 30,
+
+  // 기본은 기존 동작 유지 — 사장님이 dry-run 관찰 후 'momentum' 으로 전환
+  selectionMode: 'marketcap',
+  regimeFilterEnabled: false,
 };
 
 let _cache: AppSettings | null = null;
