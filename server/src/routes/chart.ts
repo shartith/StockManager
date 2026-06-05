@@ -5,6 +5,7 @@ import { startScheduler } from '../services/scheduler';
 import { getMarketContext } from '../services/stockPrice';
 import { getDomesticOrderableAmount } from '../services/kisOrder';
 import { syncKisBalance } from '../services/balanceSync';
+import { correctHistoricalPrices } from '../services/correctHistoricalPrices';
 import { validate } from '../middleware/validate';
 import { asyncHandler } from '../middleware/errorHandler';
 import { saveConfigSchema } from '../schemas';
@@ -280,6 +281,20 @@ router.post('/balance/import', asyncHandler(async (_req: Request, res: Response)
     krx: result,
     imported: result.added,
     skipped: result.unchanged,
+  });
+}));
+
+// 과거 KIS 동기화 트랜잭션의 평단을 실제 체결가로 보정.
+// dryRun=true (기본): 미리보기만, false: 실제 update.
+router.post('/balance/correct-prices', asyncHandler(async (req: Request, res: Response) => {
+  const dryRun = req.body?.dryRun !== false; // 명시적 false 만 적용
+  const result = await correctHistoricalPrices(dryRun);
+  return res.json({
+    dryRun,
+    ...result,
+    message: dryRun
+      ? `미리보기: ${result.candidates}건 보정 가능, ${result.unmatched}건 매치 불가`
+      : `완료: ${result.applied}건 보정, ${result.unmatched}건 매치 불가`,
   });
 }));
 

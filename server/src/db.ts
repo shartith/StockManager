@@ -276,6 +276,32 @@ export async function initializeDB(): Promise<Db> {
   dbRun(`CREATE INDEX IF NOT EXISTS idx_trade_setups_stock ON trade_setups (stock_id, bought_at)`);
   dbRun(`CREATE INDEX IF NOT EXISTS idx_trade_setups_open ON trade_setups (sold_at) WHERE sold_at IS NULL`);
 
+  // ── v5.7.0 Position tracking: 트레일링 스톱 + 매수 시점 순위 보존 ──
+  // stock 별 1행. 보유분이 0이 되면 행은 남지만 trailing_active=0으로 reset.
+  dbRun(`
+    CREATE TABLE IF NOT EXISTS position_tracking (
+      stock_id INTEGER PRIMARY KEY,
+      buy_rank INTEGER NOT NULL,            -- 최초/마지막 매수 시점의 시총 순위 (1=1위)
+      buy_price REAL NOT NULL,              -- 매수 시점 종가 (평단과 별개, 추적 시작가)
+      highest_price REAL NOT NULL,          -- 보유 기간 중 관측된 최고가
+      trailing_active INTEGER DEFAULT 0,    -- 1=수익 +10% 도달, 트레일링 스톱 감시 중
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (stock_id) REFERENCES stocks(id) ON DELETE CASCADE
+    )
+  `);
+
+  // ── v5.7.0 Rank history: 시총 순위 시계열 (전일/주간 순위 비교용) ──
+  // 매시간 cron 이 Top 30 정도 기록. 90일 이상은 자연 만료(아래 cleanup).
+  dbRun(`
+    CREATE TABLE IF NOT EXISTS rank_history (
+      ticker TEXT NOT NULL,
+      rank INTEGER NOT NULL,
+      fetched_at DATETIME NOT NULL,
+      PRIMARY KEY (ticker, fetched_at)
+    )
+  `);
+  dbRun('CREATE INDEX IF NOT EXISTS idx_rank_history_fetched_at ON rank_history(fetched_at)');
+
   // ── Audit log ──
   dbRun(`
     CREATE TABLE IF NOT EXISTS audit_log (

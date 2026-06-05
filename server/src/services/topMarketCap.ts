@@ -12,6 +12,7 @@
  */
 
 import logger from '../logger';
+import { queryAll, execute } from '../db';
 
 export type Market = 'KOSPI' | 'KOSDAQ';
 
@@ -29,6 +30,8 @@ export interface TopStock {
 
 export interface TopMarketCapResult {
   top10: TopStock[];
+  top20?: TopStock[];          // v5.7.0: 11~20위 모니터링용 (필요 시)
+  topExtended?: TopStock[];    // v5.7.0: Top 30 (rank 추적용 — rank_history 기록)
   fetchedAt: string;           // ISO datetime
   source: 'naver-mobile' | 'naver-mobile-stale';
 }
@@ -126,14 +129,26 @@ export async function fetchTop10(force = false): Promise<TopMarketCapResult> {
   const combined: TopStock[] = [...kospi, ...kosdaq].sort(
     (a, b) => b.marketCapKrw - a.marketCapKrw,
   );
-  const top10: TopStock[] = combined.slice(0, 10).map((s, i) => ({ ...s, rank: i + 1 }));
+  // 통합 Top 30 까지 rank 매김 — Top 10/20 + rank_history 모두 한 번에 도출
+  const topExtended: TopStock[] = combined.slice(0, 30).map((s, i) => ({ ...s, rank: i + 1 }));
+  const top10: TopStock[] = topExtended.slice(0, 10);
+  const top20: TopStock[] = topExtended.slice(0, 20);
 
   const result: TopMarketCapResult = {
     top10,
+    top20,
+    topExtended,
     fetchedAt: new Date().toISOString(),
     source: 'naver-mobile',
   };
   cache = { result, fetchedAt: Date.now() };
+
+  // v5.7.0: rank 시계열 기록 — Top 30 전체. 매시간 cron 의 fetchTop10(true) 가 이를 1회 채움.
+  try {
+    persistRankHistory(topExtended);
+  } catch (err) {
+    logger.warn({ err: (err as Error).message }, 'persistRankHistory failed');
+  }
 
   logger.info(
     {
@@ -158,4 +173,49 @@ export function getCachedTop10(): TopMarketCapResult | null {
 /** 테스트/수동: 캐시 무효화 */
 export function invalidateTop10Cache(): void {
   cache = null;
+}
+
+// ─────────────────────────────────────────────────────────────
+// v5.7.0: Rank history 관리 — 순위 상승/하락 추세 판단용
+// ─────────────────────────────────────────────────────────────
+
+/** Top 30 의 (ticker, rank, now) 를 rank_history 에 INSERT. PK 충돌 시 IGNORE. */
+function persistRankHistory(topExtended: TopStock[]): void {
+  const now = new Date().toISOString();
+  for (const s of topExtended) {
+    execute(
+      'INSERT OR IGNORE INTO rank_history (ticker, rank, fetched_at) VALUES (?, ?, ?)',
+      [s.ticker, s.rank, now],
+    );
+  }
+  // 90 일 초과 데이터 자동 정리 (테이블 무한증가 방지)
+  execute(
+    "DELETE FROM rank_history WHERE fetched_at < datetime('now', '-90 days')",
+  );
+}
+
+/**
+ * N 시간 전 시점에서 가장 가까운 ticker 의 rank 를 조회. 없으면 null (Top 30 밖).
+ *
+ * "30위 → 25위로 상승" 같은 판정에 쓰임. 1시간 단위 노이즈 회피용으로 24~48 시간 전을 본다.
+ */
+export function getPreviousRank(ticker: string, hoursAgo: number): number | null {
+  const rows = queryAll<{ rank: number }>(
+    `SELECT rank FROM rank_history
+     WHERE ticker = ? AND fetched_at <= datetime('now', '-' || ? || ' hours')
+     ORDER BY fetched_at DESC
+     LIMIT 1`,
+    [ticker, hoursAgo],
+  );
+  return rows[0]?.rank ?? null;
+}
+
+/**
+ * 순위 상승 추세 판정. 현재 rank < (N시간 전 rank - threshold) 이면 상승 중으로 판단.
+ * 데이터가 없으면 false (보수적으로 매수 안 함).
+ */
+export function isRankImproving(ticker: string, currentRank: number, hoursAgo = 24, threshold = 2): boolean {
+  const prev = getPreviousRank(ticker, hoursAgo);
+  if (prev === null) return false;
+  return currentRank <= prev - threshold;
 }

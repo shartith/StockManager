@@ -15,7 +15,9 @@ import {
   type SmHoldingRow,
   type SyncResult,
   type ReconcileDeps,
+  type KisTrade,
 } from './portfolioReconcile';
+import { fetchKisTradeHistory, indexTradesByTicker } from './kisTradeHistory';
 import logger from '../logger';
 
 export const dbReconcileDeps: ReconcileDeps = {
@@ -65,6 +67,20 @@ export const dbReconcileDeps: ReconcileDeps = {
       [stockId],
     );
     return row?.price ?? 0;
+  },
+  hasTradeOdno(stockId, odno) {
+    // 두 가지 memo 포맷에 모두 KIS 주문번호가 들어간다 — 양쪽 다 매칭해야
+    // EOD reconcile 이 자동매매 transaction 을 중복 입력하지 않는다.
+    //   - 신규 sync:    "KIS 동기화 (체결) odno=12345"
+    //   - 자동매매:     "자동매매 (KIS: 12345)" 또는 "... (KIS: 12345) / reason"
+    // odno 는 KIS 발급 숫자 문자열이라 LIKE 인젝션 위험 없음.
+    const row = queryOne<{ n: number }>(
+      `SELECT COUNT(*) as n FROM transactions
+       WHERE stock_id = ? AND deleted_at IS NULL
+         AND (memo LIKE ? OR memo LIKE ?)`,
+      [stockId, `%odno=${odno}%`, `%KIS: ${odno})%`],
+    );
+    return (row?.n ?? 0) > 0;
   },
 };
 
@@ -138,7 +154,18 @@ export async function syncKisBalance(memo: string = 'KIS 동기화'): Promise<Sy
       });
     }
 
-    const result = reconcileMarket(snapshots, ['KRX'], 'KRX', today, memo, dbReconcileDeps);
+    // 거래내역 90일치 선조회 → ticker 별 캐싱. reconcile 이 종목별로 동기적으로
+    // fetchKisTrades 를 호출할 때 메모리에서 즉시 응답한다. 네트워크는 1회만.
+    const tradeHistory = await fetchKisTradeHistory(90);
+    const tradesByTicker = indexTradesByTicker(tradeHistory);
+    const depsWithTrades: ReconcileDeps = {
+      ...dbReconcileDeps,
+      fetchKisTrades(ticker: string): KisTrade[] {
+        return tradesByTicker.get(ticker) ?? [];
+      },
+    };
+
+    const result = reconcileMarket(snapshots, ['KRX'], 'KRX', today, memo, depsWithTrades);
     const totalChanges = result.added.length + result.adjusted.length + result.removed.length;
     const message = totalChanges > 0
       ? `동기화 완료: 신규 ${result.added.length}, 조정 ${result.adjusted.length}, 매도 ${result.removed.length}`

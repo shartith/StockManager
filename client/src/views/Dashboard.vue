@@ -27,6 +27,11 @@
           class="flex-1 md:flex-none px-3 md:px-4 py-2 bg-primary text-white rounded-xl text-sm font-medium hover:bg-primary-hover disabled:opacity-50 transition-colors whitespace-nowrap">
           {{ importing ? '가져오는 중...' : '계좌 가져오기' }}
         </button>
+        <button v-if="kisConfigured" @click="correctPrices" :disabled="correctingPrices"
+          class="flex-1 md:flex-none px-3 md:px-4 py-2 bg-surface-2 text-txt-secondary rounded-xl text-sm font-medium hover:bg-surface-3 disabled:opacity-50 transition-colors whitespace-nowrap"
+          title="KIS 거래내역과 맞춰 기존 평단을 실제 체결가로 보정합니다">
+          {{ correctingPrices ? '보정 중...' : '평단 보정' }}
+        </button>
         <button @click="refresh"
           class="hidden md:inline-flex p-2 rounded-lg text-txt-tertiary hover:text-txt-primary hover:bg-surface-2 transition-colors"
           :class="{ 'animate-spin': autoRefreshLoading }" aria-label="새로고침">
@@ -471,6 +476,37 @@ async function importBalance() {
     importResult.value = { error: err.response?.data?.error || '가져오기 실패' };
   } finally {
     importing.value = false;
+  }
+}
+
+const correctingPrices = ref(false);
+async function correctPrices() {
+  correctingPrices.value = true;
+  importResult.value = null;
+  try {
+    // 1) Dry-run 으로 미리보기
+    const preview = await chartApi.correctPrices(true);
+    const p = preview.data;
+    if (p.candidates === 0) {
+      importResult.value = { message: `보정 대상 없음 — 평단이 모두 KIS 거래내역과 일치합니다. (검사 ${p.scanned}건, 매치 불가 ${p.unmatched}건)` };
+      setTimeout(() => { importResult.value = null; }, 5000);
+      return;
+    }
+    const sample = p.corrections.slice(0, 5).map((c: any) =>
+      `  ${c.ticker} ${c.type} ${c.quantity}주: ${c.oldPrice.toLocaleString()} → ${c.newPrice.toLocaleString()}`,
+    ).join('\n');
+    const more = p.corrections.length > 5 ? `\n  ...외 ${p.corrections.length - 5}건` : '';
+    const msg = `${p.candidates}건 보정 가능 (매치 불가 ${p.unmatched}건). 적용할까요?\n\n${sample}${more}`;
+    if (!window.confirm(msg)) return;
+    // 2) 적용
+    const applied = await chartApi.correctPrices(false);
+    importResult.value = applied.data;
+    await store.fetchSummary();
+    setTimeout(() => { importResult.value = null; }, 6000);
+  } catch (err: any) {
+    importResult.value = { error: err.response?.data?.error || '평단 보정 실패' };
+  } finally {
+    correctingPrices.value = false;
   }
 }
 

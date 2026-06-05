@@ -8,7 +8,7 @@
 
 import { Router, Request, Response } from 'express';
 import { fetchTop10, refreshTop10, type TopStock } from '../services/topMarketCap';
-import { runTop10Rebalance } from '../services/top10Strategy';
+import { runRebalanceStrategy } from '../services/rebalanceStrategy';
 import { queryAll } from '../db';
 import { asyncHandler } from '../middleware/errorHandler';
 
@@ -83,7 +83,7 @@ router.post(
   '/rebalance',
   asyncHandler(async (req: Request, res: Response) => {
     const reason = typeof req.body?.reason === 'string' ? req.body.reason : 'manual';
-    const result = await runTop10Rebalance(`manual: ${reason}`);
+    const result = await runRebalanceStrategy(`manual: ${reason}`);
     res.json(result);
   }),
 );

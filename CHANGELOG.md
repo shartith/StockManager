@@ -2,6 +2,50 @@
 
 Stock Manager 주요 릴리즈 변경사항. 자세한 노트는 [GitHub Releases](https://github.com/shartith/StockManager/releases)에서 확인.
 
+## v5.7.0 — 2026-06-05
+
+**통합 매매 전략 — 트레일링 스톱 + 순위 이탈 매도 + KOSPI 변동 기반 매매 + KIS 거래내역 동기화.**
+
+### 매매 엔진 v5.7 (rebalanceStrategy)
+v5.6 의 단순 "Top 10 이탈→매도, 진입→매수" 룰을 5가지 시그널로 확장:
+
+**매도 시그널**
+- **S1 트레일링 스톱**: 수익 +10% 도달 → 활성화, 고점 대비 -2% 이탈 시 매도
+- **S2 순위 이탈**: 매수 시점 `buy_rank` 보다 현재 시총 순위가 떨어지면 즉시 매도 (Top 30 밖이면 999위로 간주)
+- **S3 KOSPI +4% 스파이크**: 14:30 cron — KOSPI +4% 이상 + 수익 +5% 이상 종목 이익실현
+
+**매수 시그널**
+- **B1 시장 브레이크 + 죽는 시장**: 5MA<20MA + KOSPI-2% (deadCross) → 매수만 차단, 보유는 유지
+- **B2 미보유 Top 10**: 시총 1위부터 1주씩 (기존 유지)
+- **B3 11~20위 상승 추세**: 직전 24h 대비 2단계+ 상승 종목 매수 (`rank_history` 시계열 활용)
+- **B4 재분배**: Top 10 보유 종목 중 평가금액 최저부터 1주씩
+
+### KIS 거래내역 기반 잔고 동기화
+v5.6.2 의 버그(잔고 동기화 시 KIS 가중평단을 BUY 가격으로 기록 → 실제 매수가와 불일치) 해결:
+- **`fetchKisTradeHistory`** (`inquire-daily-ccld`, tr_id TTTC8001R/VTTC8001R): 90일치 실제 체결 내역 + `odno` 주문번호.
+- **`reconcileMarket` 재설계**: 거래내역 우선 적용 → gap 만 `avg_price` 폴백. `odno` 기반 dedup (자동매매 memo `KIS: NNN` 까지 매칭하여 EOD reconcile 중복 입력 차단).
+- **`/balance/correct-prices` 엔드포인트** + Dashboard **"평단 보정"** 버튼: 과거 잘못 입력된 평단을 KIS 거래내역과 매칭하여 실제 체결가로 보정 (dry-run + 확인 + apply).
+
+### 신규 인프라
+- **`marketSignals.ts`**: KOSPI 일변동률, 5/20일 SMA, `detectDyingMarket`.
+- **`topMarketCap.ts` 확장**: Top 30 추적, `persistRankHistory`, `getPreviousRank`, `isRankImproving` (24h 대비 N단계 상승 판정).
+- **DB 스키마**:
+  - `position_tracking` — `buy_rank`, `buy_price`, `highest_price`, `trailing_active`
+  - `rank_history` — `(ticker, fetched_at) → rank` 시계열, 90일 자동 만료
+- **스케줄러 v5.7**: 14:30 KOSPI 스파이크 매도 cron 신규.
+
+### 백테스트 (1년치)
+자본금 500만원 기준 — `scripts/backtest-v5.7.mjs`:
+- 결과: +73.61% (8.68M), MDD -20.53%, 승률 63.2% (129/204)
+- 한계: KOSPI +190% 폭등장 대비 인덱스를 못 이김 → 강추세 시 트레일링 -2% 가 너무 민감하다는 신호. 실거래 전 -3~5% 로 조정 권장.
+
+### 신규 / 수정
+- 신규: `services/{rebalanceStrategy,marketSignals,kisTradeHistory,correctHistoricalPrices}.ts`
+- 수정: `services/{balanceSync,portfolioReconcile,topMarketCap}.ts`, `routes/{chart,topMarketCap}.ts`, `scheduler/index.ts`
+- 제거: `services/top10Strategy.ts` (대체)
+- UI: Dashboard "평단 보정" 버튼
+- 테스트 +11건 (총 149 tests pass)
+
 ## v5.2.0 — 2026-05-06
 
 **미체결 주문 chase + 1분 모니터링 + 시스템 슬림화 (NAS/배당/보유 수익률 UI 등 제거).**
