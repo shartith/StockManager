@@ -24,7 +24,7 @@
  *   - 트레일링 활성/순위 기록은 매수 시 1회 INSERT, 매시간 갱신.
  */
 
-import { fetchTop10, isRankImproving, type TopStock } from './topMarketCap';
+import { fetchTop10, isRankImproving, persistRankHistory, type TopStock } from './topMarketCap';
 import { getSettings } from './settings';
 import { executeOrder, getDomesticOrderableAmount } from './kisOrder';
 import { checkMarketBrake } from './marketBrake';
@@ -86,6 +86,7 @@ export interface RebalanceResult {
   brakeReason?: string;
   dyingMarketReason?: string;
   noop: boolean;
+  dryRun?: boolean;            // 자동매매 OFF — 실제 주문 없이 의도만 기록(관찰)
   mode?: 'normal' | 'kospi-spike-sell-only'; // 14:30 special cron
 }
 
@@ -302,13 +303,17 @@ interface BuildContextResult {
  * 시총 순위를 모멘텀 순위로 교체하므로 하위 매수/매도 로직은 변경 없이 그대로 동작.
  * 모멘텀 점수 조회 실패 시 시총 순서 그대로 폴백(전략이 멈추지 않음).
  */
+// 모멘텀 점수가 이 수보다 적으면(Yahoo 대량 실패) 시총 순위로 폴백 — 희소 모멘텀으로
+// 무의미한 종목을 Top 10 에 넣는 사고 방지.
+const MIN_MOMENTUM_SCORES = 15;
+
 async function applyMomentumRanking(
   topResult: Awaited<ReturnType<typeof fetchTop10>>,
 ): Promise<Awaited<ReturnType<typeof fetchTop10>>> {
   const universe = topResult.topExtended ?? topResult.top10; // 시총 Top 30
   const scores = await fetchMomentumScores(universe);
-  if (scores.size === 0) {
-    logger.warn('[Rebal] 모멘텀 점수 없음 — 시총 순위 폴백');
+  if (scores.size < MIN_MOMENTUM_SCORES) {
+    logger.warn({ scored: scores.size, need: MIN_MOMENTUM_SCORES }, '[Rebal] 모멘텀 점수 부족 — 시총 순위 폴백');
     return topResult;
   }
   const reranked = rankByMomentum(universe, scores);
@@ -325,6 +330,13 @@ async function buildContext(): Promise<BuildContextResult> {
   let topResult = await fetchTop10(true);
   if (settings.selectionMode === 'momentum') {
     topResult = await applyMomentumRanking(topResult);
+  }
+  // v6.0: 유효 순위(시총 또는 모멘텀)를 rank_history 에 기록 — isRankImproving(B3)이
+  //       항상 같은 기준끼리 비교되도록. (fetchTop10 에서 이관)
+  try {
+    persistRankHistory(topResult.topExtended ?? topResult.top10);
+  } catch (err) {
+    logger.warn({ err: (err as Error).message }, '[Rebal] persistRankHistory failed');
   }
   const positionRows = getCurrentPositions();
 
@@ -462,25 +474,27 @@ interface BuyCandidate {
 function evaluateBuyCandidates(
   topResult: BuildContextResult['topResult'],
   positions: Position[],
+  mode: 'marketcap' | 'momentum',
 ): BuyCandidate[] {
   const top10 = topResult.top10;
   const top20 = topResult.top20 ?? top10;
   const heldSet = new Set(positions.map((p) => p.ticker));
   const candidates: BuyCandidate[] = [];
+  const label = mode === 'momentum' ? '모멘텀' : '시총';
 
-  // B2 미보유 Top 10 — 시총 1위부터
+  // B2 미보유 Top 10
   for (const s of top10) {
     if (heldSet.has(s.ticker)) continue;
-    candidates.push({ stock: s, reason: `Top10 #${s.rank} 신규 진입` });
+    candidates.push({ stock: s, reason: `${label} Top10 #${s.rank} 신규 진입` });
   }
 
-  // B3 11~20위 상승 중
+  // B3 11~20위 상승 중 (rank_history 는 buildContext 에서 유효순위로 기록되므로 동일 기준 비교)
   for (const s of top20.slice(10)) {
     if (heldSet.has(s.ticker)) continue;
     if (isRankImproving(s.ticker, s.rank, RANK_IMPROVE_HOURS, RANK_IMPROVE_THRESHOLD)) {
       candidates.push({
         stock: s,
-        reason: `#${s.rank} 상승 추세 (직전 ${RANK_IMPROVE_HOURS}h 대비 ${RANK_IMPROVE_THRESHOLD}+ 단계 상승)`,
+        reason: `${label} #${s.rank} 상승 추세 (직전 ${RANK_IMPROVE_HOURS}h 대비 ${RANK_IMPROVE_THRESHOLD}+ 단계↑)`,
       });
     }
   }
@@ -488,10 +502,20 @@ function evaluateBuyCandidates(
   return candidates;
 }
 
-/** 트레일링/순위/KOSPI 매도 실행. 결과 result 에 누적. */
-async function executeSellDecisions(decisions: SellDecision[], result: RebalanceResult): Promise<void> {
+/** 트레일링/순위/KOSPI 매도 실행. dryRun 이면 실제 주문 없이 의도만 기록(관찰). */
+async function executeSellDecisions(
+  decisions: SellDecision[],
+  result: RebalanceResult,
+  dryRun: boolean,
+): Promise<void> {
   for (const d of decisions) {
     const { position: p, reason } = d;
+    if (dryRun) {
+      // 관찰 모드: 실제 매도/트래킹 변경 없이 "팔 종목" 만 기록
+      result.sold.push({ ticker: p.ticker, name: p.name, quantity: p.qty, reason: `[관찰] ${reason}` });
+      logger.info({ ticker: p.ticker, qty: p.qty, reason }, '[Rebal] (dry-run) SELL 예정');
+      continue;
+    }
     try {
       const r = await executeOrder({
         stockId: p.stock_id,
@@ -523,6 +547,7 @@ async function executeBuyPhase(
   positions: Position[],
   topResult: BuildContextResult['topResult'],
   result: RebalanceResult,
+  dryRun: boolean,
 ): Promise<void> {
   let cash = await getDomesticOrderableAmount().catch(() => 0);
   const top10 = topResult.top10;
@@ -559,6 +584,12 @@ async function executeBuyPhase(
       });
       continue;
     }
+    if (dryRun) {
+      // 관찰 모드: 실제 주문/DB insert 없이 in-memory 로만 cash 차감 + 매수 예정 기록
+      recordBuy(s, s.closePrice, `[관찰] ${c.reason}`);
+      logger.info({ ticker: s.ticker, rank: s.rank, price: s.closePrice, reason: c.reason }, '[Rebal] (dry-run) BUY 예정');
+      continue;
+    }
     try {
       const stockId = ensureStockId(s.ticker, s.name, s.market);
       const r = await executeOrder({
@@ -591,6 +622,10 @@ async function executeBuyPhase(
       .sort((a, b) => a.evalAmt - b.evalAmt);
     if (reCandidates.length === 0) break;
     const target = reCandidates[0].stock;
+    if (dryRun) {
+      recordBuy(target, target.closePrice, '[관찰] 재분배');
+      continue;
+    }
     try {
       const stockId = ensureStockId(target.ticker, target.name, target.market);
       const r = await executeOrder({
@@ -647,10 +682,10 @@ export async function runRebalanceStrategy(
     mode,
   };
 
-  if (!settings.autoTradeEnabled) {
-    logger.info({ reason }, '[Rebal] autoTradeEnabled=false — dry-run');
-    return result;
-  }
+  // 자동매매 OFF = 관찰(dry-run) 모드 — 의사결정은 계산/기록하되 실제 주문은 내지 않음.
+  // (이전: 즉시 return 으로 아무것도 안 함 → 모멘텀 전환 전 관찰 불가했음)
+  const dryRun = !settings.autoTradeEnabled;
+  result.dryRun = dryRun;
 
   const ctx = await buildContext();
   result.fetchedAt = ctx.topResult.fetchedAt;
@@ -674,7 +709,7 @@ export async function runRebalanceStrategy(
     mode,
     today,
   );
-  await executeSellDecisions(sellDecisions, result);
+  await executeSellDecisions(sellDecisions, result, dryRun);
 
   // KOSPI 스파이크 매도 전용 모드는 여기서 종료
   if (mode === 'kospi-spike-sell-only') {
@@ -683,7 +718,7 @@ export async function runRebalanceStrategy(
       await logSystemEvent(
         'INFO',
         'GENERAL',
-        `[Rebal] 14:30 스파이크 매도 — ${result.sold.length}건 (KOSPI +${ctx.kospiChange}%)`,
+        `[Rebal] 14:30 스파이크 매도${dryRun ? '(관찰)' : ''} — ${result.sold.length}건 (KOSPI +${ctx.kospiChange}%)`,
         JSON.stringify(result),
         '',
       );
@@ -711,14 +746,14 @@ export async function runRebalanceStrategy(
     const refreshedPositions = ctx.positions.filter(
       (p) => !sellDecisions.find((d) => d.position.stock_id === p.stock_id),
     );
-    const buyCandidates = evaluateBuyCandidates(ctx.topResult, refreshedPositions);
+    const buyCandidates = evaluateBuyCandidates(ctx.topResult, refreshedPositions, settings.selectionMode);
     if (ctx.kospiChange !== null && ctx.kospiChange <= KOSPI_BUY_TRIGGER) {
       logger.info(
         { kospi: ctx.kospiChange, candidates: buyCandidates.length },
         '[Rebal] KOSPI 급락 — 적극 매수 모드',
       );
     }
-    await executeBuyPhase(buyCandidates, refreshedPositions, ctx.topResult, result);
+    await executeBuyPhase(buyCandidates, refreshedPositions, ctx.topResult, result, dryRun);
   }
 
   result.noop = result.sold.length === 0 && result.bought.length === 0;
@@ -726,7 +761,7 @@ export async function runRebalanceStrategy(
     await logSystemEvent(
       'INFO',
       'GENERAL',
-      `[Rebal] 매도 ${result.sold.length}건, 매수 ${result.bought.length}건 (${reason})`,
+      `[Rebal]${dryRun ? '(관찰)' : ''} ${settings.selectionMode === 'momentum' ? '모멘텀' : '시총'} — 매도 ${result.sold.length}건, 매수 ${result.bought.length}건 (${reason})`,
       JSON.stringify({
         kospi: ctx.kospiChange,
         sold: result.sold,

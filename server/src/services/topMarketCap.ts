@@ -143,12 +143,11 @@ export async function fetchTop10(force = false): Promise<TopMarketCapResult> {
   };
   cache = { result, fetchedAt: Date.now() };
 
-  // v5.7.0: rank 시계열 기록 — Top 30 전체. 매시간 cron 의 fetchTop10(true) 가 이를 1회 채움.
-  try {
-    persistRankHistory(topExtended);
-  } catch (err) {
-    logger.warn({ err: (err as Error).message }, 'persistRankHistory failed');
-  }
+  // v6.0: rank 시계열 기록은 rebalanceStrategy.buildContext 로 이관.
+  //   이유 — 모멘텀 모드에서는 "유효 순위"(모멘텀 순위)를 기록해야 isRankImproving(B3)
+  //   이 같은 기준끼리 비교됨. fetchTop10 은 시총 순위만 알아서 여기서 기록하면
+  //   모멘텀 모드 B3 가 모멘텀순위 vs 시총순위(과거) 를 비교하는 버그 발생.
+  //   UI 새로고침마다 기록되던 노이즈도 제거됨(rebalance 시점에만 기록).
 
   logger.info(
     {
@@ -179,8 +178,12 @@ export function invalidateTop10Cache(): void {
 // v5.7.0: Rank history 관리 — 순위 상승/하락 추세 판단용
 // ─────────────────────────────────────────────────────────────
 
-/** Top 30 의 (ticker, rank, now) 를 rank_history 에 INSERT. PK 충돌 시 IGNORE. */
-function persistRankHistory(topExtended: TopStock[]): void {
+/**
+ * Top 30 의 (ticker, rank, now) 를 rank_history 에 INSERT. PK 충돌 시 IGNORE.
+ * v6.0: 호출부(rebalanceStrategy.buildContext)가 "유효 순위"(시총 또는 모멘텀)를 넘김
+ *       → isRankImproving 이 같은 기준끼리 비교되도록 보장.
+ */
+export function persistRankHistory(topExtended: TopStock[]): void {
   const now = new Date().toISOString();
   for (const s of topExtended) {
     execute(
