@@ -285,10 +285,23 @@ export async function initializeDB(): Promise<Db> {
       buy_price REAL NOT NULL,              -- 매수 시점 종가 (평단과 별개, 추적 시작가)
       highest_price REAL NOT NULL,          -- 보유 기간 중 관측된 최고가
       trailing_active INTEGER DEFAULT 0,    -- 1=수익 +10% 도달, 트레일링 스톱 감시 중
+      out_of_universe_count INTEGER DEFAULT 0, -- v5.8: Top 20 밖 연속 "거래일" 수 (히스테리시스 매도)
+      last_out_date TEXT,                   -- v5.8: out_of_universe_count 를 마지막으로 +1 한 날짜(YYYY-MM-DD)
       updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
       FOREIGN KEY (stock_id) REFERENCES stocks(id) ON DELETE CASCADE
     )
   `);
+  // v5.8 마이그레이션: v5.7 에서 이미 테이블이 생성된 DB 에 컬럼 추가
+  try {
+    dbRun('ALTER TABLE position_tracking ADD COLUMN out_of_universe_count INTEGER DEFAULT 0');
+  } catch {
+    // 이미 존재 — 무시
+  }
+  try {
+    dbRun('ALTER TABLE position_tracking ADD COLUMN last_out_date TEXT');
+  } catch {
+    // 이미 존재 — 무시
+  }
 
   // ── v5.7.0 Rank history: 시총 순위 시계열 (전일/주간 순위 비교용) ──
   // 매시간 cron 이 Top 30 정도 기록. 90일 이상은 자연 만료(아래 cleanup).

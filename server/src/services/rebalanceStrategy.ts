@@ -37,14 +37,23 @@ import logger from '../logger';
 
 // ─────────────────────────────────────────────────────────────
 // 임계값 (settings 로 빼지 않고 상수 — 백테스트 후 조정 시 일괄 수정)
+//
+// v5.8.0 — 멀티 레짐(2020 폭락 / 2022 하락 / 2025 폭등) 백테스트로 확정:
+//   · 순위 이탈 즉시매도 → 히스테리시스(Top20 이탈 + 2회 연속 확인): 3개 레짐 전부
+//     baseline 개선, 거래 5~10배↓, 단일 상승장 기준 순위이탈 -188만원 출혈 제거.
+//   · 트레일링 -2% 는 유지(완화 시 3개 레짐 모두 악화) / 하드 손절은 거부(휩쏘).
+//   상세: scripts/backtest-harness.mjs, docs/backtest-v5.7/STRATEGY_REVIEW.md
 // ─────────────────────────────────────────────────────────────
 const TRAILING_ACTIVATION_PCT = 10; // 수익 +10% 도달 시 트레일링 활성화
-const TRAILING_STOP_DROP_PCT = 2;   // 활성 후 고점 대비 -2% 시 매도
+const TRAILING_STOP_DROP_PCT = 2;   // 활성 후 고점 대비 -2% 시 매도 (백테스트상 유지가 최선)
 const KOSPI_BUY_TRIGGER = -4;       // KOSPI -4% 이하: 적극 매수 모드 (현재는 marketBrake 와 별도 로깅만)
 const KOSPI_SELL_TRIGGER = 4;       // KOSPI +4% 이상: 이익 실현 매도 트리거
 const KOSPI_SELL_PROFIT_MIN = 5;    // 위 트리거 시 매도 대상은 +5% 이상 수익 종목
 const RANK_IMPROVE_HOURS = 24;      // "직전 24h 대비"
 const RANK_IMPROVE_THRESHOLD = 2;   // 2단계 이상 상승해야 매수 후보
+// v5.8.0 순위 이탈 매도 — 히스테리시스(이력 현상)
+const EXIT_RANK_THRESHOLD = 20;     // 모니터링 유니버스(Top 20) 밖으로 이탈해야 매도 후보
+const EXIT_CONFIRM_TICKS = 2;       // 연속 N회(매시간 cron 기준) 이탈 확인돼야 실제 매도 (노이즈 필터)
 const REBAL_MAX_ITER = 30;
 
 // ─────────────────────────────────────────────────────────────
@@ -95,6 +104,7 @@ interface Position extends PositionRow {
   buyRank: number | null;
   highestPrice: number | null;
   trailingActive: boolean;
+  outOfUniverseCount: number; // v5.8 히스테리시스 — Top 20 밖 연속 관측 횟수
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -124,11 +134,15 @@ interface TrackingRow {
   buy_rank: number;
   highest_price: number;
   trailing_active: number;
+  out_of_universe_count: number;
+  last_out_date: string | null;
 }
 
 function getTracking(stockId: number): TrackingRow | null {
   return queryOne<TrackingRow>(
-    'SELECT stock_id, buy_rank, highest_price, trailing_active FROM position_tracking WHERE stock_id = ?',
+    `SELECT stock_id, buy_rank, highest_price, trailing_active,
+            COALESCE(out_of_universe_count, 0) as out_of_universe_count, last_out_date
+     FROM position_tracking WHERE stock_id = ?`,
     [stockId],
   );
 }
@@ -158,6 +172,22 @@ function resetTrackingOnSell(stockId: number): void {
   execute('DELETE FROM position_tracking WHERE stock_id = ?', [stockId]);
 }
 
+/**
+ * tracking 행이 없으면 lazy 생성 (가져오기/EOD reconcile 로 들어온 레거시 보유분 대응).
+ * 트레일링·히스테리시스가 모든 보유 종목에 일관 적용되도록 보장.
+ * buy_rank 는 현재 순위(미상이면 EXIT_RANK_THRESHOLD+1) 로 추정.
+ */
+function ensureTracking(stockId: number, currentRank: number, currentPrice: number): void {
+  const existing = getTracking(stockId);
+  if (existing) return;
+  const rank = currentRank >= 999 ? EXIT_RANK_THRESHOLD + 1 : currentRank;
+  execute(
+    `INSERT INTO position_tracking (stock_id, buy_rank, buy_price, highest_price, trailing_active, out_of_universe_count, last_out_date, updated_at)
+     VALUES (?, ?, ?, ?, 0, 0, NULL, CURRENT_TIMESTAMP)`,
+    [stockId, rank, currentPrice, currentPrice],
+  );
+}
+
 /** 매시간 갱신: 현재가가 highest_price 보다 높으면 highest_price 업데이트. */
 function updateHighestPrice(stockId: number, currentPrice: number): void {
   execute(
@@ -173,6 +203,51 @@ function activateTrailing(stockId: number): void {
     'UPDATE position_tracking SET trailing_active = 1, updated_at = CURRENT_TIMESTAMP WHERE stock_id = ?',
     [stockId],
   );
+}
+
+/**
+ * v5.8 히스테리시스 카운터 상태 전이 — 순수 함수 (DB 무관, 단위 테스트 대상).
+ *
+ * 백테스트가 일봉 기준 2일 확인으로 검증됐으나 운영 cron 은 시간당(하루 6회) 실행이므로,
+ * 단순 호출 횟수로 세면 2시간 만에 매도돼 백테스트보다 과민해진다. 따라서 하루에 한 번만
+ * 카운트를 올린다(같은 today 면 중복 증가 없음) → EXIT_CONFIRM_TICKS=2 = 연속 2거래일.
+ */
+export function nextOutOfUniverseState(
+  prev: { count: number; lastOutDate: string | null },
+  isOutside: boolean,
+  today: string,
+): { count: number; lastOutDate: string | null; changed: boolean } {
+  if (!isOutside) {
+    const changed = prev.count !== 0 || prev.lastOutDate !== null;
+    return { count: 0, lastOutDate: null, changed };
+  }
+  // 이미 오늘 카운트를 올렸으면 현재값 유지 (하루 여러 cron 에서 중복 증가 방지)
+  if (prev.lastOutDate === today) {
+    return { count: prev.count, lastOutDate: prev.lastOutDate, changed: false };
+  }
+  return { count: prev.count + 1, lastOutDate: today, changed: true };
+}
+
+/**
+ * 히스테리시스 카운터 DB 반영. nextOutOfUniverseState 로 전이 계산 후 변경 시만 UPDATE.
+ * @returns 갱신 후 누적 카운트 (연속 Top 20 밖 거래일 수)
+ */
+function bumpOutOfUniverse(stockId: number, isOutside: boolean, today: string): number {
+  const tracking = getTracking(stockId);
+  if (!tracking) return 0;
+
+  const next = nextOutOfUniverseState(
+    { count: tracking.out_of_universe_count, lastOutDate: tracking.last_out_date },
+    isOutside,
+    today,
+  );
+  if (next.changed) {
+    execute(
+      'UPDATE position_tracking SET out_of_universe_count = ?, last_out_date = ?, updated_at = CURRENT_TIMESTAMP WHERE stock_id = ?',
+      [next.count, next.lastOutDate, stockId],
+    );
+  }
+  return next.count;
 }
 
 function ensureStockId(ticker: string, name: string, market: 'KOSPI' | 'KOSDAQ'): number {
@@ -245,6 +320,7 @@ async function buildContext(): Promise<BuildContextResult> {
       buyRank: tracking?.buy_rank ?? null,
       highestPrice: tracking?.highest_price ?? null,
       trailingActive: !!tracking?.trailing_active,
+      outOfUniverseCount: tracking?.out_of_universe_count ?? 0,
     };
   });
 
@@ -270,12 +346,16 @@ function evaluateSells(
   topExtended: TopStock[],
   kospiChange: number | null,
   mode: 'normal' | 'kospi-spike-sell-only',
+  today: string,
 ): SellDecision[] {
   const rankMap = new Map<string, number>();
   topExtended.forEach((s) => rankMap.set(s.ticker, s.rank));
   const decisions: SellDecision[] = [];
 
   for (const p of positions) {
+    // 레거시 보유분(가져오기/EOD reconcile)도 트래킹되도록 lazy 생성
+    const rankForInit = rankMap.get(p.ticker) ?? 999;
+    ensureTracking(p.stock_id, rankForInit, p.currentPrice);
     // 트래킹 데이터 갱신 — 보유 중 최고가 추적은 매도 여부와 무관하게 매번
     updateHighestPrice(p.stock_id, p.currentPrice);
     if (!p.trailingActive && p.profitPercent >= TRAILING_ACTIVATION_PCT) {
@@ -306,13 +386,24 @@ function evaluateSells(
       }
     }
 
-    // S2 순위 이탈 — 매수 시점 순위가 있어야만 적용 (이전 매수분은 buyRank=null → skip)
-    if (p.buyRank !== null) {
+    // S2 순위 이탈 — v5.8 히스테리시스(이력 현상)
+    //
+    // v5.7 의 "현재순위 > 매수순위 → 즉시 매도" 는 시총 순위의 단일시점 노이즈(15→16위
+    // 흔들림)에 매번 손절매 → 멀티 레짐 백테스트상 -188만원 출혈/회전율 폭증의 주범.
+    //
+    // v5.8: 모니터링 유니버스(Top 20) 밖으로 이탈 + EXIT_CONFIRM_TICKS 회 연속 확인돼야
+    // 매도. buyRank 와 무관하게 "유니버스 이탈 확정" 만 본다. 이는 사용자 의도("10위권
+    // 밖이라고 성급히 팔지 않기")와 정확히 일치. trailingActive(이익 +10% 도달)인 종목은
+    // 트레일링 스톱이 우선 관리하므로 순위 매도에서 제외(승자 조기 청산 방지).
+    {
       const currentRank = rankMap.get(p.ticker) ?? 999; // Top 30 밖이면 999
-      if (currentRank > p.buyRank) {
+      const isOutside = currentRank > EXIT_RANK_THRESHOLD;
+      const count = bumpOutOfUniverse(p.stock_id, isOutside, today);
+      p.outOfUniverseCount = count;
+      if (!p.trailingActive && isOutside && count >= EXIT_CONFIRM_TICKS) {
         decisions.push({
           position: p,
-          reason: `순위 이탈 — 매수 시점 ${p.buyRank}위 → 현재 ${currentRank >= 999 ? 'Top 30 밖' : currentRank + '위'}`,
+          reason: `순위 이탈 — Top ${EXIT_RANK_THRESHOLD} 밖 ${count}회 연속 (현재 ${currentRank >= 999 ? 'Top 30 밖' : currentRank + '위'})`,
         });
         continue;
       }
@@ -547,11 +638,13 @@ export async function runRebalanceStrategy(
   }
 
   // ───────── 매도 단계 ─────────
+  const today = new Date().toISOString().slice(0, 10);
   const sellDecisions = evaluateSells(
     ctx.positions,
     ctx.topResult.topExtended ?? ctx.topResult.top10,
     ctx.kospiChange,
     mode,
+    today,
   );
   await executeSellDecisions(sellDecisions, result);
 

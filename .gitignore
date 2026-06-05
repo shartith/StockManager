@@ -40,3 +40,6 @@ npm-debug.log*
 
 # Generated training datasets (user-specific)
 datasets/
+
+# 백테스트 데이터 캐시 (재생성 가능)
+docs/backtest-v5.7/_cache/
