@@ -10,6 +10,7 @@
 
 import { getAccessToken, getKisConfig } from './kisAuth';
 import { getSettings } from './settings';
+import { kisFetchJson } from './kisHttp';
 import logger from '../logger';
 import type { KisTrade } from './portfolioReconcile';
 
@@ -89,7 +90,14 @@ export async function fetchKisTradeHistory(
         CTX_AREA_NK100: ctxAreaNk100,
       });
 
-      const response = await fetch(
+      const { ok, data } = await kisFetchJson<{
+        rt_cd?: string;
+        msg1?: string;
+        output1?: KisCcldOutputRow[];
+        ctx_area_fk100?: string;
+        ctx_area_nk100?: string;
+        tr_cont?: string;
+      }>(
         `${baseUrl}/uapi/domestic-stock/v1/trading/inquire-daily-ccld?${params}`,
         {
           headers: {
@@ -103,24 +111,11 @@ export async function fetchKisTradeHistory(
             custtype: 'P',
           },
         },
+        'inquire-daily-ccld',
       );
 
-      if (!response.ok) {
-        logger.warn({ status: response.status }, 'fetchKisTradeHistory HTTP error');
-        break;
-      }
-
-      const data = await response.json() as {
-        rt_cd?: string;
-        msg1?: string;
-        output1?: KisCcldOutputRow[];
-        ctx_area_fk100?: string;
-        ctx_area_nk100?: string;
-        tr_cont?: string;
-      };
-
-      if (data.rt_cd !== '0') {
-        logger.warn({ msg: data.msg1, rt_cd: data.rt_cd }, 'fetchKisTradeHistory KIS error');
+      if (!ok || !data) {
+        logger.warn({ msg: data?.msg1, rt_cd: data?.rt_cd }, 'fetchKisTradeHistory KIS error');
         break;
       }
 

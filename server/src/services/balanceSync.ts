@@ -18,6 +18,7 @@ import {
   type KisTrade,
 } from './portfolioReconcile';
 import { fetchKisTradeHistory, indexTradesByTicker } from './kisTradeHistory';
+import { kisFetchJson } from './kisHttp';
 import logger from '../logger';
 
 export const dbReconcileDeps: ReconcileDeps = {
@@ -117,7 +118,7 @@ export async function syncKisBalance(memo: string = 'KIS 동기화'): Promise<Sy
       CTX_AREA_NK100: '',
     });
 
-    const response = await fetch(
+    const { ok, status, data, rateLimited } = await kisFetchJson<{ rt_cd?: string; msg1?: string; output1?: Array<Record<string, string>> }>(
       `${baseUrl}/uapi/domestic-stock/v1/trading/inquire-balance?${params}`,
       {
         headers: {
@@ -129,15 +130,14 @@ export async function syncKisBalance(memo: string = 'KIS 동기화'): Promise<Sy
           custtype: 'P',
         },
       },
+      'balanceSync-inquire-balance',
     );
 
-    if (!response.ok) {
-      return { ok: false, message: `KIS HTTP ${response.status}`, error: await response.text().catch(() => '') };
-    }
-
-    const data = await response.json() as { rt_cd?: string; msg1?: string; output1?: Array<Record<string, string>> };
-    if (data.rt_cd !== '0') {
-      return { ok: false, message: `KIS API: ${data.msg1}` };
+    if (!ok || !data) {
+      return {
+        ok: false,
+        message: rateLimited ? 'KIS 호출 한도 초과 (재시도 후 실패)' : `KIS API: ${data?.msg1 ?? `HTTP ${status}`}`,
+      };
     }
 
     const today = new Date().toISOString().slice(0, 10);

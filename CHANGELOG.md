@@ -2,6 +2,38 @@
 
 Stock Manager 주요 릴리즈 변경사항. 자세한 노트는 [GitHub Releases](https://github.com/shartith/StockManager/releases)에서 확인.
 
+## v6.0.2 — 2026-06-06
+
+**운영 장애 수정 — KIS rate-limit(EGW00201/HTTP 500) + 평가금액 불일치.**
+
+실계좌 화면(평가금 4,211,900) vs 시스템(3,743,000) 불일치와 "원장 초당 거래건수
+초과(EGW00201)" 오류 신고를 받아 두 문제를 함께 수정.
+
+### 🐛 Fix #1 — KIS rate-limit (EGW00201 / HTTP 500)
+원인: `inquire-balance`(잔고)·`inquire-daily-itemchartprice`(캔들)·`inquire-daily-ccld`
+(거래내역)·balanceSync 가 **직접 fetch 로 rate-limit 큐(apiQueue)를 우회** → 대시보드
+폴링 + 스케줄러 rebalance + 동기화가 동시에 겹치며 초당 한도 초과.
+- 신규 `services/kisHttp.ts`: 모든 KIS REST 호출을 **큐 경유 + rate-limit 자동 재시도**
+  (HTTP 429/500/503 또는 본문 EGW00201/EGW00133 감지 → 지수 백오프 0.4·0.8·1.6s).
+- 위 4개 호출을 전부 `kisFetchJson` 으로 통일 → KIS 호출이 초당 15건으로 직렬화.
+- 잔고는 5초 캐시 + 실패 시 직전 정상 응답(stale)으로 폴백 → 화면에 빨간 오류 대신
+  마지막 정상값 표시.
+
+### 🐛 Fix #2 — 평가금액 불일치 (DB 추정 vs 증권사 실값)
+원인: 대시보드 헤드라인 "현재 평가금액"이 DB 거래기록 기반 **추정치**라 실계좌와 어긋남
+(특히 가격조회 실패 시 평단 폴백 + DB-실계좌 drift).
+- 신규 `services/kisBalance.ts`: 실계좌 잔고 단일 소스(큐+5초 캐시).
+- `/portfolio/summary` 헤드라인(평가금액/매입금액/손익)을 **증권사 실수치로 덮어씀**
+  → 화면 숫자가 KIS 와 일치. `source: 'kis'|'db-estimate'`, `stale` 플래그 포함.
+- `/chart/balance` 도 공통 서비스로 위임(중복 제거).
+
+### 운영 권장
+- 배포·재시작 후 **"가져오기"(잔고 동기화) 1회 실행** 권장 — rate-limit 해소로 동기화가
+  정상 작동하며 DB 보유종목이 실계좌와 재정합화됨(종목별 내역까지 일치).
+
+### 검증
+- 161 tests pass, 서버/클라 tsc clean, 프로덕션 빌드 성공.
+
 ## v6.0.1 — 2026-06-05
 
 **v6.0 매매 경로 검증 — 버그 2건 수정 + dry-run 관찰 모드 복구.**

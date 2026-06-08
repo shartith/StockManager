@@ -6,6 +6,8 @@ import { getMarketContext } from '../services/stockPrice';
 import { getDomesticOrderableAmount } from '../services/kisOrder';
 import { syncKisBalance } from '../services/balanceSync';
 import { correctHistoricalPrices } from '../services/correctHistoricalPrices';
+import { kisFetchJson } from '../services/kisHttp';
+import { getKisBalance } from '../services/kisBalance';
 import { validate } from '../middleware/validate';
 import { asyncHandler } from '../middleware/errorHandler';
 import { saveConfigSchema } from '../schemas';
@@ -131,7 +133,7 @@ router.get('/candle/:ticker', asyncHandler(async (req: Request, res: Response) =
       fid_org_adj_prc: '0',
     });
 
-    const response = await fetch(
+    const { ok, status, data, rateLimited } = await kisFetchJson<any>(
       `${baseUrl}/uapi/domestic-stock/v1/quotations/inquire-daily-itemchartprice?${params}`,
       {
         headers: {
@@ -142,18 +144,15 @@ router.get('/candle/:ticker', asyncHandler(async (req: Request, res: Response) =
           tr_id: 'FHKST03010100',
           custtype: 'P',
         },
-      }
+      },
+      `candle-${ticker}`,
     );
 
-    if (!response.ok) {
-      const errText = await response.text();
-      return res.status(response.status).json({ error: `KIS API 오류: ${errText}` });
-    }
-
-    const data: any = await response.json();
-
-    if (data.rt_cd !== '0') {
-      return res.status(400).json({ error: `KIS API 오류: ${data.msg1}` });
+    if (!ok || !data) {
+      const msg = rateLimited
+        ? 'KIS 호출 한도 초과 — 잠시 후 다시 시도하세요.'
+        : `KIS API 오류: ${data?.msg1 ?? `HTTP ${status}`}`;
+      return res.status(rateLimited ? 503 : 400).json({ error: msg, code: data?.msg_cd });
     }
 
     const candles = (data.output2 || [])
@@ -184,9 +183,9 @@ router.get('/candle/:ticker', asyncHandler(async (req: Request, res: Response) =
   }
 }));
 
-// KIS 계좌 잔고 조회 (보유 종목 목록)
+// KIS 계좌 잔고 조회 (보유 종목 목록) — 공통 서비스(getKisBalance)로 위임: 큐+캐시+재시도
 router.get('/balance', asyncHandler(async (_req: Request, res: Response) => {
-  const { appKey, appSecret, baseUrl } = getKisConfig();
+  const { appKey, appSecret } = getKisConfig();
   const settings = getSettings();
 
   if (!appKey || !appSecret) {
@@ -196,86 +195,13 @@ router.get('/balance', asyncHandler(async (_req: Request, res: Response) => {
     return res.status(400).json({ error: '계좌번호가 설정되지 않았습니다.', code: 'NO_ACCOUNT' });
   }
 
-  try {
-    const token = await getAccessToken();
-
-    // 국내 잔고 조회
-    const domesticTrId = settings.kisVirtual ? 'VTTC8434R' : 'TTTC8434R';
-    const params = new URLSearchParams({
-      CANO: settings.kisAccountNo,
-      ACNT_PRDT_CD: settings.kisAccountProductCode || '01',
-      AFHR_FLPR_YN: 'N',
-      OFL_YN: '',
-      INQR_DVSN: '02',
-      UNPR_DVSN: '01',
-      FUND_STTL_ICLD_YN: 'N',
-      FNCG_AMT_AUTO_RDPT_YN: 'N',
-      PRCS_DVSN: '00',
-      CTX_AREA_FK100: '',
-      CTX_AREA_NK100: '',
+  const balance = await getKisBalance();
+  if (!balance) {
+    return res.status(503).json({
+      error: 'KIS 호출이 일시적으로 한도를 초과했거나 응답이 없습니다. 잠시 후 다시 시도하세요.',
     });
-
-    const response = await fetch(
-      `${baseUrl}/uapi/domestic-stock/v1/trading/inquire-balance?${params}`,
-      {
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${token}`,
-          appkey: appKey,
-          appsecret: appSecret,
-          tr_id: domesticTrId,
-          custtype: 'P',
-        },
-      }
-    );
-
-    if (!response.ok) {
-      const errText = await response.text();
-      return res.status(response.status).json({ error: `KIS API 오류: ${errText}` });
-    }
-
-    const data: any = await response.json();
-    if (data.rt_cd !== '0') {
-      return res.status(400).json({ error: `KIS API 오류: ${data.msg1}` });
-    }
-
-    const holdings = (data.output1 || [])
-      .filter((item: any) => Number(item.hldg_qty) > 0)
-      .map((item: any) => ({
-        ticker: item.pdno,
-        name: item.prdt_name,
-        quantity: Number(item.hldg_qty),
-        avgPrice: Math.round(Number(item.pchs_avg_pric)),
-        currentPrice: Number(item.prpr),
-        profitLossRate: Number(item.evlu_pfls_rt),
-        totalValue: Number(item.evlu_amt),
-      }));
-
-    // 계좌 요약 (output2)
-    const summary = data.output2?.[0] || {};
-
-    // 국내 API(TTTC8434R)의 output2는 KRW 국내 자산만 포함
-    // dnca_tot_amt = D+2 예수금 (실제 주문가능금액과 다를 수 있음)
-    // 정확한 주문가능금액은 inquire-psbl-order(TTTC8908R)로 별도 조회
-    const krwDeposit = Number(summary.dnca_tot_amt || 0);
-    let orderableAmount = krwDeposit;
-    try {
-      const available = await getDomesticOrderableAmount();
-      if (available > 0) orderableAmount = available;
-    } catch {}
-
-    res.json({
-      holdings,
-      totalPurchaseAmount: Number(summary.pchs_amt_smtl_amt || 0),
-      totalEvalAmount: Number(summary.evlu_amt_smtl_amt || 0),
-      totalProfitLoss: Number(summary.evlu_pfls_smtl_amt || 0),
-      totalProfitLossRate: Number(summary.tot_evlu_pfls_rt || 0),
-      depositAmount: krwDeposit,
-      orderableAmount,
-    });
-  } catch (err: any) {
-    res.status(500).json({ error: '잔고 조회 실패' });
   }
+  res.json(balance);
 }));
 
 // KIS 잔고 → DB 동기화 (서비스로 위임 — services/balanceSync.ts)

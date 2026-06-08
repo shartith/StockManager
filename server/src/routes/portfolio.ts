@@ -1,6 +1,7 @@
 import { Router, Request, Response } from 'express';
 import { getPortfolioSummary } from '../services/calculator';
 import { getMultipleStockPrices } from '../services/stockPrice';
+import { getKisBalance } from '../services/kisBalance';
 import { queryAll } from '../db';
 import { asyncHandler } from '../middleware/errorHandler';
 
@@ -31,6 +32,26 @@ router.get('/summary', asyncHandler(async (_req: Request, res: Response) => {
     }
 
     const summary = getPortfolioSummary(prices);
+
+    // 헤드라인 정합성: 증권사 실계좌(getKisBalance)가 응답하면 그 실수치를 진실의 원천으로
+    // 사용해 평가금액/매입금액/손익을 덮어쓴다. (DB 추정치가 실계좌와 어긋나는 문제 해소)
+    // 종목별 breakdown(holdings)은 DB 그대로 두되, 합계는 증권사 기준으로 표시.
+    try {
+      const kis = await getKisBalance();
+      if (kis && kis.totalEvalAmount > 0) {
+        summary.totalCurrentValue = kis.totalEvalAmount;
+        summary.totalInvested = kis.totalPurchaseAmount || summary.totalInvested;
+        summary.totalProfitLoss = kis.totalProfitLoss;
+        summary.totalProfitLossPercent = kis.totalProfitLossRate;
+        (summary as typeof summary & { source?: string; stale?: boolean }).source = 'kis';
+        (summary as typeof summary & { source?: string; stale?: boolean }).stale = kis.stale ?? false;
+      } else {
+        (summary as typeof summary & { source?: string }).source = 'db-estimate';
+      }
+    } catch {
+      (summary as typeof summary & { source?: string }).source = 'db-estimate';
+    }
+
     res.json(summary);
   } catch {
     res.status(500).json({ error: '포트폴리오 조회 실패' });
