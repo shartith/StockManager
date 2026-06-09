@@ -280,16 +280,23 @@ function simulate(regime, cfg) {
         }
       }
 
-      // S2 순위
-      const cr = ranks[t] ?? 999;
-      if (cfg.rankExit === 'immediate') {
-        if (cr > p.buyRank) { sellAll(date, t, bar.close, `순위이탈`); continue; }
-      } else { // hysteresis
-        if (cr > cfg.exitRankThreshold) {
-          p.outDays = (p.outDays || 0) + 1;
-          if (p.outDays >= cfg.confirmDays) { sellAll(date, t, bar.close, `순위이탈`); continue; }
-        } else {
-          p.outDays = 0;
+      // S2 순위 — 급락장(브레이크/죽는시장)엔 정지 옵션 + 손실 바닥 옵션:
+      //  · pauseRankExitOnBrake: 패닉일 순위 노이즈에 바닥 매도 방지
+      //  · rankExitMaxLoss: 큰 손실(>X%) 종목은 순위이탈로 안 팜(손실 확정 회피, 회복 대기)
+      const marketStressed = kospiBrake || dying;
+      const pauseRank = (cfg.pauseRankExitOnBrake && marketStressed)
+        || (cfg.rankExitMaxLoss && profitPct < -cfg.rankExitMaxLoss);
+      if (!pauseRank) {
+        const cr = ranks[t] ?? 999;
+        if (cfg.rankExit === 'immediate') {
+          if (cr > p.buyRank) { sellAll(date, t, bar.close, `순위이탈`); continue; }
+        } else { // hysteresis
+          if (cr > cfg.exitRankThreshold) {
+            p.outDays = (p.outDays || 0) + 1;
+            if (p.outDays >= cfg.confirmDays) { sellAll(date, t, bar.close, `순위이탈`); continue; }
+          } else {
+            p.outDays = 0;
+          }
         }
       }
 
@@ -476,6 +483,17 @@ const FRONTIER_CONFIGS = [
   v58({ name: 'F5-모멘텀+레짐+목표비중', selection: 'momentum', momentumWindow: 120, regimeFilter: '200ma', sizing: 'targetweight', targetPositions: 8 }),
 ];
 
+// 급락장 순위이탈 매도 정지 + 손실 바닥 검증 — 모멘텀 모드 중심(rank-exit 손실이 큰 쪽)
+const M = { selection: 'momentum', momentumWindow: 120 };
+const PAUSEBRAKE_CONFIGS = [
+  v58({ name: '모멘텀(현행)', ...M }),
+  v58({ name: '+급락매도정지', ...M, pauseRankExitOnBrake: true }),
+  v58({ name: '+손실바닥8%', ...M, rankExitMaxLoss: 8 }),
+  v58({ name: '+손실바닥5%', ...M, rankExitMaxLoss: 5 }),
+  v58({ name: '+급락정지+손실8%', ...M, pauseRankExitOnBrake: true, rankExitMaxLoss: 8 }),
+  v58({ name: '+급락정지+손실5%', ...M, pauseRankExitOnBrake: true, rankExitMaxLoss: 5 }),
+];
+
 // ─────────────────────────────────────────────────────────────
 // 실행
 // ─────────────────────────────────────────────────────────────
@@ -503,6 +521,7 @@ const wantDeepbuy = process.argv.includes('--deepbuy');
 const wantCooldown = process.argv.includes('--cooldown');
 const wantFrontier = process.argv.includes('--frontier');
 const wantValidate = process.argv.includes('--validate');
+const wantPauseBrake = process.argv.includes('--pausebrake');
 
 function fmtRow(r) {
   return `${r.cfg.padEnd(22)} ${(r.ret>=0?'+':'')+r.ret.toFixed(1).padStart(6)}%  ` +
@@ -531,9 +550,9 @@ async function runImprovementTest(configs, title, extraAnalysis) {
 // 광범위 검증 — v5.8 vs 모멘텀 선택 vs 모멘텀+레짐, 8개 연도 + 요약 통계
 async function runValidate() {
   const configs = [
-    V58,
-    v58({ name: 'F2-모멘텀(120)', selection: 'momentum', momentumWindow: 120 }),
-    v58({ name: 'F5-모멘텀+레짐+비중', selection: 'momentum', momentumWindow: 120, regimeFilter: '200ma', sizing: 'targetweight', targetPositions: 8 }),
+    v58({ name: '모멘텀(현행)', selection: 'momentum', momentumWindow: 120 }),
+    v58({ name: '+손실바닥8%', selection: 'momentum', momentumWindow: 120, pauseRankExitOnBrake: true, rankExitMaxLoss: 8 }),
+    v58({ name: '+손실바닥5%', selection: 'momentum', momentumWindow: 120, pauseRankExitOnBrake: true, rankExitMaxLoss: 5 }),
   ];
   const collected = configs.map(() => []);
   console.log('연도'.padEnd(15), 'KOSPI'.padStart(8), '│', configs.map(c => c.name.padStart(16)).join(' '));
@@ -566,7 +585,17 @@ async function runValidate() {
   console.log(`\n모멘텀(F2) vs v5.8: ${wins}/${base.length} 연도 우세, 연평균 차이 ${(stats[1].avg - stats[0].avg).toFixed(1)}%p`);
 }
 
-if (wantValidate) {
+if (wantPauseBrake) {
+  // 급락장 순위이탈 매도 정지 — 핵심 검증장은 2020 폭락+반등(패닉 바닥 매도 회피 효과)
+  await runImprovementTest(PAUSEBRAKE_CONFIGS, '급락매도정지', (r) => {
+    const rankSells = r.trades.filter(t => t.type === 'SELL' && t.reason === '순위이탈');
+    const loss = rankSells.filter(t => (t.pct ?? 0) < 0);
+    if (rankSells.length) {
+      const lossSum = loss.reduce((a, t) => a + t.profit, 0);
+      console.log(`        순위이탈 매도 ${rankSells.length}건 (손실 ${loss.length}건, ${Math.round(lossSum).toLocaleString()}원)`);
+    }
+  });
+} else if (wantValidate) {
   await runValidate();
 } else if (wantFrontier) {
   await runImprovementTest(FRONTIER_CONFIGS, '모멘텀네이티브');

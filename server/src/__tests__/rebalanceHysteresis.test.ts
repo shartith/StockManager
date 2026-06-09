@@ -6,7 +6,32 @@
  */
 
 import { describe, it, expect } from 'vitest';
-import { nextOutOfUniverseState } from '../services/rebalanceStrategy';
+import { nextOutOfUniverseState, shouldPauseRankExit } from '../services/rebalanceStrategy';
+
+describe('shouldPauseRankExit — v6.0.3 "안 봐도 되는 손해" 방지', () => {
+  const MAX = 8; // RANK_EXIT_MAX_LOSS
+
+  it('급락 패닉일(marketStressed)이면 손익 무관 매도 보류', () => {
+    expect(shouldPauseRankExit(+20, true, MAX)).toBe(true);  // 수익이어도 패닉일엔 보류
+    expect(shouldPauseRankExit(-3, true, MAX)).toBe(true);
+  });
+
+  it('큰 손실(-8% 초과)이면 매도 보류 — 손실 확정 회피', () => {
+    expect(shouldPauseRankExit(-10.41, false, MAX)).toBe(true); // LG엔솔 실제 케이스
+    expect(shouldPauseRankExit(-8.01, false, MAX)).toBe(true);
+  });
+
+  it('손실이 바닥(-8%) 이내면 정상적으로 순위이탈 매도 허용(회전)', () => {
+    expect(shouldPauseRankExit(-7.99, false, MAX)).toBe(false);
+    expect(shouldPauseRankExit(-3, false, MAX)).toBe(false);
+    expect(shouldPauseRankExit(0, false, MAX)).toBe(false);
+    expect(shouldPauseRankExit(+5, false, MAX)).toBe(false); // 수익 종목은 회전 허용
+  });
+
+  it('경계값: 정확히 -8% 손실은 보류 아님(초과만 보류)', () => {
+    expect(shouldPauseRankExit(-8, false, MAX)).toBe(false);
+  });
+});
 
 describe('nextOutOfUniverseState — 히스테리시스 거래일 카운터', () => {
   it('Top 20 안이면 카운트/날짜 0으로 리셋', () => {

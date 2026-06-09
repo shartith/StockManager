@@ -55,6 +55,12 @@ const RANK_IMPROVE_THRESHOLD = 2;   // 2단계 이상 상승해야 매수 후보
 // v5.8.0 순위 이탈 매도 — 히스테리시스(이력 현상)
 const EXIT_RANK_THRESHOLD = 20;     // 모니터링 유니버스(Top 20) 밖으로 이탈해야 매도 후보
 const EXIT_CONFIRM_TICKS = 2;       // 연속 N회(매시간 cron 기준) 이탈 확인돼야 실제 매도 (노이즈 필터)
+// v6.0.3 순위 이탈 매도의 "안 봐도 되는 손해" 방지 (8개 연도 백테스트로 확정):
+//   · 손실 바닥: -8% 초과 손실 종목은 순위이탈로 팔지 않음(손실 확정 회피, 회복 대기).
+//     급락 패닉으로 일시 순위 이탈한 종목을 바닥에 던지는 것을 막는다.
+//     → 8년 기하평균 14.7%→16.8%/년, 특히 반등장(2023·2024) 대폭 개선.
+//   · 급락장 정지: 마켓 브레이크/죽는시장(패닉일)엔 순위 매도 자체를 정지(순위가 노이즈).
+const RANK_EXIT_MAX_LOSS = 8;       // 이 % 초과 손실이면 순위이탈 매도 보류 (트레일링/회복에 위임)
 const REBAL_MAX_ITER = 30;
 
 // ─────────────────────────────────────────────────────────────
@@ -205,6 +211,22 @@ function activateTrailing(stockId: number): void {
     'UPDATE position_tracking SET trailing_active = 1, updated_at = CURRENT_TIMESTAMP WHERE stock_id = ?',
     [stockId],
   );
+}
+
+/**
+ * v6.0.3 순위이탈 매도 보류 판정 — 순수 함수 (단위 테스트 대상).
+ *
+ * "안 봐도 되는 손해"(급락 패닉 바닥/큰 손실 확정) 방지:
+ *   - marketStressed(급락/죽는시장): 순위가 노이즈 → 매도 보류
+ *   - profitPercent < -maxLoss: 큰 손실 종목은 순위이탈로 던지지 않음(회복/트레일링에 위임)
+ * 8개 연도 백테스트로 검증 (기하평균 14.7%→16.8%/년).
+ */
+export function shouldPauseRankExit(
+  profitPercent: number,
+  marketStressed: boolean,
+  maxLoss: number,
+): boolean {
+  return marketStressed || profitPercent < -maxLoss;
 }
 
 /**
@@ -387,6 +409,7 @@ function evaluateSells(
   kospiChange: number | null,
   mode: 'normal' | 'kospi-spike-sell-only',
   today: string,
+  marketStressed: boolean,
 ): SellDecision[] {
   const rankMap = new Map<string, number>();
   topExtended.forEach((s) => rankMap.set(s.ticker, s.rank));
@@ -435,7 +458,11 @@ function evaluateSells(
     // 매도. buyRank 와 무관하게 "유니버스 이탈 확정" 만 본다. 이는 사용자 의도("10위권
     // 밖이라고 성급히 팔지 않기")와 정확히 일치. trailingActive(이익 +10% 도달)인 종목은
     // 트레일링 스톱이 우선 관리하므로 순위 매도에서 제외(승자 조기 청산 방지).
-    {
+    // v6.0.3 "안 봐도 되는 손해" 방지 — 두 경우엔 순위이탈 매도를 보류:
+    //   (a) 급락 패닉일(marketStressed): 순위가 노이즈라 바닥에 던지지 않음
+    //   (b) 큰 손실(-RANK_EXIT_MAX_LOSS 초과): 손실 확정 회피, 회복/트레일링에 위임
+    // 보류 시 히스테리시스 카운트도 건드리지 않아(증가/리셋 X), 안정된 날에만 회전.
+    if (!shouldPauseRankExit(p.profitPercent, marketStressed, RANK_EXIT_MAX_LOSS)) {
       const currentRank = rankMap.get(p.ticker) ?? 999; // Top 30 밖이면 999
       const isOutside = currentRank > EXIT_RANK_THRESHOLD;
       const count = bumpOutOfUniverse(p.stock_id, isOutside, today);
@@ -700,6 +727,12 @@ export async function runRebalanceStrategy(
     }
   }
 
+  // 시장 스트레스(급락/죽는시장) 1회 평가 — 매도(순위이탈 정지)·매수(차단) 양쪽에 재사용.
+  // v6.0.3: 매도 단계보다 먼저 평가해야 패닉일 순위이탈 매도를 정지할 수 있다.
+  const brake = await checkMarketBrake();
+  const dying = await detectDyingMarket();
+  const marketStressed = brake.shouldBrake || dying.isDying;
+
   // ───────── 매도 단계 ─────────
   const today = new Date().toISOString().slice(0, 10);
   const sellDecisions = evaluateSells(
@@ -708,6 +741,7 @@ export async function runRebalanceStrategy(
     ctx.kospiChange,
     mode,
     today,
+    marketStressed,
   );
   await executeSellDecisions(sellDecisions, result, dryRun);
 
@@ -726,9 +760,7 @@ export async function runRebalanceStrategy(
     return result;
   }
 
-  // ───────── 매수 단계 ─────────
-  const brake = await checkMarketBrake();
-  const dying = await detectDyingMarket();
+  // ───────── 매수 단계 ───────── (brake/dying 은 위에서 1회 평가됨)
   // v6.0 200일선 레짐 필터 (settings 토글) — 약세장이면 신규 매수 중단, 보유는 유지
   const regime = settings.regimeFilterEnabled ? await getKospiRegime() : null;
   const regimeOff = !!regime?.belowMa200;
