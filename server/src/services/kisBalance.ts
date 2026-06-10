@@ -35,10 +35,83 @@ export interface KisBalance {
   orderableAmount: number;
   fetchedAt: string;
   stale?: boolean;
+  preMarket?: boolean;           // v6.0.6: 장전(08:00~09:00 KST) 시세 보정 적용 여부
 }
 
 let cache: { data: KisBalance; at: number } | null = null;
 const CACHE_TTL = 5_000;
+
+/**
+ * v6.0.6 장전 시간대(08:00~09:00 KST) 판정 — 순수 함수.
+ *
+ * 배경: inquire-balance 의 prpr/evlu_amt 는 09:00 개장 전까지 전일종가 기준인데,
+ * KIS 앱은 NXT 프리마켓/예상체결가 기반으로 평가 → 같은 시각인데 화면이 어긋남.
+ * 이 창에서만 종목별 시세를 보정한다 (개장 후엔 둘 다 같은 실시간가라 불필요).
+ */
+export function isPreMarketKst(now: Date): boolean {
+  // KST = UTC+9 (DST 없음). 주말 제외, 08:00 ≤ t < 09:00.
+  const kstMs = now.getTime() + 9 * 60 * 60 * 1000;
+  const kst = new Date(kstMs);
+  const day = kst.getUTCDay();           // 0=일, 6=토
+  if (day === 0 || day === 6) return false;
+  const minutes = kst.getUTCHours() * 60 + kst.getUTCMinutes();
+  return minutes >= 8 * 60 && minutes < 9 * 60;
+}
+
+/** 손익률 폴백 — KIS 가 0 으로 주는 장전 구간에서도 헤드라인 % 가 0.00 으로 죽지 않게. */
+export function resolveProfitRate(rate: number, profitLoss: number, purchase: number): number {
+  if (Math.abs(rate) >= 0.005) return rate;
+  if (purchase > 0 && profitLoss !== 0) {
+    return Math.round((profitLoss / purchase) * 10000) / 100;
+  }
+  return rate;
+}
+
+interface InquirePriceOutput {
+  rt_cd?: string;
+  output?: { stck_prpr?: string; antc_cnpr?: string };
+}
+
+/**
+ * 장전 보정용 종목 현재가 — KIS 앱과 같은 KRX+NXT 통합('UN') 시세 우선,
+ * 미지원/실패 시 KRX('J')의 예상체결가(antc_cnpr) 폴백. 둘 다 없으면 null(원값 유지).
+ * 모든 호출은 rate-limit 큐 경유.
+ */
+async function fetchPreMarketPrice(
+  ticker: string,
+  token: string,
+  appKey: string,
+  appSecret: string,
+  baseUrl: string,
+): Promise<number | null> {
+  const headers = {
+    'Content-Type': 'application/json',
+    Authorization: `Bearer ${token}`,
+    appkey: appKey,
+    appsecret: appSecret,
+    tr_id: 'FHKST01010100',
+    custtype: 'P',
+  };
+
+  for (const div of ['UN', 'J'] as const) {
+    const params = new URLSearchParams({ fid_cond_mrkt_div_code: div, fid_input_iscd: ticker });
+    const { ok, data } = await kisFetchJson<InquirePriceOutput>(
+      `${baseUrl}/uapi/domestic-stock/v1/quotations/inquire-price?${params}`,
+      { headers },
+      `premkt-${div}-${ticker}`,
+      1, // 장전 보정은 best-effort — 재시도 1회만
+    );
+    if (!ok || !data?.output) continue;
+    if (div === 'UN') {
+      const prpr = Number(data.output.stck_prpr);
+      if (Number.isFinite(prpr) && prpr > 0) return prpr;
+    } else {
+      const antc = Number(data.output.antc_cnpr);
+      if (Number.isFinite(antc) && antc > 0) return antc;
+    }
+  }
+  return null;
+}
 
 /**
  * 실계좌 잔고 조회. force=false 면 5초 캐시 사용.
@@ -113,15 +186,46 @@ export async function getKisBalance(force = false): Promise<KisBalance | null> {
       /* 폴백: 예수금 */
     }
 
+    const totalPurchaseAmount = Number(summary.pchs_amt_smtl_amt || 0);
+    let totalEvalAmount = Number(summary.evlu_amt_smtl_amt || 0);
+    let totalProfitLoss = Number(summary.evlu_pfls_smtl_amt || 0);
+    let rawRate = Number(summary.tot_evlu_pfls_rt || 0);
+
+    // v6.0.6 장전 보정 — 08:00~09:00 KST 에는 inquire-balance 가 전일종가 기준이라
+    // KIS 앱(NXT 프리마켓/예상체결가 평가)과 어긋남. 앱과 같은 시세로 종목별 보정하고
+    // 합계도 보정된 보유분 기준으로 재계산해 화면이 자기모순 없게 만든다.
+    const preMarket = isPreMarketKst(new Date());
+    if (preMarket && holdings.length > 0) {
+      let anyOverride = false;
+      for (const h of holdings) {
+        const live = await fetchPreMarketPrice(h.ticker, token, appKey, appSecret, baseUrl);
+        if (live !== null && live !== h.currentPrice) {
+          h.currentPrice = live;
+          h.totalValue = Math.round(live * h.quantity);
+          h.profitLossRate = h.avgPrice > 0
+            ? Math.round(((live - h.avgPrice) / h.avgPrice) * 10000) / 100
+            : h.profitLossRate;
+          anyOverride = true;
+        }
+      }
+      if (anyOverride) {
+        totalEvalAmount = holdings.reduce((a, h) => a + h.totalValue, 0);
+        totalProfitLoss = totalEvalAmount - totalPurchaseAmount;
+        rawRate = 0; // 아래 폴백이 보정된 손익으로 재계산
+      }
+    }
+
     const result: KisBalance = {
       holdings,
-      totalPurchaseAmount: Number(summary.pchs_amt_smtl_amt || 0),
-      totalEvalAmount: Number(summary.evlu_amt_smtl_amt || 0),
-      totalProfitLoss: Number(summary.evlu_pfls_smtl_amt || 0),
-      totalProfitLossRate: Number(summary.tot_evlu_pfls_rt || 0),
+      totalPurchaseAmount,
+      totalEvalAmount,
+      totalProfitLoss,
+      // 장전 등 KIS 가 0% 로 주는 구간에도 헤드라인이 0.00% 로 죽지 않게 폴백 계산
+      totalProfitLossRate: resolveProfitRate(rawRate, totalProfitLoss, totalPurchaseAmount),
       depositAmount: krwDeposit,
       orderableAmount,
       fetchedAt: new Date().toISOString(),
+      preMarket,
     };
     cache = { data: result, at: Date.now() };
     return result;
