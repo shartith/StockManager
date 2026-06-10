@@ -18,6 +18,7 @@ import { queryAll, execute } from '../db';
 import { resubmitOrder } from './kisOrder';
 import { getKisStockSnapshot } from './stockPrice';
 import { getAccessToken } from './kisAuth';
+import { kisApiCall } from './apiQueue';
 import { logSystemEvent } from './systemEvent';
 import logger from '../logger';
 
@@ -83,7 +84,8 @@ export async function chaseStaleOrders(eod: boolean = false): Promise<{ chased: 
 
     let newPrice = 0;
     if (!useMarket) {
-      const snap = await getKisStockSnapshot(o.ticker, token);
+      // v6.0.5: rate-limit 큐 경유 (직접 호출이 EGW00201 잔여 원인이었음)
+      const snap = await kisApiCall(() => getKisStockSnapshot(o.ticker, token), `chase-${o.ticker}`);
       const cur = snap?.price ?? o.price;
       newPrice = nextPrice(o.order_type, cur, newLevel - 1);
     }

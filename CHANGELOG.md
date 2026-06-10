@@ -2,6 +2,19 @@
 
 Stock Manager 주요 릴리즈 변경사항. 자세한 노트는 [GitHub Releases](https://github.com/shartith/StockManager/releases)에서 확인.
 
+## v6.0.5 — 2026-06-11
+
+**시스템 전체점검 — 잔여 rate-limit 우회 2곳 봉합.**
+
+전체점검(코드/빌드/배포/정적 안전성)에서 발견된 KIS rate-limit 큐 우회 잔여 지점 수정:
+- `kisOrder.getDomesticPrice`(주문 시 현재가 조회) — 매수/매도 주문마다 큐 밖 KIS 호출
+  → rebalance 버스트 때 EGW00201 잔여 원인. `kisApiCall` 경유로 수정.
+- `orderChase`(미체결 추적) — 5분 tick 의 `getKisStockSnapshot` 직접 호출 → 큐 경유로 수정.
+
+점검 통과 항목: 173 tests / tsc(서버·클라) / 프로덕션 빌드 / Docker Hub latest=6.0.4 /
+dryRun 가드 3곳 / cron guard 5곳 / console.log 0건 / rank_history 단일 기록 /
+설정 필드 strip 안전 / position_tracking 마이그레이션.
+
 ## v6.0.4 — 2026-06-11
 
 **평균단가 KIS 정합 — 보유/거래 화면 평단이 KIS 매입평균과 일치하도록 수정.**

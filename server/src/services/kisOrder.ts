@@ -89,7 +89,7 @@ export function classifyFailure(errorMessage: string): FailureReason {
 
 // ─── 현재가 조회 ──────────────────────────────────────
 
-/** 국내주식 현재가 조회 */
+/** 국내주식 현재가 조회 — rate-limit 큐 경유 (v6.0.5: 직접 fetch 가 EGW00201 잔여 원인이었음) */
 async function getDomesticPrice(ticker: string): Promise<number | null> {
   const { appKey, appSecret, baseUrl } = getKisConfig();
   const token = await getAccessToken();
@@ -99,7 +99,7 @@ async function getDomesticPrice(ticker: string): Promise<number | null> {
     fid_input_iscd: ticker,
   });
 
-  const response = await fetch(
+  const response = await kisApiCall(() => fetch(
     `${baseUrl}/uapi/domestic-stock/v1/quotations/inquire-price?${params}`,
     {
       headers: {
@@ -109,7 +109,7 @@ async function getDomesticPrice(ticker: string): Promise<number | null> {
         tr_id: 'FHKST01010100', custtype: 'P',
       },
     }
-  );
+  ), `order-price-${ticker}`);
 
   if (!response.ok) return null;
   const data: any = await response.json();
