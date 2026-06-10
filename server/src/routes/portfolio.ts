@@ -33,9 +33,11 @@ router.get('/summary', asyncHandler(async (_req: Request, res: Response) => {
 
     const summary = getPortfolioSummary(prices);
 
-    // 헤드라인 정합성: 증권사 실계좌(getKisBalance)가 응답하면 그 실수치를 진실의 원천으로
-    // 사용해 평가금액/매입금액/손익을 덮어쓴다. (DB 추정치가 실계좌와 어긋나는 문제 해소)
-    // 종목별 breakdown(holdings)은 DB 그대로 두되, 합계는 증권사 기준으로 표시.
+    // 정합성: 증권사 실계좌(getKisBalance)가 응답하면 그 실수치를 진실의 원천으로 사용.
+    // v6.0.2: 헤드라인(평가금액/매입금액/손익) 덮어씀.
+    // v6.0.4: 종목별 breakdown(수량/평단/현재가/손익)도 KIS 로 덮어씀 — 보유/거래 화면의
+    //         평균단가가 KIS 매입평균(pchs_avg_pric)과 정확히 일치하도록.
+    //         KIS 잔고에 없는 종목(드리프트)만 DB 계산값 유지.
     try {
       const kis = await getKisBalance();
       if (kis && kis.totalEvalAmount > 0) {
@@ -43,6 +45,25 @@ router.get('/summary', asyncHandler(async (_req: Request, res: Response) => {
         summary.totalInvested = kis.totalPurchaseAmount || summary.totalInvested;
         summary.totalProfitLoss = kis.totalProfitLoss;
         summary.totalProfitLossPercent = kis.totalProfitLossRate;
+
+        const kisByTicker = new Map(kis.holdings.map(h => [h.ticker, h]));
+        summary.holdings = summary.holdings.map(h => {
+          const k = kisByTicker.get(h.ticker);
+          if (!k || k.quantity <= 0 || k.avgPrice <= 0) return h; // KIS 에 없으면 DB 폴백
+          const totalCost = Math.round(k.avgPrice * k.quantity * 100) / 100;
+          const currentValue = k.totalValue > 0 ? k.totalValue : Math.round(k.currentPrice * k.quantity);
+          return {
+            ...h,
+            quantity: k.quantity,
+            avgPrice: k.avgPrice,
+            totalCost,
+            currentPrice: k.currentPrice > 0 ? k.currentPrice : h.currentPrice,
+            currentValue,
+            profitLoss: Math.round((currentValue - totalCost) * 100) / 100,
+            profitLossPercent: k.profitLossRate,
+          };
+        });
+
         (summary as typeof summary & { source?: string; stale?: boolean }).source = 'kis';
         (summary as typeof summary & { source?: string; stale?: boolean }).stale = kis.stale ?? false;
       } else {

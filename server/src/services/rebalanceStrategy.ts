@@ -25,6 +25,7 @@
  */
 
 import { fetchTop10, isRankImproving, persistRankHistory, type TopStock } from './topMarketCap';
+import { getPositionAverages } from './positionAverage';
 import { getSettings } from './settings';
 import { executeOrder, getDomesticOrderableAmount } from './kisOrder';
 import { checkMarketBrake } from './marketBrake';
@@ -120,21 +121,26 @@ interface Position extends PositionRow {
 // ─────────────────────────────────────────────────────────────
 
 function getCurrentPositions(): PositionRow[] {
-  return queryAll<PositionRow>(`
-    SELECT s.id as stock_id, s.ticker, s.name, COALESCE(s.market, 'KRX') as market,
-           COALESCE(SUM(CASE WHEN t.type = 'BUY' THEN t.quantity ELSE -t.quantity END), 0) as qty,
-           CASE
-             WHEN SUM(CASE WHEN t.type = 'BUY' THEN t.quantity ELSE 0 END) > 0
-             THEN SUM(CASE WHEN t.type = 'BUY' THEN t.quantity * t.price ELSE 0 END)
-                  / SUM(CASE WHEN t.type = 'BUY' THEN t.quantity ELSE 0 END)
-             ELSE 0
-           END as avg_price
+  const rows = queryAll<Omit<PositionRow, 'qty' | 'avg_price'>>(`
+    SELECT DISTINCT s.id as stock_id, s.ticker, s.name, COALESCE(s.market, 'KRX') as market
     FROM stocks s
     JOIN transactions t ON t.stock_id = s.id
     WHERE s.deleted_at IS NULL AND t.deleted_at IS NULL
-    GROUP BY s.id
-    HAVING qty > 0
   `);
+
+  // v6.0.4: 평단을 KIS 방식 이동평균(매도 시 불변, 전량 매도 시 리셋)으로 계산.
+  // 이전 "전체 기간 매수 평균"은 매도분이 평단을 오염시켜 profitPercent 가 틀어지고
+  // → 트레일링 활성/손실바닥 판정까지 어긋났음 (화면 표시 + 매매 판정 양쪽 버그).
+  const positions = getPositionAverages();
+
+  return rows
+    .map((r) => {
+      const pos = positions.get(r.stock_id);
+      return pos && pos.quantity > 0
+        ? { ...r, qty: pos.quantity, avg_price: pos.avgPrice }
+        : null;
+    })
+    .filter((r): r is PositionRow => r !== null);
 }
 
 interface TrackingRow {

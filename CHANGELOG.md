@@ -2,6 +2,33 @@
 
 Stock Manager 주요 릴리즈 변경사항. 자세한 노트는 [GitHub Releases](https://github.com/shartith/StockManager/releases)에서 확인.
 
+## v6.0.4 — 2026-06-11
+
+**평균단가 KIS 정합 — 보유/거래 화면 평단이 KIS 매입평균과 일치하도록 수정.**
+
+운영 신고: 보유 화면 삼성전자 평단 277,250원 vs KIS 매입평균 309,500원 (대시보드
+KIS 잔고 패널은 정상). 잘못된 평단 → 잘못된 수익률(+10.64% 표시, 실제 -0.9%).
+
+### 🐛 근본 원인 — "전체 기간 매수 평균"
+`calculator.ts` 와 `rebalanceStrategy.getCurrentPositions` 가
+`SUM(모든 BUY 금액)/SUM(모든 BUY 수량)` 으로 **이미 매도해 사라진 과거 매수까지
+전부 평균**. 5월에 263,000원대에 사고팔았던 삼성전자 8주가 현재 1주(309,500원
+매입)의 평단을 277,250원으로 오염. 화면 표시 버그이자 **매매 판정 버그**
+(profitPercent → 트레일링 활성/손실바닥이 틀린 평단 기준으로 동작).
+
+### 수정
+- 신규 `services/positionAverage.ts`: **KIS 방식 이동평균** 단일 계산처.
+  BUY 는 가중평균, SELL 은 수량만 감소(평단 불변), 전량 매도 시 리셋.
+  보유량 초과 매도(드리프트)는 0 클램프 + 리셋. 순수 함수 `foldPositionAverage`.
+- `calculator.getPortfolioHoldings` / `rebalanceStrategy.getCurrentPositions` 가
+  이 계산을 사용 — 화면과 매매 엔진의 평단·수익률이 동일 기준.
+- `/portfolio/summary`: 종목별 수량/평단/현재가/손익을 **KIS 실잔고
+  (pchs_avg_pric)로 덮어씀** (v6.0.2 헤드라인에 이어 breakdown 까지).
+  KIS 미응답/미보유 종목만 DB 이동평균 폴백.
+
+### 검증
+- 173 tests pass (+8 positionAverage: 삼성전자 시나리오 재현 포함), tsc clean, 빌드 성공.
+
 ## v6.0.3 — 2026-06-09
 
 **순위이탈 매도의 "안 봐도 되는 손해" 방지 — 손실 바닥 + 급락장 정지.**

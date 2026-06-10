@@ -4,9 +4,13 @@
  * v5.0 이전: Markowitz MPT, 상관계수, 섹터집중도, 최적 비중 — 학습 인프라 의존.
  * v5.0+: 보유종목 + 평가금액 + 손익 단순 합계만.
  * 배당금 / 상관관계 / 최적가중치 모두 제거.
+ *
+ * v6.0.4: 평단가를 "전체 기간 매수 평균"에서 KIS 방식 이동평균(positionAverage)으로
+ * 교체 — 매도분이 평단을 오염시키던 버그(삼성전자 309,500원 → 277,250원 표시) 수정.
  */
 
 import { queryAll } from '../db';
+import { getPositionAverages } from './positionAverage';
 
 export interface PortfolioHolding {
   stockId: number;
@@ -42,9 +46,6 @@ export function getPortfolioHoldings(): PortfolioHolding[] {
     name: string;
     market: string;
     sector: string;
-    total_buy_qty: number;
-    total_sell_qty: number;
-    total_buy_cost: number;
     total_buy_fee: number;
     total_sell_fee: number;
   }>(`
@@ -54,32 +55,31 @@ export function getPortfolioHoldings(): PortfolioHolding[] {
       s.name,
       COALESCE(s.market, 'KRX') as market,
       COALESCE(s.sector, '') as sector,
-      COALESCE(SUM(CASE WHEN t.type = 'BUY' THEN t.quantity ELSE 0 END), 0) as total_buy_qty,
-      COALESCE(SUM(CASE WHEN t.type = 'SELL' THEN t.quantity ELSE 0 END), 0) as total_sell_qty,
-      COALESCE(SUM(CASE WHEN t.type = 'BUY' THEN t.quantity * t.price ELSE 0 END), 0) as total_buy_cost,
       COALESCE(SUM(CASE WHEN t.type = 'BUY' THEN t.fee ELSE 0 END), 0) as total_buy_fee,
       COALESCE(SUM(CASE WHEN t.type = 'SELL' THEN t.fee ELSE 0 END), 0) as total_sell_fee
     FROM stocks s
     LEFT JOIN transactions t ON t.stock_id = s.id AND t.deleted_at IS NULL
     WHERE s.deleted_at IS NULL
     GROUP BY s.id
-    HAVING total_buy_qty > 0
   `);
 
+  // 수량/평단은 KIS 방식 이동평균(매도 시 평단 불변, 전량 매도 시 리셋)으로 계산
+  const positions = getPositionAverages();
+
   return rows
-    .filter(row => row.total_buy_qty - row.total_sell_qty > 0)
-    .map(row => {
-      const quantity = row.total_buy_qty - row.total_sell_qty;
-      const avgPrice = row.total_buy_qty > 0 ? row.total_buy_cost / row.total_buy_qty : 0;
-      const totalCost = avgPrice * quantity;
+    .map(row => ({ row, pos: positions.get(row.stock_id) }))
+    .filter((x): x is { row: typeof x.row; pos: { quantity: number; avgPrice: number } } =>
+      !!x.pos && x.pos.quantity > 0)
+    .map(({ row, pos }) => {
+      const totalCost = pos.avgPrice * pos.quantity;
       return {
         stockId: row.stock_id,
         ticker: row.ticker,
         name: row.name,
         market: row.market,
         sector: row.sector,
-        quantity,
-        avgPrice: Math.round(avgPrice * 100) / 100,
+        quantity: pos.quantity,
+        avgPrice: Math.round(pos.avgPrice * 100) / 100,
         totalCost: Math.round(totalCost * 100) / 100,
         totalFees: Math.round((row.total_buy_fee + row.total_sell_fee) * 100) / 100,
       };
