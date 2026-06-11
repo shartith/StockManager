@@ -345,7 +345,10 @@ export function isSuspendedToday(stockId: number): { suspended: boolean; reason?
     `SELECT error_message, failure_reason FROM auto_trades
      WHERE stock_id = ?
        AND status = 'FAILED'
-       AND date(created_at) = date('now')
+       -- v6.0.7: "당일" = KST 거래일. created_at 은 UTC(CURRENT_TIMESTAMP) 저장이라
+       -- date('now')(UTC) 비교 시 KST 09:00(UTC 자정)에 날짜가 갈려 오전 정지 이력이
+       -- 9시에 풀리는 버그가 있었음 → +9h 보정으로 KST 달력일 비교.
+       AND date(created_at, '+9 hours') = date('now', '+9 hours')
        AND (
          failure_reason = 'SUSPENDED'
          OR error_message LIKE '%APBK0066%'
@@ -545,7 +548,7 @@ export function getHoldingQuantity(stockId: number): number {
 /** 오늘의 자동매매 기록 조회 */
 export function getTodayAutoTrades(): any[] {
   return queryAll(
-    "SELECT at.*, s.ticker, s.name FROM auto_trades at JOIN stocks s ON s.id = at.stock_id WHERE date(at.created_at) = date('now') ORDER BY at.created_at DESC"
+    "SELECT at.*, s.ticker, s.name FROM auto_trades at JOIN stocks s ON s.id = at.stock_id WHERE date(at.created_at, '+9 hours') = date('now', '+9 hours') ORDER BY at.created_at DESC"
   );
 }
 

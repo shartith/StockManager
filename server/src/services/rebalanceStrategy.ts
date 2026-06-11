@@ -26,6 +26,7 @@
 
 import { fetchTop10, isRankImproving, persistRankHistory, type TopStock } from './topMarketCap';
 import { getPositionAverages } from './positionAverage';
+import { getKisBalance } from './kisBalance';
 import { getSettings } from './settings';
 import { executeOrder, getDomesticOrderableAmount } from './kisOrder';
 import { checkMarketBrake } from './marketBrake';
@@ -368,12 +369,28 @@ async function buildContext(): Promise<BuildContextResult> {
   }
   const positionRows = getCurrentPositions();
 
-  // 현재가 일괄 조회 (보유 + Top 20)
-  const top20 = topResult.top20 ?? topResult.top10;
-  const tickersNeedingPrice = Array.from(
-    new Set([...positionRows.map((p) => p.ticker), ...top20.map((s) => s.ticker)]),
-  );
-  const priceMap = await fetchPriceMap(tickersNeedingPrice);
+  // v6.0.7 보유 종목 현재가 — KIS 실잔고(prpr, 장전 보정 포함)를 1순위로 사용.
+  // 원칙: 현재가/평단/평가금은 어디서든 KIS 와 일치 — 화면(v6.0.4)뿐 아니라
+  // 매매 판정(트레일링 활성/손실바닥의 profitPercent)도 같은 가격이어야 한다.
+  // 이전 Yahoo 시세는 지연 가능성이 있어 화면과 엔진이 서로 다른 가격으로 움직였음.
+  // KIS 미응답/미포함 종목만 Yahoo 폴백 (전략 무중단).
+  const priceMap = new Map<string, number>();
+  try {
+    const kisBal = await getKisBalance();
+    if (kisBal) {
+      for (const h of kisBal.holdings) {
+        if (h.currentPrice > 0) priceMap.set(h.ticker, h.currentPrice);
+      }
+    }
+  } catch {
+    /* 아래 Yahoo 폴백 */
+  }
+  const missingTickers = positionRows.map((p) => p.ticker).filter((t) => !priceMap.has(t));
+  if (missingTickers.length > 0) {
+    const yahooFallback = await fetchPriceMap(missingTickers);
+    for (const [t, price] of yahooFallback) priceMap.set(t, price);
+    logger.warn({ tickers: missingTickers }, '[Rebal] KIS 시세 누락 — Yahoo 폴백 사용');
+  }
 
   const positions: Position[] = positionRows.map((p) => {
     const tracking = getTracking(p.stock_id);
