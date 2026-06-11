@@ -35,27 +35,34 @@ export interface KisBalance {
   orderableAmount: number;
   fetchedAt: string;
   stale?: boolean;
-  preMarket?: boolean;           // v6.0.6: 장전(08:00~09:00 KST) 시세 보정 적용 여부
+  extendedHours?: boolean;       // v6.0.8: 장전·장후(NXT) 통합 시세 보정 적용 여부
 }
 
 let cache: { data: KisBalance; at: number } | null = null;
 const CACHE_TTL = 5_000;
 
 /**
- * v6.0.6 장전 시간대(08:00~09:00 KST) 판정 — 순수 함수.
+ * v6.0.8 확장 거래시간(장전·장후) 판정 — 순수 함수.
  *
- * 배경: inquire-balance 의 prpr/evlu_amt 는 09:00 개장 전까지 전일종가 기준인데,
- * KIS 앱은 NXT 프리마켓/예상체결가 기반으로 평가 → 같은 시각인데 화면이 어긋남.
- * 이 창에서만 종목별 시세를 보정한다 (개장 후엔 둘 다 같은 실시간가라 불필요).
+ * 배경: inquire-balance 의 prpr/evlu_amt 는 KRX 정규장 기준이라
+ *   · 장전(08:00~09:00): NXT 프리마켓 체결/예상체결가가 반영 안 됨 (전일종가 고정)
+ *   · 장후(15:30~20:00): NXT 애프터마켓 체결이 반영 안 됨 (KRX 종가 고정)
+ * 인데 KIS 앱은 KRX+NXT 통합가로 평가 → 같은 시각인데 화면이 어긋남.
+ *
+ * 따라서 "거래는 일어나는데 prpr 이 멈춰 있는" 평일 08:00~20:00 중 KRX 정규장
+ * (09:00~15:30) 밖 시간대에 종목별 통합 시세로 보정한다.
+ * 정규장 중엔 prpr 자체가 실시간이라 보정 불필요, 20:00~익일 08:00 은 거래 없음.
  */
-export function isPreMarketKst(now: Date): boolean {
-  // KST = UTC+9 (DST 없음). 주말 제외, 08:00 ≤ t < 09:00.
+export function isExtendedHoursKst(now: Date): boolean {
+  // KST = UTC+9 (DST 없음). 주말 제외.
   const kstMs = now.getTime() + 9 * 60 * 60 * 1000;
   const kst = new Date(kstMs);
   const day = kst.getUTCDay();           // 0=일, 6=토
   if (day === 0 || day === 6) return false;
   const minutes = kst.getUTCHours() * 60 + kst.getUTCMinutes();
-  return minutes >= 8 * 60 && minutes < 9 * 60;
+  const preMarket = minutes >= 8 * 60 && minutes < 9 * 60;            // 08:00~09:00
+  const afterMarket = minutes >= 15 * 60 + 30 && minutes < 20 * 60;   // 15:30~20:00
+  return preMarket || afterMarket;
 }
 
 /** 손익률 폴백 — KIS 가 0 으로 주는 장전 구간에서도 헤드라인 % 가 0.00 으로 죽지 않게. */
@@ -73,11 +80,11 @@ interface InquirePriceOutput {
 }
 
 /**
- * 장전 보정용 종목 현재가 — KIS 앱과 같은 KRX+NXT 통합('UN') 시세 우선,
- * 미지원/실패 시 KRX('J')의 예상체결가(antc_cnpr) 폴백. 둘 다 없으면 null(원값 유지).
- * 모든 호출은 rate-limit 큐 경유.
+ * 장전·장후 보정용 종목 현재가 — KIS 앱과 같은 KRX+NXT 통합('UN') 시세 우선,
+ * 미지원/실패 시 KRX('J')의 예상체결가(antc_cnpr, 장전 동시호가용) 폴백.
+ * 둘 다 없으면 null(원값 유지). 모든 호출은 rate-limit 큐 경유.
  */
-async function fetchPreMarketPrice(
+async function fetchUnifiedPrice(
   ticker: string,
   token: string,
   appKey: string,
@@ -98,8 +105,8 @@ async function fetchPreMarketPrice(
     const { ok, data } = await kisFetchJson<InquirePriceOutput>(
       `${baseUrl}/uapi/domestic-stock/v1/quotations/inquire-price?${params}`,
       { headers },
-      `premkt-${div}-${ticker}`,
-      1, // 장전 보정은 best-effort — 재시도 1회만
+      `ext-${div}-${ticker}`,
+      1, // 장전·장후 보정은 best-effort — 재시도 1회만
     );
     if (!ok || !data?.output) continue;
     if (div === 'UN') {
@@ -191,14 +198,15 @@ export async function getKisBalance(force = false): Promise<KisBalance | null> {
     let totalProfitLoss = Number(summary.evlu_pfls_smtl_amt || 0);
     let rawRate = Number(summary.tot_evlu_pfls_rt || 0);
 
-    // v6.0.6 장전 보정 — 08:00~09:00 KST 에는 inquire-balance 가 전일종가 기준이라
-    // KIS 앱(NXT 프리마켓/예상체결가 평가)과 어긋남. 앱과 같은 시세로 종목별 보정하고
-    // 합계도 보정된 보유분 기준으로 재계산해 화면이 자기모순 없게 만든다.
-    const preMarket = isPreMarketKst(new Date());
-    if (preMarket && holdings.length > 0) {
+    // v6.0.8 장전·장후 보정 — KRX 정규장 밖(08:00~09:00 프리마켓, 15:30~20:00 NXT
+    // 애프터마켓)에는 inquire-balance 가 KRX 종가/전일종가에 고정되어 KIS 앱(KRX+NXT
+    // 통합가 평가)과 어긋남. 앱과 같은 통합 시세로 종목별 보정하고 합계도 보정분
+    // 기준으로 재계산해 화면이 자기모순 없게 만든다.
+    const extendedHours = isExtendedHoursKst(new Date());
+    if (extendedHours && holdings.length > 0) {
       let anyOverride = false;
       for (const h of holdings) {
-        const live = await fetchPreMarketPrice(h.ticker, token, appKey, appSecret, baseUrl);
+        const live = await fetchUnifiedPrice(h.ticker, token, appKey, appSecret, baseUrl);
         if (live !== null && live !== h.currentPrice) {
           h.currentPrice = live;
           h.totalValue = Math.round(live * h.quantity);
@@ -225,7 +233,7 @@ export async function getKisBalance(force = false): Promise<KisBalance | null> {
       depositAmount: krwDeposit,
       orderableAmount,
       fetchedAt: new Date().toISOString(),
-      preMarket,
+      extendedHours,
     };
     cache = { data: result, at: Date.now() };
     return result;
