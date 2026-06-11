@@ -2,6 +2,28 @@
 
 Stock Manager 주요 릴리즈 변경사항. 자세한 노트는 [GitHub Releases](https://github.com/shartith/StockManager/releases)에서 확인.
 
+## v6.0.9 — 2026-06-11
+
+**KOSPI/KOSDAQ 지수 KIS 단일화 — 대시보드·마켓 브레이크·매매 엔진.**
+
+운영 신고: 대시보드 KOSPI 7,731(-4.5%) vs KIS 앱 7,531.35(-2.58%). 분석 결과
+우리 값은 **전일 종가와 전일 등락률** — Yahoo ^KS11/^KQ11 이 세션 하루 뒤처진
+데이터를 반환 + 30분 캐시. **치명적**: 같은 데이터가 마켓 브레이크(KOSPI -2%
+매수차단)·죽는장 판정·S3 매도 트리거에 쓰여 **매매 안전망이 어제 등락률로 동작**.
+
+### 수정
+- 신규 `kisIndex.ts`: KIS 업종 현재지수(FHPUP02100000, KOSPI '0001'/KOSDAQ '1001')
+  — 시세와 같은 원천(KIS)·실시간·큐 경유·45초 캐시. `parseIndexOutput` 순수 함수.
+- `marketSignals.getKospiDailyChange`: KIS 우선, Yahoo 폴백 → **엔진의 모든 KOSPI
+  판단(브레이크 공유·죽는장·S3·딥바이 로그)이 실시간 지수 기준**.
+- `marketBrake`: KOSPI 를 직접 Yahoo 호출 → `getKospiDailyChange`(KIS 우선) 공유.
+  VIX 는 해외지수라 Yahoo 유지.
+- `getMarketContext`(대시보드 칩): KOSPI/KOSDAQ 는 KIS, VIX 는 Yahoo. 실패 항목만
+  Yahoo 폴백. **캐시 30분 → 60초** (어제 등락률이 30분간 고정되던 원인 제거).
+
+### 검증
+- 188 tests pass (+4: 신고 당시 KIS 실측값 7,531.35/-2.58% 파싱 재현), tsc clean, 빌드 성공.
+
 ## v6.0.8 — 2026-06-11
 
 **장후(NXT 애프터마켓)까지 실시간 시세 반영 — 보정 창 일반화.**

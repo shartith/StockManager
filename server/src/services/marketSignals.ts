@@ -11,6 +11,7 @@
  *   - 60초 캐시. 매시간 cron 에서 1~수 회 호출되는 정도라 짧게.
  */
 
+import { getKisIndices } from './kisIndex';
 import logger from '../logger';
 
 interface KospiDailyChange {
@@ -54,10 +55,27 @@ async function fetchKospiCloses(rangeText: string): Promise<number[]> {
 
 /**
  * KOSPI 전일 대비 변동률 (-3.5 = 3.5% 하락).
- * Yahoo `chartPreviousClose` 가 정확 — meta 의 regularMarketPrice / chartPreviousClose 로 계산.
+ *
+ * v6.0.9: KIS 업종지수(실시간) 우선 — Yahoo ^KS11 은 세션이 하루 뒤처지는 경우가
+ * 있어(전일 종가·전일 등락률을 오늘 것처럼 반환) 브레이크/죽는장/S3 트리거가
+ * 어제 데이터로 동작하던 문제의 근본 수정. Yahoo 는 KIS 미설정/실패 시 폴백.
  */
 export async function getKospiDailyChange(): Promise<KospiDailyChange | null> {
   if (dailyCache && Date.now() - dailyCache.fetchedAt < CACHE_TTL) return dailyCache;
+
+  try {
+    const kis = await getKisIndices();
+    if (kis.kospi) {
+      dailyCache = {
+        price: kis.kospi.price,
+        changePercent: kis.kospi.changePercent,
+        fetchedAt: Date.now(),
+      };
+      return dailyCache;
+    }
+  } catch {
+    /* 아래 Yahoo 폴백 */
+  }
 
   try {
     const res = await fetch(

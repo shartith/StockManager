@@ -6,6 +6,7 @@
  */
 
 import { fetchYahooQuote } from './stockPrice';
+import { getKospiDailyChange } from './marketSignals';
 import { getSettings } from './settings';
 import logger from '../logger';
 
@@ -48,7 +49,9 @@ export async function checkMarketBrake(): Promise<BrakeStatus> {
   let vixLvl: number | undefined;
 
   try {
-    const kospi = await fetchYahooQuote('^KS11');
+    // v6.0.9: KIS 업종지수 우선(marketSignals 공유) — Yahoo 세션 지연으로
+    // 어제 등락률 기준으로 매수 차단이 켜지거나/안 켜지던 문제 수정.
+    const kospi = await getKospiDailyChange();
     if (kospi) {
       kospiPct = kospi.changePercent;
       if (kospi.changePercent <= threshold) {

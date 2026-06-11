@@ -1,5 +1,6 @@
 import { getAccessToken, getKisConfig } from './kisAuth';
 import { getSettings } from './settings';
+import { getKisIndices } from './kisIndex';
 import { kisApiCall, yahooApiCall } from './apiQueue';
 
 /** KIS API로 단일 종목 현재가 조회 */
@@ -288,7 +289,9 @@ export interface MarketContextData {
 }
 
 let marketContextCache: { data: MarketContextData; fetchedAt: number } | null = null;
-const CONTEXT_CACHE_TTL = 30 * 60 * 1000; // 30분
+// v6.0.9: 30분 → 60초. 지수는 실시간이어야 함 (어제 등락률이 30분간 고정되던 원인).
+// KIS 호출은 kisIndex 자체 45초 캐시 + 큐 경유라 저렴.
+const CONTEXT_CACHE_TTL = 60 * 1000;
 
 export async function fetchYahooQuote(symbol: string): Promise<{ price: number; changePercent: number } | null> {
   try {
@@ -310,27 +313,43 @@ export async function fetchYahooQuote(symbol: string): Promise<{ price: number; 
   }
 }
 
-/** KRX 시장 지수 조회 (KOSPI, KOSDAQ, VIX) */
+/**
+ * KRX 시장 지수 조회 (KOSPI, KOSDAQ, VIX).
+ *
+ * v6.0.9: KOSPI/KOSDAQ 는 KIS 업종지수(실시간) 우선 — Yahoo ^KS11/^KQ11 은
+ * 세션이 하루 뒤처져(전일 종가·전일 등락률 반환) 대시보드 지수가 KIS 앱과
+ * 어긋나던 원인. VIX 는 해외지수라 Yahoo 유지. KIS 실패 항목만 Yahoo 폴백.
+ */
 export async function getMarketContext(): Promise<MarketContextData> {
   const now = Date.now();
   if (marketContextCache && now - marketContextCache.fetchedAt < CONTEXT_CACHE_TTL) {
     return marketContextCache.data;
   }
 
-  const symbols = [
-    { key: 'kospi', symbol: '^KS11' },
-    { key: 'kosdaq', symbol: '^KQ11' },
+  const context: MarketContextData = {};
+
+  try {
+    const kis = await getKisIndices();
+    if (kis.kospi) context.kospi = kis.kospi;
+    if (kis.kosdaq) context.kosdaq = kis.kosdaq;
+  } catch {
+    /* 아래 Yahoo 폴백 */
+  }
+
+  // VIX(항상 Yahoo) + KIS 가 못 준 지수만 Yahoo 폴백
+  const symbols: Array<{ key: 'kospi' | 'kosdaq' | 'vix'; symbol: string }> = [
     { key: 'vix', symbol: '^VIX' },
   ];
+  if (!context.kospi) symbols.push({ key: 'kospi', symbol: '^KS11' });
+  if (!context.kosdaq) symbols.push({ key: 'kosdaq', symbol: '^KQ11' });
 
   const results = await Promise.allSettled(
     symbols.map(async s => ({ key: s.key, data: await fetchYahooQuote(s.symbol) }))
   );
 
-  const context: MarketContextData = {};
   for (const r of results) {
     if (r.status === 'fulfilled' && r.value.data) {
-      (context as any)[r.value.key] = r.value.data;
+      context[r.value.key] = r.value.data;
     }
   }
 
