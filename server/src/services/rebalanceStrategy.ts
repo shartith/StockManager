@@ -47,8 +47,10 @@ import logger from '../logger';
 //   · 트레일링 -2% 는 유지(완화 시 3개 레짐 모두 악화) / 하드 손절은 거부(휩쏘).
 //   상세: scripts/backtest-harness.mjs, docs/backtest-v5.7/STRATEGY_REVIEW.md
 // ─────────────────────────────────────────────────────────────
-const TRAILING_ACTIVATION_PCT = 10; // 수익 +10% 도달 시 트레일링 활성화
-const TRAILING_STOP_DROP_PCT = 2;   // 활성 후 고점 대비 -2% 시 매도 (백테스트상 유지가 최선)
+// v6.1.2: 트레일링 활성률/하락폭은 설정값(settings.trailingActivatePercent /
+//   trailingStopDropPercent)으로 노출. 아래는 설정 미지정 시 폴백 기본값(백테스트 확정치).
+const DEFAULT_TRAILING_ACTIVATION_PCT = 10; // 수익 +10% 도달 시 트레일링 활성화
+const DEFAULT_TRAILING_STOP_DROP_PCT = 2;   // 활성 후 고점 대비 -2% 시 매도 (백테스트상 유지가 최선)
 const KOSPI_BUY_TRIGGER = -4;       // KOSPI -4% 이하: 적극 매수 모드 (현재는 marketBrake 와 별도 로깅만)
 const KOSPI_SELL_TRIGGER = 4;       // KOSPI +4% 이상: 이익 실현 매도 트리거
 const KOSPI_SELL_PROFIT_MIN = 5;    // 위 트리거 시 매도 대상은 +5% 이상 수익 종목
@@ -105,6 +107,7 @@ interface PositionRow {
   market: string;
   qty: number;
   avg_price: number;
+  locked: boolean;  // 거래 고정 — 자동매매 매도/재분배 제외 (장기 보유 보호)
 }
 
 interface Position extends PositionRow {
@@ -122,8 +125,11 @@ interface Position extends PositionRow {
 // ─────────────────────────────────────────────────────────────
 
 function getCurrentPositions(): PositionRow[] {
-  const rows = queryAll<Omit<PositionRow, 'qty' | 'avg_price'>>(`
-    SELECT DISTINCT s.id as stock_id, s.ticker, s.name, COALESCE(s.market, 'KRX') as market
+  const rows = queryAll<{
+    stock_id: number; ticker: string; name: string; market: string; locked: number;
+  }>(`
+    SELECT DISTINCT s.id as stock_id, s.ticker, s.name, COALESCE(s.market, 'KRX') as market,
+           COALESCE(s.locked, 0) as locked
     FROM stocks s
     JOIN transactions t ON t.stock_id = s.id
     WHERE s.deleted_at IS NULL AND t.deleted_at IS NULL
@@ -138,7 +144,10 @@ function getCurrentPositions(): PositionRow[] {
     .map((r) => {
       const pos = positions.get(r.stock_id);
       return pos && pos.quantity > 0
-        ? { ...r, qty: pos.quantity, avg_price: pos.avgPrice }
+        ? {
+            stock_id: r.stock_id, ticker: r.ticker, name: r.name, market: r.market,
+            locked: !!r.locked, qty: pos.quantity, avg_price: pos.avgPrice,
+          }
         : null;
     })
     .filter((r): r is PositionRow => r !== null);
@@ -433,6 +442,8 @@ function evaluateSells(
   mode: 'normal' | 'kospi-spike-sell-only',
   today: string,
   marketStressed: boolean,
+  trailingActivatePct: number,
+  trailingStopDropPct: number,
 ): SellDecision[] {
   const rankMap = new Map<string, number>();
   topExtended.forEach((s) => rankMap.set(s.ticker, s.rank));
@@ -444,10 +455,14 @@ function evaluateSells(
     ensureTracking(p.stock_id, rankForInit, p.currentPrice);
     // 트래킹 데이터 갱신 — 보유 중 최고가 추적은 매도 여부와 무관하게 매번
     updateHighestPrice(p.stock_id, p.currentPrice);
-    if (!p.trailingActive && p.profitPercent >= TRAILING_ACTIVATION_PCT) {
+    if (!p.trailingActive && p.profitPercent >= trailingActivatePct) {
       activateTrailing(p.stock_id);
       p.trailingActive = true;
     }
+
+    // 거래 고정(잠금) 종목 — 자동매매 매도 대상에서 제외 (장기 보유 보호).
+    // 트래킹(최고가/트레일링 활성)은 위에서 갱신해 두되, 어떤 매도 룰(S1/S2/S3)도 평가하지 않는다.
+    if (p.locked) continue;
 
     // KOSPI 스파이크 매도 전용 모드: S3 만 평가
     if (mode === 'kospi-spike-sell-only') {
@@ -463,7 +478,7 @@ function evaluateSells(
     // S1 트레일링 스톱
     if (p.trailingActive && p.highestPrice && p.highestPrice > 0) {
       const dropPct = ((p.highestPrice - p.currentPrice) / p.highestPrice) * 100;
-      if (dropPct >= TRAILING_STOP_DROP_PCT) {
+      if (dropPct >= trailingStopDropPct) {
         decisions.push({
           position: p,
           reason: `트레일링 스톱 — 고점 ${p.highestPrice.toLocaleString()} 대비 -${dropPct.toFixed(2)}%`,
@@ -479,7 +494,7 @@ function evaluateSells(
     //
     // v5.8: 모니터링 유니버스(Top 20) 밖으로 이탈 + EXIT_CONFIRM_TICKS 회 연속 확인돼야
     // 매도. buyRank 와 무관하게 "유니버스 이탈 확정" 만 본다. 이는 사용자 의도("10위권
-    // 밖이라고 성급히 팔지 않기")와 정확히 일치. trailingActive(이익 +10% 도달)인 종목은
+    // 밖이라고 성급히 팔지 않기")와 정확히 일치. trailingActive(설정 활성 수익률 도달)인 종목은
     // 트레일링 스톱이 우선 관리하므로 순위 매도에서 제외(승자 조기 청산 방지).
     // v6.0.3 "안 봐도 되는 손해" 방지 — 두 경우엔 순위이탈 매도를 보류:
     //   (a) 급락 패닉일(marketStressed): 순위가 노이즈라 바닥에 던지지 않음
@@ -608,6 +623,8 @@ async function executeBuyPhase(
   for (const p of positions) {
     if (top10Set.has(p.ticker)) holdingQty[p.ticker] = p.qty;
   }
+  // 거래 고정 종목 — 재분배(추가 매수) 대상에서도 제외해 보유 수량을 그대로 동결
+  const lockedSet = new Set(positions.filter((p) => p.locked).map((p) => p.ticker));
   const buyTally: Record<string, { name: string; qty: number; lastPrice: number; reason: string }> = {};
 
   const recordBuy = (s: TopStock, fillPrice: number, reason: string): void => {
@@ -667,7 +684,7 @@ async function executeBuyPhase(
   for (let i = 0; i < REBAL_MAX_ITER; i++) {
     if (cash <= 0) break;
     const reCandidates = top10
-      .filter((s) => (holdingQty[s.ticker] ?? 0) > 0 && s.closePrice > 0 && s.closePrice <= cash)
+      .filter((s) => (holdingQty[s.ticker] ?? 0) > 0 && !lockedSet.has(s.ticker) && s.closePrice > 0 && s.closePrice <= cash)
       .map((s) => ({ stock: s, evalAmt: (holdingQty[s.ticker] ?? 0) * s.closePrice }))
       .sort((a, b) => a.evalAmt - b.evalAmt);
     if (reCandidates.length === 0) break;
@@ -765,6 +782,8 @@ export async function runRebalanceStrategy(
     mode,
     today,
     marketStressed,
+    settings.trailingActivatePercent ?? DEFAULT_TRAILING_ACTIVATION_PCT,
+    settings.trailingStopDropPercent ?? DEFAULT_TRAILING_STOP_DROP_PCT,
   );
   await executeSellDecisions(sellDecisions, result, dryRun);
 

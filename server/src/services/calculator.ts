@@ -22,6 +22,7 @@ export interface PortfolioHolding {
   avgPrice: number;
   totalCost: number;
   totalFees: number;
+  locked: boolean;        // 거래 고정(자동매매 매도/재분배 제외)
   currentPrice?: number;
   currentValue?: number;
   profitLoss?: number;
@@ -46,6 +47,7 @@ export function getPortfolioHoldings(): PortfolioHolding[] {
     name: string;
     market: string;
     sector: string;
+    locked: number;
     total_buy_fee: number;
     total_sell_fee: number;
   }>(`
@@ -55,6 +57,7 @@ export function getPortfolioHoldings(): PortfolioHolding[] {
       s.name,
       COALESCE(s.market, 'KRX') as market,
       COALESCE(s.sector, '') as sector,
+      COALESCE(s.locked, 0) as locked,
       COALESCE(SUM(CASE WHEN t.type = 'BUY' THEN t.fee ELSE 0 END), 0) as total_buy_fee,
       COALESCE(SUM(CASE WHEN t.type = 'SELL' THEN t.fee ELSE 0 END), 0) as total_sell_fee
     FROM stocks s
@@ -82,6 +85,7 @@ export function getPortfolioHoldings(): PortfolioHolding[] {
         avgPrice: Math.round(pos.avgPrice * 100) / 100,
         totalCost: Math.round(totalCost * 100) / 100,
         totalFees: Math.round((row.total_buy_fee + row.total_sell_fee) * 100) / 100,
+        locked: !!row.locked,
       };
     });
 }

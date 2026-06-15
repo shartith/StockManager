@@ -73,3 +73,34 @@ export function resolveExchange(session: MarketSession, nxtEnabled: boolean): Ex
 export function priceMarketDiv(session: MarketSession): 'UN' | 'J' {
   return isExtendedSession(session) ? 'UN' : 'J';
 }
+
+/**
+ * 수동 주문 허용 시간대 판정 (순수). 사용자가 화면에서 직접 낸 주문이 "주문외 시간"인지
+ * 사전 안내하기 위한 보수적 판정 — 명백히 닫힌 시간만 차단하고, 동시호가/시간외 경계의
+ * 미세 규칙은 KIS 응답에 맡긴다(오탐으로 정상 주문을 막지 않기 위함).
+ * 책임 경계: 주말은 이 함수가 자체 차단하고, 평일 공휴일은 호출 측에서 isKrxHoliday 로 확인한다.
+ *   · NXT 사용 : 평일 08:00~20:00 (프리·메인·애프터)
+ *   · KRX 전용 : 평일 08:30~18:00 (장전 동시호가 ~ 시간외 단일가까지 폭넓게 허용)
+ */
+export function manualOrderTimeWindow(
+  now: Date,
+  nxtEnabled: boolean,
+): { open: boolean; reason?: string } {
+  const kst = new Date(now.getTime() + 9 * 60 * 60 * 1000);
+  const day = kst.getUTCDay(); // 0=일, 6=토
+  if (day === 0 || day === 6) {
+    return { open: false, reason: '주말에는 주문할 수 없습니다. (정규장: 평일 09:00~15:30)' };
+  }
+  const min = kst.getUTCHours() * 60 + kst.getUTCMinutes();
+  const openMin = nxtEnabled ? MIN(8) : MIN(8, 30);
+  const closeMin = nxtEnabled ? MIN(20) : MIN(18);
+  if (min < openMin || min >= closeMin) {
+    return {
+      open: false,
+      reason: nxtEnabled
+        ? '지금은 주문 가능 시간이 아닙니다. (정규장 09:00~15:30 · NXT 08:00~08:50·15:30~20:00)'
+        : '지금은 주문 가능 시간이 아닙니다. (정규장 09:00~15:30 · 시간외 15:40~18:00)',
+    };
+  }
+  return { open: true };
+}

@@ -55,6 +55,27 @@ export const saveConfigSchema = z.object({
   selectionMode: z.enum(['marketcap', 'momentum']).optional(),
   regimeFilterEnabled: z.boolean().optional(),
   nxtTradingEnabled: z.boolean().optional(),
+
+  // v6.1.2 트레일링 익절 — 활성 수익률(1~100%) + 고점 대비 하락폭(0.5~20%)
+  trailingActivatePercent: z.number().min(1).max(100).optional(),
+  trailingStopDropPercent: z.number().min(0.5).max(20).optional(),
+});
+
+// ── 수동 주문 (포트폴리오 화면 → 실제 KIS 주문) ──
+
+export const manualOrderSchema = z.object({
+  stock_id: z.number({ error: '종목 ID는 필수입니다' }).positive(),
+  type: z.enum(['BUY', 'SELL'], { error: '거래 유형은 BUY 또는 SELL이어야 합니다' }),
+  quantity: z.number({ error: '수량은 필수입니다' }).int('수량은 정수여야 합니다').positive('수량은 양수여야 합니다'),
+  price: z.number().min(0, '가격은 0 이상이어야 합니다').default(0), // 0 = 시장가/현재가 자동 결정
+  memo: z.string().default(''),
+});
+
+// ── 종목 거래 고정(잠금) — 자동매매 매도/재분배 제외 ──
+
+export const lockStockSchema = z.object({
+  stock_id: z.number({ error: '종목 ID는 필수입니다' }).positive(),
+  locked: z.boolean({ error: 'locked는 true 또는 false 여야 합니다' }),
 });
 
 // ── System Events ──

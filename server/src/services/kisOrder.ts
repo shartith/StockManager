@@ -48,6 +48,9 @@ export interface OrderRequest {
   confidenceMultiplier?: number;
   /** v5.4.0 — SELL 시점 호가 호의적이면 지정가, 아니면 시장가. quote book 기반 동적 결정. */
   preferLimitOnSell?: boolean;
+  /** v6.1.2 — 수동 주문(포트폴리오 화면 추가매수/매도). 자동매매 토글과 무관하게 실행하고
+   *  거래내역 memo 를 '수동매매' 로 기록한다. */
+  manual?: boolean;
 }
 
 export interface OrderResult {
@@ -89,6 +92,30 @@ export function classifyFailure(errorMessage: string): FailureReason {
   if (/timeout|network|ECONNREFUSED/i.test(m)) return 'NETWORK';
   if (/^APBK|^msg_cd/.test(m)) return 'API_ERROR';
   return 'UNKNOWN';
+}
+
+/**
+ * 주문 실패/거부 메시지를 사용자용 한글 안내로 변환 (수동 주문 알림용).
+ * KIS 원문 메시지는 괄호로 함께 노출해 원인 추적이 가능하게 한다.
+ */
+export function friendlyOrderError(raw: string): string {
+  const m = raw || '';
+  if (/시간|장종료|장 ?종료|장개시|장 ?개시|운영시간|주문가능시간|영업일|개장|마감/.test(m)) {
+    return `지금은 주문 가능 시간이 아닙니다.${raw ? ` (사유: ${raw})` : ''}`;
+  }
+  if (/호가|APBK0506|가격제한|상한가|하한가|단위|가격/.test(m)) {
+    return `주문 가격이 유효하지 않습니다 — 호가 단위·가격제한폭을 확인하세요.${raw ? ` (사유: ${raw})` : ''}`;
+  }
+  if (/주문가능|잔고|현금부족|예수금|미수|INSUFFICIENT/i.test(m)) {
+    return `주문가능 금액 또는 수량이 부족합니다.${raw ? ` (사유: ${raw})` : ''}`;
+  }
+  if (/거래정지|매매정지|상장폐지|정리매매|APBK0066/.test(m)) {
+    return `거래정지·거래불가 종목입니다.${raw ? ` (사유: ${raw})` : ''}`;
+  }
+  if (/현재가 조회 실패/.test(m)) {
+    return '현재가 조회에 실패했습니다. 잠시 후 다시 시도하세요.';
+  }
+  return raw || '주문을 처리할 수 없습니다.';
 }
 
 // ─── 현재가 조회 ──────────────────────────────────────
@@ -382,8 +409,10 @@ export function isSuspendedToday(stockId: number): { suspended: boolean; reason?
 export async function executeOrder(req: OrderRequest): Promise<OrderResult> {
   const settings = getSettings();
 
-  // 0. 당일 거래정지 이력 차단 — 같은 종목에 대한 동일 에러 반복을 방지
-  const suspended = isSuspendedToday(req.stockId);
+  // 0. 당일 거래정지 이력 차단 — 같은 종목에 대한 동일 에러 반복을 방지.
+  //    수동 주문(req.manual)은 사용자가 직접 낸 주문이므로 이 로컬 가드를 건너뛰고
+  //    KIS 응답을 최종 판정으로 삼는다(실제 거래정지면 KIS 가 거부 → friendlyOrderError 안내).
+  const suspended = !req.manual ? isSuspendedToday(req.stockId) : { suspended: false as const };
   if (suspended.suspended) {
     try {
       const { logSystemEvent } = await import('./systemEvent');
@@ -455,10 +484,13 @@ export async function executeOrder(req: OrderRequest): Promise<OrderResult> {
     return { success: false, message: '주문 수량 0 — 주문가능금액 부족 또는 가격 대비 한도 부족', quantity: 0, price: orderPrice, fee: 0 };
   }
 
-  // 3. 리스크 체크
-  const riskCheck = checkRiskLimits(req.orderType, orderPrice * quantity);
-  if (!riskCheck.allowed) {
-    return { success: false, message: riskCheck.reason!, quantity, price: orderPrice, fee: 0 };
+  // 3. 리스크 체크 — 수동 주문(req.manual)은 자동매매 토글과 무관하게 사용자가 직접 낸 주문이므로
+  //    autoTradeEnabled 게이트를 건너뛴다.
+  if (!req.manual) {
+    const riskCheck = checkRiskLimits(req.orderType, orderPrice * quantity);
+    if (!riskCheck.allowed) {
+      return { success: false, message: riskCheck.reason!, quantity, price: orderPrice, fee: 0 };
+    }
   }
 
   // 4. 수수료 계산
@@ -491,11 +523,13 @@ export async function executeOrder(req: OrderRequest): Promise<OrderResult> {
       );
 
       const today = new Date().toISOString().split('T')[0];
+      // 수동 주문은 거래내역에서 '수동매매' 로 식별 (자동매매와 구분 — UI 배지/필터용)
+      const memoPrefix = req.manual ? '수동매매' : '자동매매';
       execute(
         'INSERT INTO transactions (stock_id, type, quantity, price, fee, date, memo) VALUES (?, ?, ?, ?, ?, ?, ?)',
         [
           req.stockId, req.orderType, finalQty, finalPrice, finalFee, today,
-          `자동매매 (KIS: ${result.orderNo})${req.reason ? ' / ' + req.reason : ''}`,
+          `${memoPrefix} (KIS: ${result.orderNo})${req.reason ? ' / ' + req.reason : ''}`,
         ],
       );
 

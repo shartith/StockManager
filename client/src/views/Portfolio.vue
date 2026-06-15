@@ -61,7 +61,10 @@
           <tbody>
             <tr v-for="h in summary.holdings" :key="h.stockId">
               <td>
-                <p class="font-medium text-txt-primary truncate" :title="h.name">{{ h.name }}</p>
+                <p class="font-medium text-txt-primary truncate flex items-center gap-1" :title="h.name">
+                  <span v-if="h.locked" class="text-amber-500 shrink-0" title="거래 고정 — 자동매매 매도 제외">🔒</span>
+                  <span class="truncate">{{ h.name }}</span>
+                </p>
                 <p class="text-xs text-txt-tertiary">{{ h.ticker }}</p>
               </td>
               <td>
@@ -105,6 +108,12 @@
                     class="w-16 px-2 py-1 rounded-md text-xs font-medium bg-profit/10 text-profit hover:bg-profit/20 transition-colors">추가매수</button>
                   <button @click="openTradeModal(h, 'SELL')"
                     class="w-16 px-2 py-1 rounded-md text-xs font-medium bg-loss/10 text-loss hover:bg-loss/20 transition-colors">매도</button>
+                  <button @click="toggleLock(h)"
+                    :title="h.locked ? '거래 고정됨 — 자동매매 매도/재분배 제외 (클릭 시 해제)' : '거래 고정 — 자동매매 매도에서 제외 (수동매매는 가능)'"
+                    class="w-16 px-2 py-1 rounded-md text-xs font-medium transition-colors"
+                    :class="h.locked ? 'bg-amber-500/20 text-amber-500 hover:bg-amber-500/30' : 'bg-surface-2 text-txt-tertiary hover:bg-surface-3'">
+                    {{ h.locked ? '🔒 고정' : '🔓 고정' }}
+                  </button>
                 </div>
               </td>
             </tr>
@@ -117,7 +126,10 @@
         <div v-for="h in summary.holdings" :key="h.stockId" class="p-4 space-y-3">
           <div class="flex items-center justify-between">
             <div>
-              <p class="font-medium text-txt-primary">{{ h.name }}</p>
+              <p class="font-medium text-txt-primary flex items-center gap-1">
+                <span v-if="h.locked" class="text-amber-500 shrink-0" title="거래 고정">🔒</span>
+                {{ h.name }}
+              </p>
               <p class="text-xs text-txt-tertiary">{{ h.ticker }}
                 <span v-if="h.market" class="ml-1 px-1.5 py-0.5 rounded text-[10px] font-medium bg-surface-2">{{ h.market }}</span>
               </p>
@@ -138,6 +150,12 @@
             <button @click="openChart(h.ticker)" class="flex-1 py-1.5 rounded-md text-xs font-medium bg-surface-2 text-txt-secondary hover:bg-surface-3 transition-colors">차트</button>
             <button @click="openTradeModal(h, 'BUY')" class="flex-1 py-1.5 rounded-md text-xs font-medium bg-profit/10 text-profit hover:bg-profit/20 transition-colors">매수</button>
             <button @click="openTradeModal(h, 'SELL')" class="flex-1 py-1.5 rounded-md text-xs font-medium bg-loss/10 text-loss hover:bg-loss/20 transition-colors">매도</button>
+            <button @click="toggleLock(h)"
+              :title="h.locked ? '거래 고정됨 (클릭 시 해제)' : '거래 고정 — 자동매매 매도 제외'"
+              class="px-3 py-1.5 rounded-md text-xs font-medium transition-colors"
+              :class="h.locked ? 'bg-amber-500/20 text-amber-500' : 'bg-surface-2 text-txt-tertiary'">
+              {{ h.locked ? '🔒' : '🔓' }}
+            </button>
           </div>
         </div>
       </div>
@@ -174,7 +192,16 @@
           <h3 class="text-lg font-bold text-txt-primary mb-1">
             {{ tradeForm.type === 'BUY' ? '추가 매수' : '매도' }}
           </h3>
-          <p class="text-sm text-txt-secondary mb-4">{{ tradeTarget?.name }} ({{ tradeTarget?.ticker }})</p>
+          <p class="text-sm text-txt-secondary mb-3">{{ tradeTarget?.name }} ({{ tradeTarget?.ticker }})</p>
+
+          <!-- 실제 주문 안내 — 기록용이 아니라 KIS 실주문 -->
+          <div class="rounded-xl px-3 py-2 mb-4 text-xs font-medium flex items-center gap-1.5"
+            :class="accountVirtual
+              ? 'bg-blue-500/10 text-blue-500 border border-blue-500/20'
+              : 'bg-loss/10 text-loss border border-loss/20'">
+            <span>{{ accountVirtual ? '🧪' : '⚠️' }}</span>
+            <span>{{ accountVirtual ? '모의투자 계좌 — 실제 체결됩니다' : '실전 계좌 — 실제 자금으로 주문이 체결됩니다' }}</span>
+          </div>
 
           <div class="bg-surface-2 rounded-xl p-3 mb-4 text-sm space-y-1">
             <div class="flex justify-between">
@@ -211,19 +238,16 @@
                        focus:outline-none focus:ring-2 focus:ring-accent focus:border-transparent transition-all" required />
             </div>
             <div>
-              <label class="block text-sm text-txt-secondary mb-1">가격 *</label>
+              <label class="block text-sm text-txt-secondary mb-1">가격 (지정가)</label>
               <input v-model.number="tradeForm.price" type="number" min="0" step="any"
                 class="w-full bg-surface-2 border border-border rounded-xl px-3 py-2.5 text-sm text-txt-primary
-                       focus:outline-none focus:ring-2 focus:ring-accent focus:border-transparent transition-all" required />
-              <button v-if="tradeTarget?.currentPrice" type="button"
-                @click="tradeForm.price = tradeTarget.currentPrice"
-                class="text-xs text-accent hover:underline mt-1">현재가 적용</button>
-            </div>
-            <div>
-              <label class="block text-sm text-txt-secondary mb-1">수수료</label>
-              <input v-model.number="tradeForm.fee" type="number" min="0" step="any"
-                class="w-full bg-surface-2 border border-border rounded-xl px-3 py-2.5 text-sm text-txt-primary
                        focus:outline-none focus:ring-2 focus:ring-accent focus:border-transparent transition-all" />
+              <div class="flex items-center gap-2 mt-1">
+                <button v-if="tradeTarget?.currentPrice" type="button"
+                  @click="tradeForm.price = tradeTarget.currentPrice"
+                  class="text-xs text-accent hover:underline">현재가 적용</button>
+                <span class="text-xs text-txt-tertiary">0 입력 시 {{ tradeForm.type === 'BUY' ? '현재가 기준 자동' : '시장가' }}로 주문</span>
+              </div>
             </div>
             <div>
               <label class="block text-sm text-txt-secondary mb-1">메모</label>
@@ -246,6 +270,15 @@
               </div>
             </div>
 
+            <!-- 거래 불가/주문 실패 알림 — 주문외 시간·가격·잔고 등 -->
+            <Transition name="fade">
+              <div v-if="tradeError"
+                class="rounded-xl px-3 py-2.5 text-sm bg-red-500/10 text-red-500 border border-red-500/20 flex items-start gap-2">
+                <span class="shrink-0 leading-none mt-0.5">🚫</span>
+                <span>{{ tradeError }}</span>
+              </div>
+            </Transition>
+
             <div class="flex gap-2 pt-2">
               <button type="submit" :disabled="submitting"
                 class="flex-1 py-2.5 rounded-xl text-sm font-medium transition-colors"
@@ -260,8 +293,14 @@
               </button>
             </div>
           </form>
-          <p v-if="tradeError" class="text-profit text-sm mt-2">{{ tradeError }}</p>
         </div>
+      </div>
+    </Transition>
+
+    <!-- 주문 결과 토스트 -->
+    <Transition name="fade">
+      <div v-if="orderMessage" class="fixed bottom-6 right-6 px-4 py-3 rounded-lg shadow-lg bg-green-600 text-white text-sm z-[60] max-w-xs">
+        ✓ {{ orderMessage }}
       </div>
     </Transition>
   </div>
@@ -269,7 +308,7 @@
 
 <script setup lang="ts">
 import { ref, onMounted } from 'vue';
-import { portfolioApi, transactionsApi } from '@/api';
+import { portfolioApi, chartApi } from '@/api';
 // v4.7.0: lazy-load ChartModal to keep lightweight-charts (~170KB) out of
 // the initial Portfolio bundle. The chart only loads when the user clicks
 // the 차트 button.
@@ -290,9 +329,14 @@ const loading = ref(false);
 
 const showTradeModal = ref(false);
 const tradeTarget = ref<any>(null);
-const tradeForm = ref({ type: 'BUY' as 'BUY' | 'SELL', quantity: 0, price: 0, fee: 0, memo: '' });
+const tradeForm = ref({ type: 'BUY' as 'BUY' | 'SELL', quantity: 0, price: 0, memo: '' });
 const tradeError = ref('');
 const submitting = ref(false);
+// KIS 계좌 모드 (실전/모의) — 주문 전 사용자에게 경고 표시용.
+// 로드 전에는 안전하게 '실전'(=false)으로 가정해 ⚠️ 경고를 먼저 띄운다(과경고가 안전).
+const accountVirtual = ref(false);
+// 주문 체결 결과 토스트
+const orderMessage = ref('');
 
 const ALLOC_COLORS = [
   'bg-blue-500', 'bg-red-500', 'bg-green-500', 'bg-amber-500',
@@ -311,7 +355,7 @@ function formatNum(value: number): string {
 
 function openTradeModal(holding: any, type: 'BUY' | 'SELL') {
   tradeTarget.value = holding;
-  tradeForm.value = { type, quantity: type === 'SELL' ? holding.quantity : 0, price: holding.currentPrice || 0, fee: 0, memo: '' };
+  tradeForm.value = { type, quantity: type === 'SELL' ? holding.quantity : 0, price: holding.currentPrice || 0, memo: '' };
   tradeError.value = '';
   showTradeModal.value = true;
 }
@@ -326,32 +370,59 @@ function setQuantityPercent(pct: number) {
 }
 
 async function submitTrade() {
-  if (tradeForm.value.quantity <= 0 || tradeForm.value.price <= 0) {
-    tradeError.value = '수량과 가격을 입력하세요';
+  if (tradeForm.value.quantity <= 0) {
+    tradeError.value = '수량을 입력하세요';
     return;
   }
-  if (tradeForm.value.type === 'SELL' && tradeForm.value.quantity > tradeTarget.value.quantity) {
+  if (tradeForm.value.type === 'SELL' && tradeForm.value.quantity > (tradeTarget.value?.quantity ?? 0)) {
     tradeError.value = `보유 수량(${tradeTarget.value.quantity}주)을 초과할 수 없습니다`;
     return;
   }
+
+  // 실제 KIS 주문 — 체결 전 명시적 확인 (실전 계좌는 실자금)
+  const verb = tradeForm.value.type === 'BUY' ? '매수' : '매도';
+  const priceLabel = tradeForm.value.price > 0
+    ? `${formatNum(tradeForm.value.price)}원 지정가`
+    : (tradeForm.value.type === 'BUY' ? '현재가 기준' : '시장가');
+  const mode = accountVirtual.value ? '모의투자 계좌' : '⚠️ 실전 계좌(실자금)';
+  const ok = window.confirm(
+    `${mode}에 실제 주문을 전송합니다.\n\n` +
+    `${tradeTarget.value.name} (${tradeTarget.value.ticker})\n` +
+    `${verb} ${tradeForm.value.quantity}주 · ${priceLabel}\n\n계속하시겠습니까?`,
+  );
+  if (!ok) return;
+
   submitting.value = true;
   tradeError.value = '';
   try {
-    await transactionsApi.create({
+    const { data } = await portfolioApi.order({
       stock_id: tradeTarget.value.stockId,
       type: tradeForm.value.type,
       quantity: tradeForm.value.quantity,
-      price: tradeForm.value.price,
-      fee: tradeForm.value.fee || 0,
-      date: new Date().toISOString().split('T')[0],
+      price: tradeForm.value.price || 0,
       memo: tradeForm.value.memo,
     });
     showTradeModal.value = false;
+    orderMessage.value = data?.message || '주문이 전송되었습니다';
+    setTimeout(() => { orderMessage.value = ''; }, 5000);
     await loadPortfolio();
   } catch (err: any) {
-    tradeError.value = err.response?.data?.error || '거래 처리 실패';
+    tradeError.value = err.response?.data?.error || '주문 실패';
   }
   submitting.value = false;
+}
+
+async function toggleLock(holding: any) {
+  const next = !holding.locked;
+  holding.locked = next; // 낙관적 업데이트 — 즉시 반영
+  try {
+    const { data } = await portfolioApi.lock(holding.stockId, next);
+    orderMessage.value = data?.message || (next ? '거래 고정됨' : '고정 해제됨');
+  } catch (err: any) {
+    holding.locked = !next; // 실패 시 롤백
+    orderMessage.value = err.response?.data?.error || '고정 변경 실패';
+  }
+  setTimeout(() => { orderMessage.value = ''; }, 4000);
 }
 
 async function loadPortfolio() {
@@ -363,8 +434,16 @@ async function loadPortfolio() {
   loading.value = false;
 }
 
+async function loadAccountMode() {
+  try {
+    const { data } = await chartApi.getConfig();
+    accountVirtual.value = data.isVirtual !== false;
+  } catch {}
+}
+
 onMounted(() => {
   loadPortfolio();
+  loadAccountMode();
 });
 </script>
 

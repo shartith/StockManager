@@ -67,6 +67,7 @@ export async function initializeDB(): Promise<Db> {
       sector TEXT DEFAULT '',
       category TEXT DEFAULT '',
       dart_code TEXT,
+      locked INTEGER DEFAULT 0,            -- 1=거래 고정(자동매매 매도/재분배 제외). 장기 보유 보호.
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
       deleted_at DATETIME
     )
@@ -221,6 +222,9 @@ export async function initializeDB(): Promise<Db> {
   // ── auto_trades chase tracking (v5.2.0) ──
   try { dbRun('ALTER TABLE auto_trades ADD COLUMN chase_level INTEGER DEFAULT 0'); } catch {}
 
+  // ── v6.1.2 종목 고정(거래 잠금): 장기 보유 종목을 자동매매 매도/재분배에서 제외 ──
+  try { dbRun('ALTER TABLE stocks ADD COLUMN locked INTEGER DEFAULT 0'); } catch {}
+
   // ── Intraday strategy state (v5.1.0) ──
   // dailyStrategy의 in-memory 상태를 영구화: 시초가 baseline, 트레일링 high water mark,
   // 당일 매수 여부, 매도 후 cooldown용 시각.
@@ -284,7 +288,7 @@ export async function initializeDB(): Promise<Db> {
       buy_rank INTEGER NOT NULL,            -- 최초/마지막 매수 시점의 시총 순위 (1=1위)
       buy_price REAL NOT NULL,              -- 매수 시점 종가 (평단과 별개, 추적 시작가)
       highest_price REAL NOT NULL,          -- 보유 기간 중 관측된 최고가
-      trailing_active INTEGER DEFAULT 0,    -- 1=수익 +10% 도달, 트레일링 스톱 감시 중
+      trailing_active INTEGER DEFAULT 0,    -- 1=설정 활성 수익률(기본 +10%) 도달, 트레일링 스톱 감시 중
       out_of_universe_count INTEGER DEFAULT 0, -- v5.8: Top 20 밖 연속 "거래일" 수 (히스테리시스 매도)
       last_out_date TEXT,                   -- v5.8: out_of_universe_count 를 마지막으로 +1 한 날짜(YYYY-MM-DD)
       updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,

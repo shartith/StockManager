@@ -61,6 +61,12 @@ export const transactionsApi = {
 export const portfolioApi = {
   getSummary: () => api.get('/portfolio/summary'),
   getHistory: () => api.get('/portfolio/history'),
+  // 수동 주문 — 실제 KIS 주문 실행 (포트폴리오 추가매수/매도)
+  order: (data: { stock_id: number; type: 'BUY' | 'SELL'; quantity: number; price?: number; memo?: string }) =>
+    api.post('/portfolio/order', data),
+  // 종목 거래 고정/해제 — 고정 시 자동매매 매도/재분배 제외
+  lock: (stock_id: number, locked: boolean) =>
+    api.post('/portfolio/lock', { stock_id, locked }),
 };
 
 // 차트 / KIS

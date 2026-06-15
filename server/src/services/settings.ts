@@ -1,17 +1,22 @@
 /**
- * 설정 관리 (v5.6.0 라이트 모드).
+ * 설정 관리 (v6.1 라이트 모드).
  *
- * 노출 필드: KIS 인증 + 자동매매 ON/OFF + KRX 스케줄 + 시장 브레이크.
+ * 노출 필드: KIS 인증 + 자동매매 ON/OFF + KRX 스케줄 + 시장 브레이크
+ *           + 매매전략(시총/모멘텀, 200일선 레짐, NXT) + 트레일링 익절(활성률/하락폭).
  *
  * v5.6 제거:
  *   LLM (llmProvider, llmUrl, llmModel, llmEnabled, llmApiKey, llmFallbackUrl 등)
  *   DART (dartApiKey, dartEnabled)
- *   sellRules 11종 (targetProfitRate, hardStopLossRate, trailingStopRate 등)
+ *   sellRules 11종 (targetProfitRate, hardStopLossRate 등)
  *   매수 게이트 (entryGainPercent, gapUpMaxPercent, reEntryCooldownMinutes)
  *   포지션 (positionMaxPositions — Top10 고정 10)
  *   EOD (eodProfitTakePercent)
  *   strategyMode (top10 only)
  *   mcpEnabled
+ *
+ * v6.1.2 재노출:
+ *   trailingActivatePercent / trailingStopDropPercent — 트레일링 익절 임계값.
+ *   (rebalanceStrategy 의 상수 → 설정값으로. 미설정 시 기존 10% / 2% 기본값 유지)
  */
 
 import fs from 'fs';
@@ -63,6 +68,13 @@ export interface AppSettings {
   //   true  = 메인장 SOR(최선주문집행) + 프리/애프터마켓(08~09, 15:30~20시) 자동매매
   //   false = KRX 전용 (현행, 검증된 경로) — NXT 신청 확인 후 켜기 권장
   nxtTradingEnabled: boolean;
+
+  // 트레일링 익절 (S1 매도 규칙)
+  //   trailingActivatePercent = 수익 +이 %(기본 10) 도달 시 트레일링 감시 시작
+  //   trailingStopDropPercent = 활성 후 고점 대비 -이 %(기본 2) 이탈 시 매도
+  // 즉시 익절이 아니라 "고점 추적 후 되돌림 매도" — 추가 상승분을 보호한다.
+  trailingActivatePercent: number;
+  trailingStopDropPercent: number;
 }
 
 const DEFAULT_SETTINGS: AppSettings = {
@@ -86,6 +98,10 @@ const DEFAULT_SETTINGS: AppSettings = {
 
   // NXT 기본 OFF — 계좌 NXT 신청 확인 + 관찰모드 검증 후 켜기
   nxtTradingEnabled: false,
+
+  // 트레일링 익절 — 백테스트로 확정된 기존 상수값(10% 활성 / 2% 하락)을 기본값으로
+  trailingActivatePercent: 10,
+  trailingStopDropPercent: 2,
 };
 
 let _cache: AppSettings | null = null;
@@ -117,7 +133,7 @@ const LEGACY_FIELDS = [
   'llmFallbackUrl', 'llmFallbackModel', 'llmFallbackApiKey',
   'dartApiKey', 'dartEnabled',
   'sellRulesEnabled', 'targetProfitRate', 'hardStopLossRate',
-  'trailingStopRate', 'trailingActivatePercent',
+  'trailingStopRate', // v6.1.2: trailingActivatePercent 는 재노출되어 legacy 에서 제외
   'sidewaysMinutes', 'lossMinutes', 'profitThresholdPercent',
   'positionMaxPositions',
   'eodProfitTakePercent',

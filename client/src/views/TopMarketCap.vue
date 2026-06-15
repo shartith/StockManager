@@ -123,13 +123,13 @@
       </div>
     </div>
 
-    <!-- 보유 중인데 Top 10 밖 (다음 rebalance에서 매도 대상) -->
+    <!-- 보유 중인데 Top 10 밖 (순위 이탈 매도 감시 대상) -->
     <div v-if="heldNotInTop10.length > 0" class="glass-card p-4 mb-6 border-l-4 border-amber-500">
       <h3 class="text-sm font-semibold text-txt-primary mb-2">
         ⚠ 보유 중 Top 10 이탈 — {{ heldNotInTop10.length }}건
       </h3>
       <p class="text-xs text-txt-tertiary mb-3">
-        다음 rebalance 사이클(매시 정각)에 시장가 매도 예정
+        Top 10 이탈만으로는 매도하지 않습니다. Top 20 밖으로 2거래일 연속 이탈해야 순위 매도 후보 (트레일링 활성 종목·급락장은 제외).
       </p>
       <ul class="space-y-1">
         <li v-for="h in heldNotInTop10" :key="h.ticker"
@@ -143,12 +143,13 @@
     <!-- 전략 안내 -->
     <details class="glass-card p-4 text-sm text-txt-secondary">
       <summary class="font-semibold text-txt-primary cursor-pointer">전략 동작 방식</summary>
-      <ul class="mt-3 space-y-1 list-disc list-inside">
-        <li>매일 <strong>09:00</strong> 시총 Top 10 산정 → rebalance</li>
-        <li>매시 <strong>10:00~14:00</strong> 시총 재산정 → 변경 시 즉시 rebalance</li>
-        <li>보유 중 Top 10 이탈 → 시장가 매도 (시장 브레이크 무시, 항상 진행)</li>
-        <li>Top 10 신규 진입 → 가용현금 균등 분배 매수 (시장 브레이크 시 차단)</li>
-        <li>매수 단위: floor(가용현금 / 신규 종목 수). 1주 가격이 한도 초과면 1주 시도, 그래도 불가능하면 skip</li>
+      <ul class="mt-3 space-y-1.5 list-disc list-inside">
+        <li>스케줄: <strong>09:05</strong> 1차 → 매시 <strong>10~14시</strong> 재평가 → <strong>14:30</strong> KOSPI 급등 시 이익실현 (NXT 켜면 08:40·16:00·18:00 추가)</li>
+        <li>종목 선택: 설정에 따라 <strong>시총 Top 10</strong> 또는 <strong>가격 모멘텀 Top 10</strong> (시총 Top 30 중 120일 상위)</li>
+        <li>매도 ① 트레일링: 수익이 설정 활성률(기본 +10%) 도달 후 고점 대비 하락폭(기본 −2%) 이탈 시</li>
+        <li>매도 ② 순위 이탈: Top 20 밖 2거래일 연속 (큰 손실·급락장은 보류) — Top 10 이탈만으론 안 팖</li>
+        <li>매도 ③ KOSPI +4% 급등 + 보유 수익 +5% 이상 → 이익실현</li>
+        <li>매수: 미보유 Top 10 + 11~20위 상승추세를 1주씩, 잔여 현금은 보유 Top 10 재분배 (시장 브레이크·죽는장·200일선 약세 시 신규 매수 차단)</li>
       </ul>
     </details>
   </div>
@@ -206,7 +207,7 @@ async function refresh(): Promise<void> {
 
 async function manualRebalance(): Promise<void> {
   if (rebalancing.value) return;
-  if (!confirm('수동 rebalance를 실행합니다. 시총 Top 10 이탈 매도 + 신규 진입 매수가 즉시 진행됩니다.')) return;
+  if (!confirm('수동 rebalance를 실행합니다. 트레일링·순위이탈 매도 + 신규 진입 매수가 즉시 평가/실행됩니다.')) return;
   rebalancing.value = true;
   try {
     await topMarketCapApi.rebalance('manual UI trigger');

@@ -139,6 +139,7 @@
                 </span>
                 <span v-if="t.is_paper" class="ml-1 px-1.5 py-0.5 rounded text-xs bg-purple-200 text-purple-800 font-bold">🧪 가상</span>
                 <span v-else-if="isAutoTrade(t)" class="ml-1 px-1.5 py-0.5 rounded text-xs bg-purple-100 text-purple-700">자동</span>
+                <span v-else-if="isManualTrade(t)" class="ml-1 px-1.5 py-0.5 rounded text-xs bg-emerald-100 text-emerald-700">수동</span>
               </td>
               <td class="text-right px-4 py-3">{{ t.quantity }}</td>
               <td class="text-right px-4 py-3">{{ formatNumber(t.price) }}</td>
@@ -187,6 +188,7 @@
               </span>
               <span v-if="t.is_paper" class="px-1.5 py-0.5 rounded text-[10px] bg-purple-200 text-purple-800 font-bold">가상</span>
               <span v-else-if="isAutoTrade(t)" class="px-1.5 py-0.5 rounded text-[10px] bg-purple-100 text-purple-700">자동</span>
+              <span v-else-if="isManualTrade(t)" class="px-1.5 py-0.5 rounded text-[10px] bg-emerald-100 text-emerald-700">수동</span>
             </div>
           </div>
           <div class="grid grid-cols-2 gap-x-4 gap-y-1.5 text-xs">
@@ -251,6 +253,11 @@ function formatNumber(n: number) {
 
 function isAutoTrade(t: any): boolean {
   return (t.memo || '').includes('자동매매') || (t.memo || '').includes('auto');
+}
+
+// 수동 주문 — 포트폴리오 화면에서 직접 낸 실제 KIS 주문 (memo: '수동매매 (KIS: ...)')
+function isManualTrade(t: any): boolean {
+  return (t.memo || '').includes('수동매매');
 }
 
 function getNetAmount(t: any): number {

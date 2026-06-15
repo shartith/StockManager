@@ -2,8 +2,14 @@ import { Router, Request, Response } from 'express';
 import { getPortfolioSummary } from '../services/calculator';
 import { getMultipleStockPrices } from '../services/stockPrice';
 import { getKisBalance } from '../services/kisBalance';
-import { queryAll } from '../db';
+import { executeOrder, friendlyOrderError } from '../services/kisOrder';
+import { getSettings } from '../services/settings';
+import { manualOrderTimeWindow } from '../services/kisMarketHours';
+import { isKrxHoliday } from '../services/marketCalendar';
+import { queryAll, queryOne, execute } from '../db';
+import { validate } from '../middleware/validate';
 import { asyncHandler } from '../middleware/errorHandler';
+import { manualOrderSchema, lockStockSchema } from '../schemas';
 
 const router = Router();
 
@@ -78,6 +84,90 @@ router.get('/summary', asyncHandler(async (_req: Request, res: Response) => {
     res.status(500).json({ error: '포트폴리오 조회 실패' });
   }
 }));
+
+// 수동 주문 — 포트폴리오 화면의 추가매수/매도. 실제 KIS 주문을 실행한다.
+// (자동매매 토글과 무관하게 사용자가 직접 낸 주문이므로 executeOrder({ manual: true }))
+router.post('/order', validate(manualOrderSchema), asyncHandler(async (req: Request, res: Response) => {
+  const { stock_id, type, quantity, price, memo } = req.body as {
+    stock_id: number; type: 'BUY' | 'SELL'; quantity: number; price: number; memo: string;
+  };
+
+  const settings = getSettings();
+  if (!settings.kisAppKey || !settings.kisAppSecret) {
+    return res.status(400).json({ error: 'KIS API 설정이 필요합니다. (설정 화면에서 등록하세요)' });
+  }
+  if (!settings.kisAccountNo) {
+    return res.status(400).json({ error: '계좌번호가 설정되지 않았습니다.' });
+  }
+
+  // 거래 시간 사전 점검 — 주문외 시간/휴장이면 KIS 호출 없이 즉시 안내 (불필요한 거부 방지).
+  // now 를 1회 캡처해 휴장/시간대 판정에 동일 시각을 사용(자정 경계 레이스 제거).
+  const now = new Date();
+  if (isKrxHoliday(now)) {
+    return res.status(400).json({
+      error: '오늘은 증시 휴장일(주말·공휴일)입니다. 평일 정규장 09:00~15:30 에 주문하세요.',
+      code: 'MARKET_CLOSED',
+    });
+  }
+  const timeWindow = manualOrderTimeWindow(now, !!settings.nxtTradingEnabled);
+  if (!timeWindow.open) {
+    return res.status(400).json({ error: timeWindow.reason!, code: 'MARKET_CLOSED' });
+  }
+
+  const stock = queryOne<{ id: number; ticker: string; name: string }>(
+    'SELECT id, ticker, name FROM stocks WHERE id = ? AND deleted_at IS NULL',
+    [stock_id],
+  );
+  if (!stock) {
+    return res.status(404).json({ error: '종목을 찾을 수 없습니다.' });
+  }
+
+  const result = await executeOrder({
+    stockId: stock_id,
+    ticker: stock.ticker,
+    market: 'KRX',
+    orderType: type,
+    quantity,
+    price: price || 0, // 0 = 현재가 기반 자동(매수 -0.5% 지정가 / 매도 시장가)
+    reason: memo ? `수동 주문 — ${memo}` : '수동 주문',
+    manual: true,
+  });
+
+  if (!result.success) {
+    // KIS 거부 사유(시간/가격/잔고/거래정지 등)를 사용자용 안내로 변환해 알림.
+    // 원문 메시지는 executeOrder 가 이미 서버 로그에 남기므로 응답 본문엔 노출하지 않는다.
+    return res.status(400).json({ error: friendlyOrderError(result.message), code: 'ORDER_FAILED' });
+  }
+  return res.json({
+    success: true,
+    message: `${type === 'BUY' ? '매수' : '매도'} 체결 — ${result.quantity}주 @ ${result.price.toLocaleString()}원`,
+    quantity: result.quantity,
+    price: result.price,
+    fee: result.fee,
+    kisOrderNo: result.kisOrderNo,
+  });
+}));
+
+// 종목 거래 고정/해제 — 고정 시 자동매매 매도·재분배 대상에서 제외 (장기 보유 보호).
+// 수동 주문(추가매수/매도)에는 영향 없음 — 사용자가 직접 내는 주문은 항상 가능.
+router.post('/lock', validate(lockStockSchema), (req: Request, res: Response) => {
+  const { stock_id, locked } = req.body as { stock_id: number; locked: boolean };
+  const stock = queryOne<{ id: number; name: string }>(
+    'SELECT id, name FROM stocks WHERE id = ? AND deleted_at IS NULL',
+    [stock_id],
+  );
+  if (!stock) {
+    return res.status(404).json({ error: '종목을 찾을 수 없습니다.' });
+  }
+  execute('UPDATE stocks SET locked = ? WHERE id = ?', [locked ? 1 : 0, stock_id]);
+  return res.json({
+    stock_id,
+    locked,
+    message: locked
+      ? `${stock.name} 거래 고정 — 자동매매 매도/재분배에서 제외됩니다.`
+      : `${stock.name} 고정 해제됨.`,
+  });
+});
 
 router.get('/history', (_req: Request, res: Response) => {
   const history = queryAll(`

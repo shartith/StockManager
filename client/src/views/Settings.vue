@@ -2,7 +2,7 @@
   <div class="space-y-6">
     <div>
       <h2 class="text-2xl font-bold text-txt-primary">설정</h2>
-      <p class="text-sm text-txt-tertiary mt-0.5">v5.6.0 — Top 10 시총 추종 (라이트 모드)</p>
+      <p class="text-sm text-txt-tertiary mt-0.5">v6.1.2 — 시총·모멘텀 Top 10 자동매매</p>
     </div>
 
     <!-- 데이터 새로고침 -->
@@ -46,9 +46,10 @@
     <div class="solid-card p-5 space-y-3">
       <h3 class="text-sm font-semibold text-txt-primary">자동매매</h3>
       <ToggleSwitch v-model="form.autoTradeEnabled" label="자동매매 활성" />
-      <ToggleSwitch v-model="scheduleEnabled" label="KRX 스케줄 활성 (09:00 + 매시 10~14시 rebalance)" />
+      <ToggleSwitch v-model="scheduleEnabled" label="KRX 스케줄 활성 (09:05 + 매시 10~14시 rebalance)" />
       <p class="text-xs text-txt-tertiary">
-        매일 09:00에 시총 Top 10 추종 rebalance (이탈 매도 + 신규 진입). 매시 10~14시에 시총 재산정 후 변경분 적용.
+        매일 09:05 1차 rebalance, 매시 10~14시 재평가, 14:30 KOSPI 급등 시 이익실현, 15:25/15:50 마감 정리.
+        종목 선택은 아래 매매 전략 설정을 따릅니다.
       </p>
     </div>
 
@@ -76,6 +77,31 @@
       <p class="text-xs text-txt-tertiary">
         정규장은 KRX/NXT 최선주문집행(SOR), 프리마켓(08~09시)·애프터마켓(15:30~20시)에도 자동매매.
         <span class="text-amber-500">계좌 NXT 신청 확인 + 자동매매 OFF 로 관찰 후 켜세요. 확장시간은 호가가 얇아 지정가로만 주문하며, 전략은 정규장 기준으로만 백테스트됨.</span>
+      </p>
+    </div>
+
+    <!-- 익절 (트레일링 스톱) -->
+    <div class="solid-card p-5 space-y-3">
+      <h3 class="text-sm font-semibold text-txt-primary">익절 (트레일링 스톱)</h3>
+      <p class="text-xs text-txt-tertiary">
+        수익이 <strong>활성 수익률</strong>에 도달하면 고점을 추적하기 시작하고, 고점 대비 <strong>하락폭</strong>만큼 밀리면 매도합니다.
+        정확히 그 수익률에서 파는 게 아니라 추가 상승분을 보호하는 방식입니다.
+      </p>
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+        <div>
+          <label class="block text-xs font-medium text-txt-secondary mb-1">활성 수익률 (%)</label>
+          <input v-model.number="form.trailingActivatePercent" type="number" step="0.5" min="1" max="100"
+            class="w-full border border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-accent" />
+        </div>
+        <div>
+          <label class="block text-xs font-medium text-txt-secondary mb-1">고점 대비 하락폭 (%)</label>
+          <input v-model.number="form.trailingStopDropPercent" type="number" step="0.5" min="0.5" max="20"
+            class="w-full border border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-accent" />
+        </div>
+      </div>
+      <p class="text-xs text-txt-tertiary">
+        예: 활성 10% · 하락폭 2% → +10% 도달 후 고점 대비 −2% 밀리면 매도.
+        <span class="text-amber-500">기본값(10% / 2%)은 멀티 레짐 백테스트로 확정된 값입니다.</span>
       </p>
     </div>
 
@@ -159,6 +185,9 @@ const form = ref({
   selectionMode: 'marketcap' as 'marketcap' | 'momentum',
   regimeFilterEnabled: false,
   nxtTradingEnabled: false,
+
+  trailingActivatePercent: 10,
+  trailingStopDropPercent: 2,
 });
 
 const scheduleEnabled = ref(false);
@@ -186,6 +215,9 @@ async function load(): Promise<void> {
     form.value.selectionMode = data.selectionMode === 'momentum' ? 'momentum' : 'marketcap';
     form.value.regimeFilterEnabled = !!data.regimeFilterEnabled;
     form.value.nxtTradingEnabled = !!data.nxtTradingEnabled;
+
+    form.value.trailingActivatePercent = data.trailingActivatePercent ?? 10;
+    form.value.trailingStopDropPercent = data.trailingStopDropPercent ?? 2;
   } catch {
     /* form은 기본값 유지 */
   }
@@ -211,6 +243,9 @@ async function save(): Promise<void> {
       selectionMode: form.value.selectionMode,
       regimeFilterEnabled: form.value.regimeFilterEnabled,
       nxtTradingEnabled: form.value.nxtTradingEnabled,
+
+      trailingActivatePercent: form.value.trailingActivatePercent,
+      trailingStopDropPercent: form.value.trailingStopDropPercent,
     });
     message.value = '✓ 설정 저장됨';
     messageType.value = 'success';

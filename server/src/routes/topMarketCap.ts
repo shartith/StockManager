@@ -15,12 +15,13 @@ import { asyncHandler } from '../middleware/errorHandler';
 const router = Router();
 
 interface HoldingMap {
-  [ticker: string]: { quantity: number };
+  [ticker: string]: { quantity: number; locked: boolean };
 }
 
 function getHoldingMap(): HoldingMap {
-  const rows = queryAll<{ ticker: string; qty: number }>(`
+  const rows = queryAll<{ ticker: string; qty: number; locked: number }>(`
     SELECT s.ticker,
+           COALESCE(s.locked, 0) as locked,
            COALESCE(SUM(CASE WHEN t.type = 'BUY' THEN t.quantity ELSE -t.quantity END), 0) as qty
     FROM stocks s
     JOIN transactions t ON t.stock_id = s.id
@@ -30,7 +31,7 @@ function getHoldingMap(): HoldingMap {
   `);
   const map: HoldingMap = {};
   for (const r of rows) {
-    map[r.ticker] = { quantity: Number(r.qty) || 0 };
+    map[r.ticker] = { quantity: Number(r.qty) || 0, locked: !!r.locked };
   }
   return map;
 }
@@ -65,8 +66,9 @@ router.get(
     const result = force ? await refreshTop10() : await fetchTop10(false);
     const holdings = getHoldingMap();
     const top10Tickers = new Set(result.top10.map((s) => s.ticker));
+    // 고정(잠금) 종목은 자동매매 매도 대상이 아니므로 "이탈 매도 후보" 경고에서 제외
     const heldNotInTop10 = Object.entries(holdings)
-      .filter(([ticker]) => !top10Tickers.has(ticker))
+      .filter(([ticker, h]) => !top10Tickers.has(ticker) && !h.locked)
       .map(([ticker, h]) => ({ ticker, quantity: h.quantity }));
 
     const response: TopMarketCapResponse = {

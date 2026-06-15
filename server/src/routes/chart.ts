@@ -46,6 +46,9 @@ router.get('/config/form', (_req: Request, res: Response) => {
     selectionMode: settings.selectionMode,
     regimeFilterEnabled: settings.regimeFilterEnabled,
     nxtTradingEnabled: settings.nxtTradingEnabled,
+
+    trailingActivatePercent: settings.trailingActivatePercent,
+    trailingStopDropPercent: settings.trailingStopDropPercent,
   });
 });
 
@@ -56,6 +59,7 @@ router.post('/config', validate(saveConfigSchema), (req: Request, res: Response)
     autoTradeEnabled, scheduleKrx,
     marketBrakeEnabled, marketBrakeKospiPercent, marketBrakeVixLevel,
     selectionMode, regimeFilterEnabled, nxtTradingEnabled,
+    trailingActivatePercent, trailingStopDropPercent,
   } = req.body;
 
   const currentSettings = getSettings();
@@ -83,6 +87,8 @@ router.post('/config', validate(saveConfigSchema), (req: Request, res: Response)
       : {}),
     ...(typeof regimeFilterEnabled === 'boolean' ? { regimeFilterEnabled } : {}),
     ...(typeof nxtTradingEnabled === 'boolean' ? { nxtTradingEnabled } : {}),
+    ...(typeof trailingActivatePercent === 'number' ? { trailingActivatePercent } : {}),
+    ...(typeof trailingStopDropPercent === 'number' ? { trailingStopDropPercent } : {}),
   });
 
   process.env.KIS_APP_KEY = appKey;
