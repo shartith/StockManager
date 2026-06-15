@@ -14,6 +14,7 @@ import { getAccessToken, getKisConfig } from './kisAuth';
 import { getSettings } from './settings';
 import { kisFetchJson } from './kisHttp';
 import { getDomesticOrderableAmount } from './kisOrder';
+import { getKstSession, isExtendedSession } from './kisMarketHours';
 
 export interface KisHolding {
   ticker: string;
@@ -42,27 +43,14 @@ let cache: { data: KisBalance; at: number } | null = null;
 const CACHE_TTL = 5_000;
 
 /**
- * v6.0.8 확장 거래시간(장전·장후) 판정 — 순수 함수.
+ * 확장 거래시간(장전·장후) 판정 — v6.1: kisMarketHours 단일 소스에 위임.
  *
- * 배경: inquire-balance 의 prpr/evlu_amt 는 KRX 정규장 기준이라
- *   · 장전(08:00~09:00): NXT 프리마켓 체결/예상체결가가 반영 안 됨 (전일종가 고정)
- *   · 장후(15:30~20:00): NXT 애프터마켓 체결이 반영 안 됨 (KRX 종가 고정)
- * 인데 KIS 앱은 KRX+NXT 통합가로 평가 → 같은 시각인데 화면이 어긋남.
- *
- * 따라서 "거래는 일어나는데 prpr 이 멈춰 있는" 평일 08:00~20:00 중 KRX 정규장
- * (09:00~15:30) 밖 시간대에 종목별 통합 시세로 보정한다.
- * 정규장 중엔 prpr 자체가 실시간이라 보정 불필요, 20:00~익일 08:00 은 거래 없음.
+ * 배경: inquire-balance 의 prpr/evlu_amt 는 KRX 정규장 기준이라 프리마켓(08~09)·
+ * 애프터마켓(15:30~20)에는 멈춰 있고 KIS 앱은 KRX+NXT 통합가로 평가 → 화면이 어긋남.
+ * 그 구간에서만 통합 시세로 보정한다. (주문 라우팅과 같은 세션 판정을 쓰도록 통일)
  */
 export function isExtendedHoursKst(now: Date): boolean {
-  // KST = UTC+9 (DST 없음). 주말 제외.
-  const kstMs = now.getTime() + 9 * 60 * 60 * 1000;
-  const kst = new Date(kstMs);
-  const day = kst.getUTCDay();           // 0=일, 6=토
-  if (day === 0 || day === 6) return false;
-  const minutes = kst.getUTCHours() * 60 + kst.getUTCMinutes();
-  const preMarket = minutes >= 8 * 60 && minutes < 9 * 60;            // 08:00~09:00
-  const afterMarket = minutes >= 15 * 60 + 30 && minutes < 20 * 60;   // 15:30~20:00
-  return preMarket || afterMarket;
+  return isExtendedSession(getKstSession(now));
 }
 
 /** 손익률 폴백 — KIS 가 0 으로 주는 장전 구간에서도 헤드라인 % 가 0.00 으로 죽지 않게. */

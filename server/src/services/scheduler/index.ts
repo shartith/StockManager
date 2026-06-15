@@ -114,8 +114,38 @@ export function startScheduler() {
     }), { timezone: tz }),
   );
 
+  // ── v6.1 NXT 확장시간 자동매매 (nxtTradingEnabled 일 때만 실제 동작) ──
+  // 프리/애프터마켓은 KRX 휴장이라 NXT 로만 체결. 호가가 얇아 지정가(통합가) + 보수적 빈도.
+  // 게이트는 cron 안에서 검사 — 설정이 꺼져 있으면 즉시 return (cron 은 항상 등록).
+  const nxtGuard = (label: string, fn: () => Promise<void>) => guard(label, async () => {
+    if (!getSettings().nxtTradingEnabled) return; // NXT OFF — 확장시간 매매 안 함
+    await fn();
+  });
+
+  // 08:40 프리마켓 rebalance (08:00 개장 후 호가 안정 시점)
+  schedulerState.activeTasks.push(
+    cron.schedule('40 8 * * 1-5', nxtGuard('08:40 premarket', async () => {
+      const r = await runRebalanceStrategy('08:40 프리마켓(NXT)');
+      bumpDecisions({ buy: r.bought.length, sell: r.sold.length });
+      if (!r.noop) addLog('KRX', 'PRE_OPEN', 'completed',
+        `[Rebal] 프리마켓(NXT) — 매도 ${r.sold.length}건, 매수 ${r.bought.length}건`);
+      logger.info({ sold: r.sold.length, bought: r.bought.length }, '[Scheduler] 08:40 premarket(NXT)');
+    }), { timezone: tz }),
+  );
+
+  // 16:00·18:00 애프터마켓 rebalance (15:30~20:00 중 2회 — 얇은 호가 과매매 회피)
+  schedulerState.activeTasks.push(
+    cron.schedule('0 16,18 * * 1-5', nxtGuard('aftermarket', async () => {
+      const r = await runRebalanceStrategy('애프터마켓(NXT)');
+      bumpDecisions({ buy: r.bought.length, sell: r.sold.length });
+      if (!r.noop) addLog('KRX', 'INTRADAY', 'completed',
+        `[Rebal] 애프터마켓(NXT) — 매도 ${r.sold.length}건, 매수 ${r.bought.length}건`);
+      logger.info({ sold: r.sold.length, bought: r.bought.length }, '[Scheduler] aftermarket(NXT)');
+    }), { timezone: tz }),
+  );
+
   logger.info(
-    '[Scheduler] v5.7 cron 등록 (09:05 + 10~14시 매시간 + 14:30 스파이크 매도, 15:25 force-market, 15:50 reconcile, 휴장일 skip)',
+    '[Scheduler] v6.1 cron 등록 (09:05 + 10~14시 매시간 + 14:30 스파이크, 15:25 force-market, 15:50 reconcile, NXT 08:40/16:00/18:00, 휴장일 skip)',
   );
 
   // 서버 시작 직후 Top 10 prefetch (UI 첫 조회 즉시)

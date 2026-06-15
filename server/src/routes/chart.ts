@@ -45,6 +45,7 @@ router.get('/config/form', (_req: Request, res: Response) => {
 
     selectionMode: settings.selectionMode,
     regimeFilterEnabled: settings.regimeFilterEnabled,
+    nxtTradingEnabled: settings.nxtTradingEnabled,
   });
 });
 
@@ -54,7 +55,7 @@ router.post('/config', validate(saveConfigSchema), (req: Request, res: Response)
     appKey, appSecret, accountNo, accountProductCode, isVirtual,
     autoTradeEnabled, scheduleKrx,
     marketBrakeEnabled, marketBrakeKospiPercent, marketBrakeVixLevel,
-    selectionMode, regimeFilterEnabled,
+    selectionMode, regimeFilterEnabled, nxtTradingEnabled,
   } = req.body;
 
   const currentSettings = getSettings();
@@ -81,6 +82,7 @@ router.post('/config', validate(saveConfigSchema), (req: Request, res: Response)
       ? { selectionMode }
       : {}),
     ...(typeof regimeFilterEnabled === 'boolean' ? { regimeFilterEnabled } : {}),
+    ...(typeof nxtTradingEnabled === 'boolean' ? { nxtTradingEnabled } : {}),
   });
 
   process.env.KIS_APP_KEY = appKey;

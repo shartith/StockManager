@@ -58,6 +58,11 @@ export interface AppSettings {
   selectionMode: 'marketcap' | 'momentum';
   // 200일선 레짐 필터 — KOSPI 가 200일선 아래면 신규 매수 중단(보유 유지). 약세장 방어.
   regimeFilterEnabled: boolean;
+
+  // v6.1 NXT(넥스트레이드) 거래
+  //   true  = 메인장 SOR(최선주문집행) + 프리/애프터마켓(08~09, 15:30~20시) 자동매매
+  //   false = KRX 전용 (현행, 검증된 경로) — NXT 신청 확인 후 켜기 권장
+  nxtTradingEnabled: boolean;
 }
 
 const DEFAULT_SETTINGS: AppSettings = {
@@ -78,6 +83,9 @@ const DEFAULT_SETTINGS: AppSettings = {
   // 기본은 기존 동작 유지 — 사장님이 dry-run 관찰 후 'momentum' 으로 전환
   selectionMode: 'marketcap',
   regimeFilterEnabled: false,
+
+  // NXT 기본 OFF — 계좌 NXT 신청 확인 + 관찰모드 검증 후 켜기
+  nxtTradingEnabled: false,
 };
 
 let _cache: AppSettings | null = null;

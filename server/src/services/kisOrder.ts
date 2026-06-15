@@ -8,6 +8,10 @@ import { getAccessToken, getKisConfig } from './kisAuth';
 import { getSettings } from './settings';
 import { queryOne, queryAll, execute } from '../db';
 import { kisApiCall } from './apiQueue';
+import {
+  getKstSession, resolveExchange, isExtendedSession, priceMarketDiv,
+  type Exchange,
+} from './kisMarketHours';
 import logger from '../logger';
 
 /**
@@ -89,13 +93,14 @@ export function classifyFailure(errorMessage: string): FailureReason {
 
 // ─── 현재가 조회 ──────────────────────────────────────
 
-/** 국내주식 현재가 조회 — rate-limit 큐 경유 (v6.0.5: 직접 fetch 가 EGW00201 잔여 원인이었음) */
-async function getDomesticPrice(ticker: string): Promise<number | null> {
+/** 국내주식 현재가 조회 — rate-limit 큐 경유 (v6.0.5: 직접 fetch 가 EGW00201 잔여 원인이었음).
+ *  v6.1: mrktDiv 로 시장구분 선택 — 확장 세션엔 KRX+NXT 통합('UN'), 메인장엔 KRX('J'). */
+async function getDomesticPrice(ticker: string, mrktDiv: 'J' | 'UN' = 'J'): Promise<number | null> {
   const { appKey, appSecret, baseUrl } = getKisConfig();
   const token = await getAccessToken();
 
   const params = new URLSearchParams({
-    fid_cond_mrkt_div_code: 'J',
+    fid_cond_mrkt_div_code: mrktDiv,
     fid_input_iscd: ticker,
   });
 
@@ -117,9 +122,13 @@ async function getDomesticPrice(ticker: string): Promise<number | null> {
   return Number(data.output?.stck_prpr) || null;
 }
 
-/** KRX 현재가 조회 */
+/** 현재가 조회 — 확장 세션이면 통합('UN') 가, 그 외 KRX('J'). 'UN' 실패 시 'J' 폴백. */
 export async function getCurrentPrice(ticker: string, _market: 'KRX'): Promise<number | null> {
-  return getDomesticPrice(ticker);
+  const session = getKstSession(new Date());
+  const div = priceMarketDiv(session);
+  const price = await getDomesticPrice(ticker, div);
+  if (price !== null) return price;
+  return div === 'UN' ? getDomesticPrice(ticker, 'J') : null; // 통합가 실패 시 KRX 폴백
 }
 
 // ─── 수수료 계산 ──────────────────────────────────────
@@ -200,6 +209,7 @@ export async function submitDomesticOrder(
   orderType: 'BUY' | 'SELL',
   quantity: number,
   price: number,
+  exchange: Exchange = 'KRX',
 ): Promise<{ success: boolean; orderNo: string; message: string }> {
   const { appKey, appSecret, baseUrl, isVirtual } = getKisConfig();
   const settings = getSettings();
@@ -213,6 +223,9 @@ export async function submitDomesticOrder(
   // 주문유형: 00=지정가, 01=시장가
   const ordType = price > 0 ? '00' : '01';
 
+  // v6.1 거래소 라우팅 — KRX 외(SOR/NXT) 일 때만 EXCG_ID_DVSN_CD 부착.
+  // 모의투자(VTTC*)는 NXT 미지원이라 항상 KRX 로 강제.
+  const exchangeCode: Exchange = isVirtual ? 'KRX' : exchange;
   const body = {
     CANO: settings.kisAccountNo,
     ACNT_PRDT_CD: settings.kisAccountProductCode || '01',
@@ -220,6 +233,7 @@ export async function submitDomesticOrder(
     ORD_DVSN: ordType,
     ORD_QTY: String(quantity),
     ORD_UNPR: price > 0 ? String(price) : '0',
+    ...(exchangeCode !== 'KRX' ? { EXCG_ID_DVSN_CD: exchangeCode } : {}),
   };
 
   const data: any = await kisApiCall(async () => {
@@ -390,7 +404,13 @@ export async function executeOrder(req: OrderRequest): Promise<OrderResult> {
     };
   }
 
-  // 1. 현재가 조회 + 스마트 가격 결정
+  // v6.1 세션/거래소 결정. 확장 세션(프리/애프터마켓)엔 KRX 휴장이라 시장가가 거부/위험 →
+  // 무조건 지정가(통합가 기준). 메인장은 기존 동작 유지.
+  const session = getKstSession(new Date());
+  const exchange = resolveExchange(session, settings.nxtTradingEnabled);
+  const extended = isExtendedSession(session) && settings.nxtTradingEnabled;
+
+  // 1. 현재가 조회 + 스마트 가격 결정 (확장 세션은 통합가)
   const currentPrice = await getCurrentPrice(req.ticker, req.market);
   if (!currentPrice) {
     return { success: false, message: '현재가 조회 실패', quantity: 0, price: 0, fee: 0 };
@@ -401,12 +421,13 @@ export async function executeOrder(req: OrderRequest): Promise<OrderResult> {
 
   if (orderPrice <= 0) {
     if (req.orderType === 'BUY') {
-      // 매수: 현재가 -0.5% 지정가 + 호가 단위 보정 (v5.6.1 — APBK0506 거부 방지)
-      orderPrice = roundDownToTick(currentPrice * 0.995);
+      // 매수: (메인) 현재가 -0.5% 지정가 / (확장) 통합 현재가 그대로 — 얇은 호가에서 체결 우선
+      orderPrice = roundDownToTick(extended ? currentPrice : currentPrice * 0.995);
     } else {
-      // 매도: 시장가 (Top10 이탈 즉시 정리)
+      // 매도: (메인) 시장가 / (확장) 통합 현재가 지정가 — NXT 확장세션은 시장가 미지원
       orderPrice = currentPrice;
-      useMarketOrder = true;
+      useMarketOrder = !extended;
+      if (extended) orderPrice = roundDownToTick(currentPrice);
     }
   } else if (req.orderType === 'BUY') {
     // 외부에서 가격 명시 시에도 호가 단위 보정
@@ -454,7 +475,7 @@ export async function executeOrder(req: OrderRequest): Promise<OrderResult> {
     let result: { success: boolean; orderNo: string; message: string; filledQty?: number; filledPrice?: number };
 
     const submitPrice = useMarketOrder ? 0 : orderPrice;
-    result = await submitDomesticOrder(req.ticker, req.orderType, quantity, submitPrice);
+    result = await submitDomesticOrder(req.ticker, req.orderType, quantity, submitPrice, exchange);
 
     if (result.success) {
       // 부분 체결 처리: KIS 응답에서 실제 체결 수량/가격 사용 (가능 시).

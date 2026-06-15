@@ -54,6 +54,7 @@ export const saveConfigSchema = z.object({
   // v6.0 종목 선택 방식 + 200일선 레짐 필터
   selectionMode: z.enum(['marketcap', 'momentum']).optional(),
   regimeFilterEnabled: z.boolean().optional(),
+  nxtTradingEnabled: z.boolean().optional(),
 });
 
 // ── System Events ──

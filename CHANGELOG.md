@@ -2,6 +2,38 @@
 
 Stock Manager 주요 릴리즈 변경사항. 자세한 노트는 [GitHub Releases](https://github.com/shartith/StockManager/releases)에서 확인.
 
+## v6.1.0 — 2026-06-11
+
+**NXT(넥스트레이드) 거래 지원 — 메인장 SOR 최선주문집행 + 장전·장후 자동매매.**
+
+사장님 계좌가 NXT 가능 → 시세/평가는 이미 통합가(v6.0.6/6.0.8)지만, **주문 체결은
+KRX 전용**(EXCG_ID_DVSN_CD 누락)이라 확장시간엔 KRX 휴장으로 주문이 거부되고,
+정규장엔 NXT 더 좋은 호가를 못 잡고 있었음.
+
+### 신규
+- `kisMarketHours.ts`: 세션(pre/main/after/closed)·거래소 라우팅·시세 시장구분 단일 소스.
+  순수 함수 — `getKstSession`/`resolveExchange`/`isExtendedSession`/`priceMarketDiv`.
+- 설정 `nxtTradingEnabled` (기본 OFF) + Settings UI 토글.
+
+### 주문 라우팅 (`kisOrder`)
+- `order-cash` 에 `EXCG_ID_DVSN_CD` 부착: **메인장 SOR(최선집행), 프리/애프터 NXT.**
+  NXT OFF 면 KRX(현행 검증 경로). 모의투자는 NXT 미지원이라 항상 KRX.
+- 확장 세션 주문은 **무조건 지정가(통합 현재가)** — 얇은 NXT 호가에서 시장가 거부/슬리피지 방지.
+  주문 현재가도 확장 세션엔 통합('UN') 조회 (KRX 'J' 폴백).
+
+### 스케줄러
+- NXT ON 일 때 **08:40 프리마켓 + 16:00·18:00 애프터마켓 rebalance** cron 추가
+  (얇은 호가 과매매 회피 위해 보수적 빈도). OFF 면 즉시 return.
+
+### ⚠️ 안전/한계 (정직)
+- 기본 OFF. 켜기 전 **계좌 NXT 신청 확인 + 자동매매 OFF(관찰모드)** 권장.
+- **확장시간 매매는 정규장 일봉으로만 백테스트된 전략의 미검증 영역** — 호가 얇아 슬리피지 위험.
+  관찰 후 신중 적용. 메인장 SOR(최선집행)은 명확한 이점.
+- 미체결 추적(orderChase)은 정규장 기준 — 확장시간 미체결 지정가는 다음 세션까지 남을 수 있음.
+
+### 검증
+- 197 tests pass (+13: 세션 경계/거래소 라우팅/주말·UTC 경계), 서버·클라 tsc clean, 빌드 성공.
+
 ## v6.0.9 — 2026-06-11
 
 **KOSPI/KOSDAQ 지수 KIS 단일화 — 대시보드·마켓 브레이크·매매 엔진.**

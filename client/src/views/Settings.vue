@@ -71,6 +71,12 @@
       <p class="text-xs text-txt-tertiary">
         KOSPI 가 200일 이동평균선 아래면 신규 매수 중단(보유는 유지). 약세장 손실 방어 ↔ 급반등 일부 포기.
       </p>
+
+      <ToggleSwitch v-model="form.nxtTradingEnabled" label="NXT 거래 (메인 SOR + 장전·장후 자동매매)" />
+      <p class="text-xs text-txt-tertiary">
+        정규장은 KRX/NXT 최선주문집행(SOR), 프리마켓(08~09시)·애프터마켓(15:30~20시)에도 자동매매.
+        <span class="text-amber-500">계좌 NXT 신청 확인 + 자동매매 OFF 로 관찰 후 켜세요. 확장시간은 호가가 얇아 지정가로만 주문하며, 전략은 정규장 기준으로만 백테스트됨.</span>
+      </p>
     </div>
 
     <!-- 시장 브레이크 -->
@@ -152,6 +158,7 @@ const form = ref({
 
   selectionMode: 'marketcap' as 'marketcap' | 'momentum',
   regimeFilterEnabled: false,
+  nxtTradingEnabled: false,
 });
 
 const scheduleEnabled = ref(false);
@@ -178,6 +185,7 @@ async function load(): Promise<void> {
 
     form.value.selectionMode = data.selectionMode === 'momentum' ? 'momentum' : 'marketcap';
     form.value.regimeFilterEnabled = !!data.regimeFilterEnabled;
+    form.value.nxtTradingEnabled = !!data.nxtTradingEnabled;
   } catch {
     /* form은 기본값 유지 */
   }
@@ -202,6 +210,7 @@ async function save(): Promise<void> {
 
       selectionMode: form.value.selectionMode,
       regimeFilterEnabled: form.value.regimeFilterEnabled,
+      nxtTradingEnabled: form.value.nxtTradingEnabled,
     });
     message.value = '✓ 설정 저장됨';
     messageType.value = 'success';
