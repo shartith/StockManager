@@ -14,7 +14,7 @@ import { getAccessToken, getKisConfig } from './kisAuth';
 import { getSettings } from './settings';
 import { kisFetchJson } from './kisHttp';
 import { getDomesticOrderableAmount } from './kisOrder';
-import { getKstSession, isExtendedSession } from './kisMarketHours';
+import { needsUnifiedPrice } from './kisMarketHours';
 
 export interface KisHolding {
   ticker: string;
@@ -50,7 +50,7 @@ const CACHE_TTL = 5_000;
  * 그 구간에서만 통합 시세로 보정한다. (주문 라우팅과 같은 세션 판정을 쓰도록 통일)
  */
 export function isExtendedHoursKst(now: Date): boolean {
-  return isExtendedSession(getKstSession(now));
+  return needsUnifiedPrice(now);
 }
 
 /** 손익률 폴백 — KIS 가 0 으로 주는 장전 구간에서도 헤드라인 % 가 0.00 으로 죽지 않게. */

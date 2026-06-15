@@ -7,7 +7,7 @@
 
 import { describe, it, expect } from 'vitest';
 import {
-  getKstSession, resolveExchange, isExtendedSession, priceMarketDiv,
+  getKstSession, resolveExchange, isExtendedSession, priceMarketDiv, needsUnifiedPrice,
 } from '../services/kisMarketHours';
 
 /** KST 벽시계 시각 (KST = UTC+9). */
@@ -17,9 +17,13 @@ function kst(dateStr: string, hour: number, minute: number): Date {
 
 describe('getKstSession — 세션 구간', () => {
   // 2026-06-11 = 목요일
-  it('프리마켓 08:00~08:59', () => {
+  it('프리마켓 08:00~08:49 (NXT 프리마켓 08:50 종료)', () => {
     expect(getKstSession(kst('2026-06-11', 8, 0))).toBe('pre');
-    expect(getKstSession(kst('2026-06-11', 8, 59))).toBe('pre');
+    expect(getKstSession(kst('2026-06-11', 8, 49))).toBe('pre');
+  });
+  it('08:50~08:59 갭 — NXT 휴장 → closed (KRX 시초가 동시호가로 라우팅)', () => {
+    expect(getKstSession(kst('2026-06-11', 8, 50))).toBe('closed');
+    expect(getKstSession(kst('2026-06-11', 8, 59))).toBe('closed');
   });
   it('메인장 09:00~15:29', () => {
     expect(getKstSession(kst('2026-06-11', 9, 0))).toBe('main');
@@ -37,6 +41,19 @@ describe('getKstSession — 세션 구간', () => {
   });
   it('UTC 자정 경계 — KST 목 08:30 = UTC 수 23:30', () => {
     expect(getKstSession(new Date('2026-06-10T23:30:00Z'))).toBe('pre');
+  });
+});
+
+describe('needsUnifiedPrice — 화면 시세 보정 창 (08:50~09:00 갭 포함)', () => {
+  it('08:00~08:59 + 15:30~19:59 보정 ON (라우팅과 달리 08:50~09:00 도 포함)', () => {
+    expect(needsUnifiedPrice(kst('2026-06-11', 8, 48))).toBe(true);
+    expect(needsUnifiedPrice(kst('2026-06-11', 8, 55))).toBe(true);  // KRX 시초가 동시호가 변동
+    expect(needsUnifiedPrice(kst('2026-06-11', 16, 0))).toBe(true);
+  });
+  it('정규장·휴장·주말은 보정 OFF', () => {
+    expect(needsUnifiedPrice(kst('2026-06-11', 12, 0))).toBe(false);
+    expect(needsUnifiedPrice(kst('2026-06-11', 20, 0))).toBe(false);
+    expect(needsUnifiedPrice(kst('2026-06-13', 8, 30))).toBe(false); // 토
   });
 });
 
