@@ -593,8 +593,9 @@ async function executeSellDecisions(
       });
       if (r.success) {
         resetTrackingOnSell(p.stock_id);
-        result.sold.push({ ticker: p.ticker, name: p.name, quantity: p.qty, reason });
-        logger.info({ ticker: p.ticker, qty: p.qty, reason }, '[Rebal] SELL 체결');
+        // r.quantity: 실제 제출·체결 수량 — 실잔고 캡으로 장부(p.qty)보다 적을 수 있음
+        result.sold.push({ ticker: p.ticker, name: p.name, quantity: r.quantity, reason });
+        logger.info({ ticker: p.ticker, qty: r.quantity, requested: p.qty, reason }, '[Rebal] SELL 체결');
       } else {
         result.skipped.push({ ticker: p.ticker, name: p.name, reason: `SELL 실패: ${r.message}` });
       }

@@ -18,6 +18,7 @@ import {
   type KisTrade,
 } from './portfolioReconcile';
 import { fetchKisTradeHistory, indexTradesByTicker } from './kisTradeHistory';
+import { getPositionAverages, getPositionQuantity } from './positionAverage';
 import { kisFetchJson } from './kisHttp';
 import logger from '../logger';
 
@@ -27,16 +28,26 @@ export const dbReconcileDeps: ReconcileDeps = {
   // (insert 경로별 정규화 불일치) market 으로 거르면 findStockId(시장 무시)와 어긋나
   // 보유분이 0 으로 오인된다 → 가져오기/EOD reconcile 마다 phantom BUY 가 누적된다.
   // findStockId 와 동일하게 시장을 무시해 멱등성을 보장한다.
+  //
+  // 수량은 raw SUM(BUY-SELL) 이 아니라 매매 엔진(positionAverage)과 동일한
+  // fold(초과매도 0 클램프) 방식으로 계산한다. 두 계산이 다르면 그 차이만큼
+  // "추가매수 동기화" 유령 매수가 굳어져 매도 주문 수량이 부풀고, KIS 가
+  // APBK0400 으로 전량 거부해 포지션이 못 팔린 채 방치된다 (삼성전자 사건).
   getCurrentSmHoldings() {
-    return queryAll<SmHoldingRow>(
-      `SELECT s.id as stock_id, s.ticker, s.market,
-              COALESCE(SUM(CASE WHEN t.type = 'BUY' THEN t.quantity ELSE -t.quantity END), 0) as current_qty
-       FROM stocks s
-       LEFT JOIN transactions t ON t.stock_id = s.id AND t.deleted_at IS NULL
-       WHERE s.deleted_at IS NULL
-       GROUP BY s.id
-       HAVING current_qty > 0`,
+    const positions = getPositionAverages();
+    const stocks = queryAll<{ stock_id: number; ticker: string; market: string }>(
+      `SELECT id as stock_id, ticker, COALESCE(market, 'KRX') as market
+       FROM stocks WHERE deleted_at IS NULL`,
     );
+    return stocks
+      .map((s): SmHoldingRow => ({
+        ...s,
+        current_qty: positions.get(s.stock_id)?.quantity ?? 0,
+      }))
+      .filter((s) => s.current_qty > 0);
+  },
+  recomputeQty(stockId) {
+    return getPositionQuantity(stockId);
   },
   findStockId(ticker) {
     const row = queryOne<{ id: number }>('SELECT id FROM stocks WHERE ticker = ? AND deleted_at IS NULL', [ticker]);

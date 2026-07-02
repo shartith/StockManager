@@ -65,6 +65,25 @@ interface TxRow {
 }
 
 /**
+ * 단일 종목의 현재 포지션(수량/평단) — fold 방식 (엔진과 동일 계산).
+ *
+ * reconcile(balanceSync)이 잔고 차이를 판정할 때 이 함수를 쓴다. 과거에는
+ * reconcile 이 raw SUM(BUY-SELL) 으로 계산해 엔진(fold/클램프)과 다른 값을 봤고,
+ * 그 차이가 "추가매수 동기화" 유령 매수로 굳어져 매도 주문 수량이 부풀었다
+ * (삼성전자 SELL 9주 vs 실잔고 4주 → APBK0400 120여 회 반복 사건).
+ */
+export function getPositionQuantity(stockId: number): number {
+  const txs = queryAll<PositionTx>(
+    `SELECT t.type, t.quantity, t.price
+     FROM transactions t
+     WHERE t.stock_id = ? AND t.deleted_at IS NULL
+     ORDER BY t.date, t.id`,
+    [stockId],
+  );
+  return foldPositionAverage(txs).quantity;
+}
+
+/**
  * 전 종목의 현재 포지션(수량/평단)을 stock_id 별로 계산.
  * 거래를 (date, id) 순으로 접으므로 같은 날 여러 체결도 입력 순서대로 반영.
  */

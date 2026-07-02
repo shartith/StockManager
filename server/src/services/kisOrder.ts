@@ -8,6 +8,7 @@ import { getAccessToken, getKisConfig } from './kisAuth';
 import { getSettings } from './settings';
 import { queryOne, queryAll, execute } from '../db';
 import { kisApiCall } from './apiQueue';
+import { createNotification } from './notification';
 import {
   getKstSession, resolveExchange, isExtendedSession, priceMarketDiv,
   type Exchange,
@@ -68,6 +69,7 @@ export interface OrderResult {
 export type FailureReason =
   | 'SUSPENDED'          // 거래정지·상장폐지·정리매매 (APBK0066 등)
   | 'INSUFFICIENT_FUNDS' // 주문가능 금액 부족
+  | 'QTY_EXCEEDED'       // 주문가능 수량 초과 (APBK0400) — 장부·실잔고 불일치 신호
   | 'WIDE_SPREAD'        // 호가 스프레드 과대
   | 'LOW_LIQUIDITY'      // 호가 깊이 부족
   | 'POSITION_LIMIT'     // 포지션 사이징 규칙 위반
@@ -83,6 +85,9 @@ export function classifyFailure(errorMessage: string): FailureReason {
   if (!errorMessage) return 'UNKNOWN';
   const m = errorMessage;
   if (/APBK0066|거래정지|매매정지|상장폐지|정리매매/.test(m)) return 'SUSPENDED';
+  // APBK0400 "주문 가능한 수량을 초과했습니다" — DB 장부와 실잔고가 어긋났다는 신호.
+  // INSUFFICIENT_FUNDS 의 /주문가능/ 보다 먼저 검사해야 한다 (수량 초과는 금액 부족이 아님).
+  if (/APBK0400|주문 ?가능한 ?수량|매도 ?가능 ?수량/.test(m)) return 'QTY_EXCEEDED';
   if (/주문가능|잔고부족|현금부족|INSUFFICIENT/i.test(m)) return 'INSUFFICIENT_FUNDS';
   if (/스프레드/.test(m)) return 'WIDE_SPREAD';
   if (/호가 깊이|liquidity/i.test(m)) return 'LOW_LIQUIDITY';
@@ -208,6 +213,105 @@ export async function getDomesticOrderableAmount(): Promise<number> {
   } catch {
     return 0;
   }
+}
+
+// ─── 매도 수량 가드 (장부 ↔ 실잔고 불일치 방어) ────────
+//
+// 배경(삼성전자 사건, 2026-06-12~07-02): DB 장부가 유령 매수로 9주까지 부풀려진
+// 상태에서 실잔고 4주 계좌에 SELL 9 를 매시간 반복 제출 → KIS 가 APBK0400 으로
+// 전량 거부 → 익절·트레일링 스톱이 3주간 한 번도 실행되지 못하고 +13% 수익이
+// 마이너스로 방치됨. 매도는 반드시 실잔고를 상한으로 캡한다.
+
+export interface SellQuantityGuard {
+  quantity: number;   // 실제 제출할 수량
+  clamped: boolean;   // 장부 > 실잔고 → 축소됨 (불일치 감지 신호)
+  blocked: boolean;   // 실잔고 0 → 주문 불가
+}
+
+/**
+ * 매도 수량 결정 — min(장부 수량, KIS 실잔고). 순수 함수 (단위 테스트 대상).
+ * kisQty=null(조회 실패)이면 원 수량 유지: 일시 조회 장애로 트레일링 스톱이
+ * 멈추면 안 되므로 차단하지 않고 KIS 를 최종 판정자로 둔다.
+ */
+export function resolveSellQuantity(requested: number, kisQty: number | null): SellQuantityGuard {
+  if (kisQty === null) return { quantity: requested, clamped: false, blocked: false };
+  if (kisQty <= 0) return { quantity: 0, clamped: true, blocked: true };
+  if (requested > kisQty) return { quantity: kisQty, clamped: true, blocked: false };
+  return { quantity: requested, clamped: false, blocked: false };
+}
+
+/** KIS 실계좌의 해당 종목 보유 수량. 잔고 조회 실패 시 null(가드 미적용). */
+async function getKisHoldingQty(ticker: string): Promise<number | null> {
+  try {
+    // 동적 import — kisBalance 가 본 모듈(getDomesticOrderableAmount)을 import 하므로
+    // 정적 import 시 순환 참조가 된다.
+    const { getKisBalance } = await import('./kisBalance');
+    const balance = await getKisBalance();
+    if (!balance || balance.stale) return null;
+    const holding = balance.holdings.find((h) => h.ticker === ticker);
+    return holding ? holding.quantity : 0; // 잔고 정상 조회 + 종목 없음 = 실보유 0
+  } catch {
+    return null;
+  }
+}
+
+/** 같은 (type, ticker) 알림을 KST 기준 하루 1회로 제한 — 매시간 cron 스팸 방지. */
+function notifyOncePerDay(type: string, ticker: string, title: string, message: string): void {
+  try {
+    const exists = queryOne(
+      `SELECT id FROM notifications
+       WHERE type = ? AND ticker = ?
+         AND date(created_at, '+9 hours') = date('now', '+9 hours')
+       LIMIT 1`,
+      [type, ticker],
+    );
+    if (exists) return;
+    createNotification({ type, title, message, ticker });
+  } catch (err) {
+    logger.error({ err, type, ticker }, 'notifyOncePerDay failed');
+  }
+}
+
+// 불일치 감지 시 자동 재동기화 — 반복 실패가 KIS 호출 폭주로 번지지 않게 최소 간격 유지.
+let lastAutoReconcileAt = 0;
+const AUTO_RECONCILE_MIN_INTERVAL_MS = 10 * 60 * 1000;
+
+/**
+ * 장부·실잔고 불일치 감지 시 복구: 알림(일 1회) + KIS 잔고 강제 재동기화(10분 debounce).
+ * fire-and-forget — 주문 흐름을 막지 않는다.
+ */
+function triggerQtyMismatchRecovery(ticker: string, detail: string): void {
+  // 알림 type 은 연속 실패 알림(TRADE_FAILURE_STREAK)과 분리 — 같은 type 을 쓰면
+  // 하루 1회 dedup 이 서로를 가려 한쪽 알림이 침묵한다 (알림 침묵이 이번 사건의 본질).
+  notifyOncePerDay(
+    'TRADE_FAILURE_QTY_MISMATCH',
+    ticker,
+    `매도 수량 불일치 감지: ${ticker}`,
+    `장부 수량과 KIS 실잔고가 다릅니다 — ${detail}\n잔고 자동 재동기화를 실행합니다. 포트폴리오 화면에서 보유 수량을 확인하세요.`,
+  );
+  const now = Date.now();
+  if (now - lastAutoReconcileAt < AUTO_RECONCILE_MIN_INTERVAL_MS) return;
+  lastAutoReconcileAt = now;
+  import('./balanceSync')
+    .then(({ syncKisBalance }) => syncKisBalance('불일치 자동 동기화'))
+    .then((r) => logger.info({ ticker, ok: r.ok, message: r.message }, 'qty-mismatch auto reconcile'))
+    .catch((err) => logger.error({ err, ticker }, 'qty-mismatch auto reconcile failed'));
+}
+
+/** 최근 매도 시도 중 마지막 성공 이후 연속 FAILED 횟수 (최대 10건 조회). */
+export function countConsecutiveSellFailures(stockId: number): number {
+  const rows = queryAll<{ status: string }>(
+    `SELECT status FROM auto_trades
+     WHERE stock_id = ? AND order_type = 'SELL' AND status IN ('FILLED', 'FAILED')
+     ORDER BY id DESC LIMIT 10`,
+    [stockId],
+  );
+  let n = 0;
+  for (const r of rows) {
+    if (r.status !== 'FAILED') break;
+    n += 1;
+  }
+  return n;
 }
 
 // ─── 리스크 체크 ──────────────────────────────────────
@@ -465,6 +569,33 @@ export async function executeOrder(req: OrderRequest): Promise<OrderResult> {
 
   // 2. 매수 시: 가용 현금 안전망 (Top10 전략은 호출 시 quantity=1 명시)
   let quantity = req.quantity;
+
+  // 2-0. 매도 시: KIS 실잔고 상한 캡 — 장부가 부풀어도 실잔고만큼은 반드시 팔린다.
+  //     (수동 주문 포함 — 사용자도 장부 오류로 초과 매도 주문을 낼 수 있음)
+  if (req.orderType === 'SELL') {
+    const kisQty = await getKisHoldingQty(req.ticker);
+    const guard = resolveSellQuantity(quantity, kisQty);
+    if (guard.blocked) {
+      logger.error({ ticker: req.ticker, requested: quantity, kisQty }, 'SELL blocked — KIS 실잔고 0');
+      triggerQtyMismatchRecovery(req.ticker, `장부 ${quantity}주 / 실잔고 0주 — 매도 차단`);
+      return {
+        success: false,
+        message: `KIS 실잔고 0 — 매도 불가 (장부 ${quantity}주와 불일치, 잔고 자동 재동기화 실행)`,
+        quantity: 0,
+        price: orderPrice,
+        fee: 0,
+      };
+    }
+    if (guard.clamped) {
+      logger.warn(
+        { ticker: req.ticker, requested: quantity, kisQty, submitted: guard.quantity },
+        'SELL quantity clamped to KIS holding',
+      );
+      triggerQtyMismatchRecovery(req.ticker, `장부 ${quantity}주 → 실잔고 ${guard.quantity}주로 축소 제출`);
+    }
+    quantity = guard.quantity;
+  }
+
   if (req.orderType === 'BUY') {
     const cashAmount = await getDomesticOrderableAmount().catch(() => 0);
     if (cashAmount <= 0) {
@@ -557,6 +688,23 @@ export async function executeOrder(req: OrderRequest): Promise<OrderResult> {
 
       logger.error({ orderType: req.orderType, ticker: req.ticker, message: result.message, failureReason }, 'KIS order failed');
 
+      // APBK0400(수량 초과) = 사전 캡을 통과했는데도 실잔고와 어긋남 → 즉시 재동기화 + 알림.
+      // 삼성전자 사건에서는 이 에러가 120여 회 반복되는 동안 아무 조치가 없었다.
+      if (failureReason === 'QTY_EXCEEDED') {
+        triggerQtyMismatchRecovery(req.ticker, `KIS 거부: ${result.message}`);
+      }
+
+      // 같은 종목 매도가 연속으로 계속 실패하면 원인과 무관하게 사용자에게 알린다
+      // (익절/손절이 실행되지 않고 있다는 뜻 — 방치가 가장 큰 손실).
+      if (req.orderType === 'SELL' && countConsecutiveSellFailures(req.stockId) >= 3) {
+        notifyOncePerDay(
+          'TRADE_FAILURE_STREAK',
+          req.ticker,
+          `매도 연속 실패: ${req.ticker}`,
+          `매도 주문이 3회 이상 연속 실패하고 있습니다. 익절·손절이 실행되지 않는 상태입니다.\n최근 사유: ${result.message}`,
+        );
+      }
+
       return {
         success: false,
         orderId: tradeId,
@@ -585,18 +733,9 @@ export async function executeOrder(req: OrderRequest): Promise<OrderResult> {
   }
 }
 
-// ─── 보유 수량 조회 ───────────────────────────────────
-
-/** 특정 종목의 보유 수량 조회 */
-export function getHoldingQuantity(stockId: number): number {
-  const row = queryOne(`
-    SELECT
-      COALESCE(SUM(CASE WHEN t.type='BUY' THEN t.quantity ELSE 0 END), 0) -
-      COALESCE(SUM(CASE WHEN t.type='SELL' THEN t.quantity ELSE 0 END), 0) as qty
-    FROM transactions t WHERE t.stock_id = ?
-  `, [stockId]);
-  return row?.qty || 0;
-}
+// getHoldingQuantity(raw SUM 방식) 는 v6.1.3 에서 제거 — 사용처가 없었고,
+// 엔진(positionAverage.getPositionQuantity)과 다른 세 번째 잔고 계산식이었다.
+// 보유 수량이 필요하면 positionAverage 의 fold 계산을 단일 소스로 사용할 것.
 
 // ─── 주문 상태 조회 ───────────────────────────────────
 

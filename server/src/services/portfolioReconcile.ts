@@ -81,6 +81,16 @@ export interface ReconcileDeps {
    * 미제공 시 memo 안에 odno 가 있는지로 dedup (운영 DB 기본 동작).
    */
   hasTradeOdno?(stockId: number, odno: string): boolean;
+  /**
+   * 거래내역 입력 후 해당 종목의 현재 수량을 DB 에서 재계산 (optional).
+   *
+   * 반드시 매매 엔진과 동일한 fold(초과매도 0 클램프) 방식이어야 한다.
+   * 미제공 시 산술 합산(currentQty + net) 폴백 — 이 폴백은 원장에 초과매도
+   * 기록(추적 시작 전 보유분 매도)이 있으면 엔진과 다른 값을 내고, 그 차이가
+   * 유령 매수로 굳어진다 (삼성전자 9주 vs 실잔고 4주 사건). 운영 deps 는
+   * 반드시 제공할 것.
+   */
+  recomputeQty?(stockId: number): number;
 }
 
 /**
@@ -150,7 +160,11 @@ export function reconcileMarket(
       tradeNetInserted -= applyMissingTrades(stockId, trades, 'SELL', memoSource, '(체결)', deps);
     }
 
-    const newCurrentQty = currentQty + tradeNetInserted;
+    // 거래내역 입력 후 잔여 gap 판정 — 엔진과 같은 fold 계산으로 재조회(제공 시).
+    // 산술 합산 폴백은 초과매도 이력이 있는 원장에서 엔진과 어긋난다 (위 recomputeQty 주석).
+    const newCurrentQty = deps.recomputeQty
+      ? deps.recomputeQty(stockId)
+      : currentQty + tradeNetInserted;
     const remainingDelta = snap.quantity - newCurrentQty;
 
     if (delta === 0 && trades.length === 0) {
