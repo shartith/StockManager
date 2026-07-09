@@ -56,9 +56,33 @@ const KOSPI_SELL_TRIGGER = 4;       // KOSPI +4% 이상: 이익 실현 매도 �
 const KOSPI_SELL_PROFIT_MIN = 5;    // 위 트리거 시 매도 대상은 +5% 이상 수익 종목
 const RANK_IMPROVE_HOURS = 24;      // "직전 24h 대비"
 const RANK_IMPROVE_THRESHOLD = 2;   // 2단계 이상 상승해야 매수 후보
+// v6.1.4: 미보유 Top10(B2) 급등 우선매수 — 09:00~14:29 1분 간격 폴링으로 "최근 N분간
+// 꺾이지 않고 계속 오른" 종목만 확인해 시총순위와 무관하게 매수 큐 맨 앞으로 당긴다
+// (evaluateBuyCandidates/isSteadyRiser 참고). 단발 스파이크 한 틱만 보고 사는 상투매수를
+// 피하려고 지속성(연속 상승)을 요구한다. MAX 는 추가 안전판 — 이미 너무 오른 종목은
+// 우선 버킷에서 제외하고 일반 순서(끝순위)로 미룬다.
+//
+// 실측 검증(scripts/analyze-minute-patterns.mjs, 최근 6거래일 Top25 종목 급등일 20건):
+// 이 기준으로 급등일의 90%(18/20)를 확인했고, 확인 후 평균 +5.47% 추가 상승 vs 평균
+// -2.31% 되돌림(비율 약 2.4:1) — "이미 많이 올랐으면 하락하지 않겠나"는 우려와 달리
+// 확인 시점(평균 +1.29%)이 아직 초반이라 유리했다. 확인 시각 분포에서 09:30~09:59
+// 구간이 전체 확인 사례의 1/3을 차지 — 이 구간이 비어 있던 게 놓친 원인이었다.
+const SPIKE_CONFIRM_SAMPLES = 5;    // 최근 5분(=5개 1분 샘플) 연속 상승해야 확인
+const SPIKE_MIN_RISE_PCT = 1.5;     // 그 5분 동안 최소 이만큼 올라야 함(평평한 노이즈 배제)
+const SPIKE_BUY_THRESHOLD_PCT = 3;  // 오늘 등락률 최소 바닥 — 이 이상이어야 급등 버킷 진입
+const SPIKE_BUY_MAX_PCT = 8;        // 이미 너무 오른 종목은 상투 위험으로 우선순위에서 제외
+
+// v6.1.4: 급등 확인 매수 후보가 있는데 현금이 모자를 때, 소액 손실 보유종목을 팔아
+// 현금을 확보하는 기회적 스왑매도(executeBuyPhase/trySwapSellForCash 참고). "손실
+// 비율이 아니라 손실 금액이 작은" 종목부터 고르되(사용자 요청), 시총(현재 랭킹)이
+// 급등 후보보다 나쁜 종목만 교체 대상으로 삼는다. 이 값은 안전판 — 손실률이 아무리
+// 작아도 너무 크게 물린 종목까지 정리하지 않도록 상한을 둔다.
+const SWAP_SELL_MAX_LOSS_PCT = 5;
 // v5.8.0 순위 이탈 매도 — 히스테리시스(이력 현상)
 const EXIT_RANK_THRESHOLD = 20;     // 모니터링 유니버스(Top 20) 밖으로 이탈해야 매도 후보
-const EXIT_CONFIRM_TICKS = 2;       // 연속 N회(매시간 cron 기준) 이탈 확인돼야 실제 매도 (노이즈 필터)
+// 연속 N "거래일" 이탈 확인돼야 실제 매도 (노이즈 필터) — nextOutOfUniverseState 가
+// lastOutDate 로 거래일 단위 dedup 하므로 cron 이 얼마나 자주 돌아도 의미는 그대로 "N거래일".
+const EXIT_CONFIRM_TICKS = 2;
 // v6.0.3 순위 이탈 매도의 "안 봐도 되는 손해" 방지 (8개 연도 백테스트로 확정):
 //   · 손실 바닥: -8% 초과 손실 종목은 순위이탈로 팔지 않음(손실 확정 회피, 회복 대기).
 //     급락 패닉으로 일시 순위 이탈한 종목을 바닥에 던지는 것을 막는다.
@@ -376,6 +400,18 @@ async function buildContext(): Promise<BuildContextResult> {
   } catch (err) {
     logger.warn({ err: (err as Error).message }, '[Rebal] persistRankHistory failed');
   }
+
+  // v6.1.4: 등락률 샘플 버퍼 갱신 — evaluateBuyCandidates 의 급등 확인(isSteadyRiser)이
+  // 이 버퍼로 판단한다. Top10 뿐 아니라 Top30(topExtended)까지 갱신해 B3 상승세
+  // 판단권 종목도 향후 B2 진입 시 이미 데이터가 쌓여 있도록 한다.
+  resetFluctBuffersIfNewDay(new Date().toISOString().slice(0, 10));
+  for (const s of topResult.topExtended ?? topResult.top10) {
+    const buf = fluctBuffers.get(s.ticker) ?? [];
+    buf.push(s.fluctuationsRatio);
+    if (buf.length > SPIKE_CONFIRM_SAMPLES) buf.shift();
+    fluctBuffers.set(s.ticker, buf);
+  }
+
   const positionRows = getCurrentPositions();
 
   // v6.0.7 보유 종목 현재가 — KIS 실잔고(prpr, 장전 보정 포함)를 1순위로 사용.
@@ -530,16 +566,23 @@ function evaluateSells(
 interface BuyCandidate {
   stock: TopStock;
   reason: string;
+  /** v6.1.4: true면 연속상승 확인된 급등 매수 후보 — 현금 부족 시 스왑매도 시도 대상. */
+  spiking: boolean;
 }
 
 /**
  * 매수 후보 산출. 시장 브레이크 / 죽는 시장은 외부에서 차단되므로 여기서는 후보만 정렬.
- * 우선순위: 미보유 Top 10 (시총 순) → 11~20위 상승 중 → 보유 재분배는 별도 단계.
+ * 우선순위: 미보유 Top 10 (급등 버킷 우선 → 나머지 시총 순) → 11~20위 상승 중 →
+ * 보유 재분배는 별도 단계.
+ *
+ * fluctBuffers: 09:00~14:29 1분 간격으로 buildContext 가 갱신하는 종목별 등락률
+ * 샘플 버퍼(오래된 것부터) — isSteadyRiser 로 "연속 상승 확인"을 판단하는 데 쓴다.
  */
-function evaluateBuyCandidates(
+export function evaluateBuyCandidates(
   topResult: BuildContextResult['topResult'],
   positions: Position[],
   mode: 'marketcap' | 'momentum',
+  fluctBuffers: ReadonlyMap<string, number[]>,
 ): BuyCandidate[] {
   const top10 = topResult.top10;
   const top20 = topResult.top20 ?? top10;
@@ -547,10 +590,28 @@ function evaluateBuyCandidates(
   const candidates: BuyCandidate[] = [];
   const label = mode === 'momentum' ? '모멘텀' : '시총';
 
-  // B2 미보유 Top 10
-  for (const s of top10) {
-    if (heldSet.has(s.ticker)) continue;
-    candidates.push({ stock: s, reason: `${label} Top10 #${s.rank} 신규 진입` });
+  // B2 미보유 Top 10 — v6.1.4: 등락률이 [SPIKE_BUY_THRESHOLD_PCT, SPIKE_BUY_MAX_PCT]
+  // 구간이면서 "연속 SPIKE_CONFIRM_SAMPLES분 상승 확인"(isSteadyRiser)된 종목을 먼저
+  // 사고, 나머지는 기존 시총순위 그대로. 단발 스파이크 한 틱만 보고 사는 상투매수를
+  // 막기 위해 지속성을 요구한다(실측 근거는 상수 선언부 주석 참고). 순위 그대로만
+  // 사면 비싼 상위권에 현금이 먼저 소진돼 지금 급등 중인 8~10위 종목을 놓치는 문제
+  // (사용자 리포트) 방지. 각 버킷 내부 순서는 원래 top10 배열 순서(=시총순위) 유지.
+  const unheldTop10 = top10.filter((s) => !heldSet.has(s.ticker));
+  const isSpiking = (s: TopStock) =>
+    s.fluctuationsRatio >= SPIKE_BUY_THRESHOLD_PCT &&
+    s.fluctuationsRatio <= SPIKE_BUY_MAX_PCT &&
+    isSteadyRiser(fluctBuffers.get(s.ticker) ?? []);
+  const spiking = unheldTop10.filter(isSpiking);
+  const normal = unheldTop10.filter((s) => !isSpiking(s));
+  for (const s of spiking) {
+    candidates.push({
+      stock: s,
+      spiking: true,
+      reason: `${label} Top10 #${s.rank} 급등 우선매수 (오늘 ${s.fluctuationsRatio >= 0 ? '+' : ''}${s.fluctuationsRatio.toFixed(2)}%, 최근 ${SPIKE_CONFIRM_SAMPLES}분 연속↑)`,
+    });
+  }
+  for (const s of normal) {
+    candidates.push({ stock: s, spiking: false, reason: `${label} Top10 #${s.rank} 신규 진입` });
   }
 
   // B3 11~20위 상승 중 (rank_history 는 buildContext 에서 유효순위로 기록되므로 동일 기준 비교)
@@ -559,6 +620,7 @@ function evaluateBuyCandidates(
     if (isRankImproving(s.ticker, s.rank, RANK_IMPROVE_HOURS, RANK_IMPROVE_THRESHOLD)) {
       candidates.push({
         stock: s,
+        spiking: false,
         reason: `${label} #${s.rank} 상승 추세 (직전 ${RANK_IMPROVE_HOURS}h 대비 ${RANK_IMPROVE_THRESHOLD}+ 단계↑)`,
       });
     }
@@ -605,6 +667,102 @@ async function executeSellDecisions(
   }
 }
 
+interface SwapSellTarget {
+  position: Position;
+  lossAmount: number;  // 음수 = 손실 (원)
+  lossPercent: number; // 음수 = 손실 (%)
+}
+
+/**
+ * 급등 확인 매수 후보를 위해 팔 만한 "소액 손실" 보유종목을 찾는다(순수 로직).
+ * 우선순위: 손실 금액이 가장 작은(0에 가까운) 것부터 — "손실 비율이 아니라 손실
+ * 금액이 적은 종목부터" 사용자 요청 반영. 두 가지 안전판:
+ *   (1) 손실률이 SWAP_SELL_MAX_LOSS_PCT 를 넘는 종목은 대상에서 제외 — 손실액이
+ *       작아 보여도(소량 보유) 크게 물린 종목까지 정리하지 않도록.
+ *   (2) 시총(현재 랭킹) 비교 — 후보보다 랭킹이 같거나 나쁜(숫자가 큰) 종목만 교체
+ *       대상. 더 좋은 종목을 팔아 못한 종목을 사는 걸 막는다("시총 비교해서 판단"
+ *       사용자 요청). 랭킹 밖(Top30 이탈)인 보유종목은 999로 취급해 항상 대상.
+ */
+export function findSwapSellTarget(
+  positions: readonly Position[],
+  lockedSet: ReadonlySet<string>,
+  rankMap: ReadonlyMap<string, number>,
+  candidateRank: number,
+  excludeTickers: ReadonlySet<string>,
+): SwapSellTarget | null {
+  const losers = positions
+    .filter((p) => !lockedSet.has(p.ticker) && !excludeTickers.has(p.ticker))
+    .map((p) => {
+      const lossAmount = (p.currentPrice - p.avg_price) * p.qty;
+      const lossPercent = p.avg_price > 0 ? ((p.currentPrice - p.avg_price) / p.avg_price) * 100 : 0;
+      const heldRank = rankMap.get(p.ticker) ?? 999;
+      return { position: p, lossAmount, lossPercent, heldRank };
+    })
+    .filter((x) => x.lossAmount < 0)
+    .filter((x) => x.lossPercent >= -SWAP_SELL_MAX_LOSS_PCT)
+    .filter((x) => x.heldRank >= candidateRank)
+    .sort((a, b) => b.lossAmount - a.lossAmount); // 손실액이 작은(덜 마이너스인) 것부터
+
+  const top = losers[0];
+  return top ? { position: top.position, lossAmount: top.lossAmount, lossPercent: top.lossPercent } : null;
+}
+
+/**
+ * 급등 매수 후보인데 현금이 모자를 때, 소액 손실 보유종목 1개를 팔아 현금을 확보한다.
+ * dryRun 이면 실제 주문 없이 관찰 기록만. 갱신된 cash 를 반환(대상 없거나 실패 시 원래 cash).
+ */
+async function trySwapSellForCash(
+  candidate: TopStock,
+  cash: number,
+  positions: readonly Position[],
+  lockedSet: ReadonlySet<string>,
+  rankMap: ReadonlyMap<string, number>,
+  swappedTickers: Set<string>,
+  result: RebalanceResult,
+  dryRun: boolean,
+): Promise<number> {
+  const swap = findSwapSellTarget(positions, lockedSet, rankMap, candidate.rank, swappedTickers);
+  if (!swap) return cash;
+
+  const lossLabel = `${Math.round(swap.lossAmount).toLocaleString()}원`;
+  const reason = `급등 매수(${candidate.ticker}) 재원 확보 — 소액손실(${lossLabel}) 스왑매도`;
+
+  if (dryRun) {
+    result.sold.push({
+      ticker: swap.position.ticker, name: swap.position.name, quantity: swap.position.qty,
+      reason: `[관찰] ${reason}`,
+    });
+    swappedTickers.add(swap.position.ticker);
+    return cash + swap.position.currentPrice * swap.position.qty;
+  }
+
+  try {
+    const r = await executeOrder({
+      stockId: swap.position.stock_id,
+      ticker: swap.position.ticker,
+      market: 'KRX',
+      orderType: 'SELL',
+      quantity: swap.position.qty,
+      price: 0,
+      reason,
+    });
+    if (r.success) {
+      resetTrackingOnSell(swap.position.stock_id);
+      result.sold.push({ ticker: swap.position.ticker, name: swap.position.name, quantity: r.quantity, reason });
+      swappedTickers.add(swap.position.ticker);
+      logger.info(
+        { ticker: swap.position.ticker, lossAmount: swap.lossAmount, forCandidate: candidate.ticker },
+        '[Rebal] 스왑매도 체결',
+      );
+      return cash + (r.price || swap.position.currentPrice) * r.quantity;
+    }
+    result.skipped.push({ ticker: swap.position.ticker, name: swap.position.name, reason: `스왑매도 실패: ${r.message}` });
+  } catch (err) {
+    logger.warn({ err: (err as Error).message, ticker: swap.position.ticker }, '[Rebal] 스왑매도 예외');
+  }
+  return cash;
+}
+
 /**
  * 매수 후보 + 재분배 실행. 잔고 부족 시 다음 종목, 1주도 불가능하면 종료.
  */
@@ -618,6 +776,8 @@ async function executeBuyPhase(
   let cash = await getDomesticOrderableAmount().catch(() => 0);
   const top10 = topResult.top10;
   const top10Set = new Set(top10.map((s) => s.ticker));
+  const rankMap = new Map<string, number>();
+  for (const s of topResult.topExtended ?? top10) rankMap.set(s.ticker, s.rank);
 
   // 보유 수량 in-memory 추적 (재분배용)
   const holdingQty: Record<string, number> = {};
@@ -626,6 +786,9 @@ async function executeBuyPhase(
   }
   // 거래 고정 종목 — 재분배(추가 매수) 대상에서도 제외해 보유 수량을 그대로 동결
   const lockedSet = new Set(positions.filter((p) => p.locked).map((p) => p.ticker));
+  // v6.1.4: 급등 매수 재원 확보를 위해 이번 사이클에 스왑매도한 종목 — 같은 종목을
+  // 두 번 팔지 않도록, B4 재분배 대상에서도 제외되도록 추적.
+  const swappedTickers = new Set<string>();
   const buyTally: Record<string, { name: string; qty: number; lastPrice: number; reason: string }> = {};
 
   const recordBuy = (s: TopStock, fillPrice: number, reason: string): void => {
@@ -643,6 +806,10 @@ async function executeBuyPhase(
     if (s.closePrice <= 0) {
       result.skipped.push({ ticker: s.ticker, name: s.name, reason: '가격 정보 없음' });
       continue;
+    }
+    if (s.closePrice > cash && c.spiking) {
+      // 급등 확인 후보만 스왑매도 대상 — 일반(비급등) 후보는 그냥 현금 부족으로 스킵.
+      cash = await trySwapSellForCash(s, cash, positions, lockedSet, rankMap, swappedTickers, result, dryRun);
     }
     if (s.closePrice > cash) {
       result.skipped.push({
@@ -685,7 +852,7 @@ async function executeBuyPhase(
   for (let i = 0; i < REBAL_MAX_ITER; i++) {
     if (cash <= 0) break;
     const reCandidates = top10
-      .filter((s) => (holdingQty[s.ticker] ?? 0) > 0 && !lockedSet.has(s.ticker) && s.closePrice > 0 && s.closePrice <= cash)
+      .filter((s) => (holdingQty[s.ticker] ?? 0) > 0 && !lockedSet.has(s.ticker) && !swappedTickers.has(s.ticker) && s.closePrice > 0 && s.closePrice <= cash)
       .map((s) => ({ stock: s, evalAmt: (holdingQty[s.ticker] ?? 0) * s.closePrice }))
       .sort((a, b) => a.evalAmt - b.evalAmt);
     if (reCandidates.length === 0) break;
@@ -727,12 +894,80 @@ async function executeBuyPhase(
   }
 }
 
+// v6.1.4: 09:00~14:29 1분 간격 연속 폴링으로 이전 실행이 안 끝난 채 다음 tick과
+// 겹쳐 같은 종목을 이중 매수/매도할 위험이 생겼다. runRebalanceStrategy 의 유일한
+// 진입점이 이 플래그를 체크해 재진입을 막는다(cron·수동 API 공통 보호).
+let rebalanceRunning = false;
+
+// ─────────────────────────────────────────────────────────────
+// v6.1.4: 종목별 등락률 샘플 버퍼 — "연속 상승 확인"(isSteadyRiser)의 데이터 소스.
+// ─────────────────────────────────────────────────────────────
+// 처음엔 09:00~09:29 전용 별도 함수(runMorningSpikeWatch)였으나, 1분봉 실측 분석
+// (scripts/analyze-minute-patterns.mjs) 결과 확인 가능한 급등의 1/3이 09:30~09:59
+// 구간에서 일어나는데 그 구간이 스케줄 공백이었던 게 드러나 — 09:00~14:29 전체를
+// 1분 간격으로 통일하고, 버퍼도 하루 종일 이어지는 단일 메커니즘으로 합쳤다.
+// buildContext() 가 매 사이클 갱신하고, evaluateBuyCandidates() 가 읽어서 판단한다.
+
+let fluctWatchDate = '';
+let fluctBuffers = new Map<string, number[]>(); // ticker -> 최근 등락률 샘플(오래된 것부터)
+
+function resetFluctBuffersIfNewDay(today: string): void {
+  if (fluctWatchDate !== today) {
+    fluctWatchDate = today;
+    fluctBuffers = new Map();
+  }
+}
+
+/**
+ * 최근 등락률 샘플(오래된 것부터)이 "꺾이지 않고 계속 상승"했는지 판정하는 순수 로직.
+ * 조건: (1) 샘플이 SPIKE_CONFIRM_SAMPLES 개 이상 쌓였고, (2) 최근 구간에서 한 번도
+ * 이전 샘플보다 낮아지지 않았으며, (3) 그 구간의 총 상승폭이 SPIKE_MIN_RISE_PCT 이상.
+ */
+export function isSteadyRiser(samples: readonly number[]): boolean {
+  if (samples.length < SPIKE_CONFIRM_SAMPLES) return false;
+  const recent = samples.slice(-SPIKE_CONFIRM_SAMPLES);
+  for (let i = 1; i < recent.length; i++) {
+    if (recent[i] < recent[i - 1]) return false; // 한 번이라도 꺾이면 탈락
+  }
+  const rise = recent[recent.length - 1] - recent[0];
+  return rise >= SPIKE_MIN_RISE_PCT;
+}
+
 /**
  * Rebalance 메인 진입점. mode:
- *   - 'normal' : 매시간 cron — 매도(S1/S2/S3) + 매수(B1-B4) 전체 평가
+ *   - 'normal' : 5분 간격 cron — 매도(S1/S2/S3) + 매수(B1-B4) 전체 평가
  *   - 'kospi-spike-sell-only' : 14:30 cron — KOSPI +4% 시 S3 만 평가 (매수 X)
+ *
+ * cron뿐 아니라 수동 rebalance API(routes/topMarketCap.ts POST /rebalance)도 이 함수를
+ * 거치므로, 재진입 가드를 여기 한 곳에 두면 모든 진입 경로가 함께 보호된다.
  */
 export async function runRebalanceStrategy(
+  reason: string,
+  mode: 'normal' | 'kospi-spike-sell-only' = 'normal',
+): Promise<RebalanceResult> {
+  if (rebalanceRunning) {
+    logger.warn({ reason, mode }, '[Rebal] 이전 실행이 아직 진행 중 — 이번 tick skip (재진입 방지)');
+    return {
+      reason: `${reason} (skip: 이전 실행 진행 중)`,
+      fetchedAt: new Date().toISOString(),
+      kospiChangePercent: null,
+      top10Tickers: [],
+      sold: [],
+      bought: [],
+      skipped: [],
+      noop: true,
+      mode,
+    };
+  }
+  rebalanceRunning = true;
+  try {
+    return await runRebalanceStrategyInner(reason, mode);
+  } finally {
+    rebalanceRunning = false;
+  }
+}
+
+async function runRebalanceStrategyInner(
   reason: string,
   mode: 'normal' | 'kospi-spike-sell-only' = 'normal',
 ): Promise<RebalanceResult> {
@@ -821,7 +1056,7 @@ export async function runRebalanceStrategy(
     const refreshedPositions = ctx.positions.filter(
       (p) => !sellDecisions.find((d) => d.position.stock_id === p.stock_id),
     );
-    const buyCandidates = evaluateBuyCandidates(ctx.topResult, refreshedPositions, settings.selectionMode);
+    const buyCandidates = evaluateBuyCandidates(ctx.topResult, refreshedPositions, settings.selectionMode, fluctBuffers);
     if (ctx.kospiChange !== null && ctx.kospiChange <= KOSPI_BUY_TRIGGER) {
       logger.info(
         { kospi: ctx.kospiChange, candidates: buyCandidates.length },

@@ -9,6 +9,7 @@
 import { Router, Request, Response } from 'express';
 import { fetchTop10, refreshTop10, type TopStock } from '../services/topMarketCap';
 import { runRebalanceStrategy } from '../services/rebalanceStrategy';
+import { getPositionAverages } from '../services/positionAverage';
 import { queryAll } from '../db';
 import { asyncHandler } from '../middleware/errorHandler';
 
@@ -18,20 +19,23 @@ interface HoldingMap {
   [ticker: string]: { quantity: number; locked: boolean };
 }
 
+/**
+ * 보유 수량은 반드시 엔진(positionAverage.getPositionAverages, fold+초과매도 클램프)과
+ * 동일한 방식으로 계산할 것 — raw SUM(BUY-SELL)은 원장에 초과매도 기록이 있으면
+ * 엔진과 다른 값을 내 "실제 보유 중인데 미보유로 표시" 같은 드리프트가 생긴다
+ * (kisOrder.ts:736 참고, v6.1.3에서 동일 패턴의 getHoldingQuantity 제거됨).
+ */
 function getHoldingMap(): HoldingMap {
-  const rows = queryAll<{ ticker: string; qty: number; locked: number }>(`
-    SELECT s.ticker,
-           COALESCE(s.locked, 0) as locked,
-           COALESCE(SUM(CASE WHEN t.type = 'BUY' THEN t.quantity ELSE -t.quantity END), 0) as qty
-    FROM stocks s
-    JOIN transactions t ON t.stock_id = s.id
-    WHERE s.deleted_at IS NULL AND t.deleted_at IS NULL
-    GROUP BY s.id
-    HAVING qty > 0
-  `);
+  const positions = getPositionAverages();
+  const stocks = queryAll<{ id: number; ticker: string; locked: number }>(
+    `SELECT id, ticker, COALESCE(locked, 0) as locked FROM stocks WHERE deleted_at IS NULL`,
+  );
   const map: HoldingMap = {};
-  for (const r of rows) {
-    map[r.ticker] = { quantity: Number(r.qty) || 0, locked: !!r.locked };
+  for (const s of stocks) {
+    const qty = positions.get(s.id)?.quantity ?? 0;
+    if (qty > 0) {
+      map[s.ticker] = { quantity: qty, locked: !!s.locked };
+    }
   }
   return map;
 }

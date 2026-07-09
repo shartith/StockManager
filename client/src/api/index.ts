@@ -80,6 +80,7 @@ export const chartApi = {
   getMarketContext: () => api.get('/chart/market-context'),
   importBalance: () => api.post('/chart/balance/import'),
   correctPrices: (dryRun: boolean) => api.post('/chart/balance/correct-prices', { dryRun }),
+  resetLedger: (dryRun: boolean) => api.post('/chart/balance/reset', { dryRun }),
 };
 
 // Top 10 시총

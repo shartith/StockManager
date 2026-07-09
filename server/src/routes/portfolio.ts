@@ -6,6 +6,7 @@ import { executeOrder, friendlyOrderError } from '../services/kisOrder';
 import { getSettings } from '../services/settings';
 import { manualOrderTimeWindow } from '../services/kisMarketHours';
 import { isKrxHoliday } from '../services/marketCalendar';
+import { getPositionAverages } from '../services/positionAverage';
 import { queryAll, queryOne, execute } from '../db';
 import { validate } from '../middleware/validate';
 import { asyncHandler } from '../middleware/errorHandler';
@@ -13,19 +14,23 @@ import { manualOrderSchema, lockStockSchema } from '../schemas';
 
 const router = Router();
 
+/**
+ * 현재 보유 종목(ticker/market) — 반드시 엔진(positionAverage.getPositionAverages,
+ * fold+초과매도 클램프)과 동일한 방식으로 판정한다. raw SUM(BUY-SELL)은 원장에
+ * 초과매도 기록이 있으면 엔진과 다른 값을 내 시세 조회 대상에서 보유 종목이
+ * 누락될 수 있다 (routes/topMarketCap.ts 의 동일 버그 참고).
+ */
+function getHeldTickers(): { ticker: string; market: string }[] {
+  const positions = getPositionAverages();
+  const stocks = queryAll<{ id: number; ticker: string; market: string }>(
+    `SELECT id, ticker, COALESCE(market, 'KRX') as market FROM stocks WHERE deleted_at IS NULL`,
+  );
+  return stocks.filter((s) => (positions.get(s.id)?.quantity ?? 0) > 0);
+}
+
 router.get('/summary', asyncHandler(async (_req: Request, res: Response) => {
   try {
-    const heldStocks = queryAll<{ ticker: string; market: string }>(`
-      SELECT s.ticker, s.market
-      FROM stocks s
-      WHERE s.deleted_at IS NULL
-        AND s.id IN (
-          SELECT stock_id FROM transactions
-          WHERE deleted_at IS NULL
-          GROUP BY stock_id
-          HAVING SUM(CASE WHEN type = 'BUY' THEN quantity ELSE -quantity END) > 0
-        )
-    `);
+    const heldStocks = getHeldTickers();
     const tickers = heldStocks.map(s => s.ticker);
     const tickerMarkets = new Map<string, string>();
     heldStocks.forEach(s => tickerMarkets.set(s.ticker, s.market || ''));

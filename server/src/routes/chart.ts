@@ -4,7 +4,7 @@ import { getSettings, saveSettings } from '../services/settings';
 import { startScheduler } from '../services/scheduler';
 import { getMarketContext } from '../services/stockPrice';
 import { getDomesticOrderableAmount } from '../services/kisOrder';
-import { syncKisBalance } from '../services/balanceSync';
+import { syncKisBalance, resetLedgerToCurrentHoldings } from '../services/balanceSync';
 import { correctHistoricalPrices } from '../services/correctHistoricalPrices';
 import { kisFetchJson } from '../services/kisHttp';
 import { getKisBalance } from '../services/kisBalance';
@@ -239,6 +239,17 @@ router.post('/balance/correct-prices', asyncHandler(async (req: Request, res: Re
       ? `미리보기: ${result.candidates}건 보정 가능, ${result.unmatched}건 매치 불가`
       : `완료: ${result.applied}건 보정, ${result.unmatched}건 매치 불가`,
   });
+}));
+
+// 거래내역 초기화 — 기존 거래 전량 삭제 + KIS 실잔고로 재시딩 (되돌릴 수 없음).
+// dryRun=true (기본): 삭제/시딩 없이 미리보기만, false: 실제 적용.
+router.post('/balance/reset', asyncHandler(async (req: Request, res: Response) => {
+  const dryRun = req.body?.dryRun !== false; // 명시적 false 만 적용
+  const result = await resetLedgerToCurrentHoldings('거래내역 초기화', dryRun);
+  if (!result.ok) {
+    return res.status(400).json({ error: result.message });
+  }
+  return res.json(result);
 }));
 
 export default router;

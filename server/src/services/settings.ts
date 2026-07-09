@@ -75,6 +75,12 @@ export interface AppSettings {
   // 즉시 익절이 아니라 "고점 추적 후 되돌림 매도" — 추가 상승분을 보호한다.
   trailingActivatePercent: number;
   trailingStopDropPercent: number;
+
+  // v6.1.4: 거래내역 초기화 기준일(YYYY-MM-DD). 초기화 실행 시 오늘 날짜로 세팅됨.
+  // 이 날짜(포함) 이전의 KIS 체결내역은 초기화 시 심은 기준 잔고에 이미 반영된
+  // 것으로 간주해 재동기화 때 "누락된 거래"로 재삽입하지 않는다 — 초기화 직후
+  // 삭제된 과거 거래가 다음 동기화에서 되살아나는 것을 막는 장치.
+  ledgerBaselineDate: string;
 }
 
 const DEFAULT_SETTINGS: AppSettings = {
@@ -102,6 +108,8 @@ const DEFAULT_SETTINGS: AppSettings = {
   // 트레일링 익절 — 백테스트로 확정된 기존 상수값(10% 활성 / 2% 하락)을 기본값으로
   trailingActivatePercent: 10,
   trailingStopDropPercent: 2,
+
+  ledgerBaselineDate: '',
 };
 
 let _cache: AppSettings | null = null;

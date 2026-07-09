@@ -2,6 +2,40 @@
 
 Stock Manager 주요 릴리즈 변경사항. 자세한 노트는 [GitHub Releases](https://github.com/shartith/StockManager/releases)에서 확인.
 
+## v6.1.4 — 2026-07-09
+
+**보유 표시 불일치 수정 · 거래내역 초기화 · 매수 판단 주기 통일(1분) · 급등 연속상승 확인 · 손실액 스왑매도.**
+
+### 수정: 세 번째로 남아있던 raw SUM 보유수량 계산 제거 (`topMarketCap` / `portfolio`)
+- `routes/topMarketCap.ts`의 `getHoldingMap()`과 `routes/portfolio.ts`의 보유종목 조회가
+  raw `SUM(BUY-SELL)`로 계산해 엔진(fold+초과매도 클램프)과 어긋나는 경우 "실제 보유
+  중인데 미보유로 표시"되는 문제가 있었다(v6.1.3에서 `kisOrder.getHoldingQuantity`를
+  지운 것과 동일 패턴이 두 곳 더 남아있었음). `positionAverage.getPositionAverages()`
+  단일 소스로 통일.
+
+### 신규: 거래내역 초기화 (`balanceSync.resetLedgerToCurrentHoldings`)
+- 거래를 삭제해도 EOD 동기화가 KIS 90일 체결내역에서 다시 찾아 되살리는 문제 수정.
+  기존 거래를 전량 삭제하고 KIS 실잔고 스냅샷 1건으로 재시딩 + `ledgerBaselineDate`를
+  저장해 그 이전 체결은 재동기화 대상에서 제외. 대시보드에 dryRun 미리보기 → 2단계
+  확인 버튼으로 노출(`POST /api/chart/balance/reset`).
+
+### 개선: 매수 판단 주기 09:00~14:29 전체 1분 간격으로 통일 (`scheduler` / `rebalanceStrategy`)
+- 기존 시간당 1회(정규장) 폴링으로는 급등 포착이 최대 59분 지연됐다. 1분봉 실측 분석
+  (`scripts/analyze-minute-patterns.mjs`, 최근 6거래일 Top25 종목 급등일 20건)으로
+  09:30~09:59 구간에 확인 가능한 급등의 1/3이 몰려 있는 걸 확인해, 09:00~09:29 전용
+  감시와 정규 rebalance로 나뉘어 있던 걸 09:00~14:29 예외 없는 1분 간격으로 통일.
+- `runRebalanceStrategy`에 재진입 가드 추가 — 짧아진 주기에서 이전 실행이 안 끝난 채
+  다음 tick과 겹쳐 이중 매수/매도하는 걸 방지.
+
+### 신규: 급등 연속상승 확인 매수 (`isSteadyRiser`) + 손실액 기준 스왑매도
+- 단발 등락률 한 틱만 보고 사는 상투매수를 막기 위해, 최근 5분간 꺾이지 않고 계속
+  오른(연속상승 확인) 종목만 등락률 [3%, 8%] 밴드에서 우선매수 — 실측 분석 결과 이
+  기준으로 급등일의 90%를 확인했고 확인 후 평균 +5.47% 추가 상승 vs 평균 -2.31%
+  되돌림(비율 약 2.4:1)으로 유리했음.
+- 급등 확인 후보가 있는데 현금이 모자를 때, 손실 "비율"이 아니라 손실 "금액"이 가장
+  작은 보유종목을 팔아 재원을 확보하는 기회적 스왑매도 추가(`findSwapSellTarget`) —
+  시총(현재 랭킹)이 후보보다 나쁜 종목만 교체 대상, 손실률 5% 초과는 백스탑으로 제외.
+
 ## v6.1.3 — 2026-07-02
 
 **매도 불발 사건 수습 — 잔고 계산 단일화 · 매도 수량 실잔고 캡 · 불일치 자동 복구.**

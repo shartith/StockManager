@@ -32,6 +32,11 @@
           title="KIS 거래내역과 맞춰 기존 평단을 실제 체결가로 보정합니다">
           {{ correctingPrices ? '보정 중...' : '평단 보정' }}
         </button>
+        <button v-if="kisConfigured" @click="resetLedger" :disabled="resettingLedger"
+          class="flex-1 md:flex-none px-3 md:px-4 py-2 bg-surface-2 text-loss rounded-xl text-sm font-medium hover:bg-surface-3 disabled:opacity-50 transition-colors whitespace-nowrap"
+          title="거래내역을 모두 지우고 현재 KIS 실보유 종목/수량으로 다시 채웁니다 (되돌릴 수 없음)">
+          {{ resettingLedger ? '초기화 중...' : '거래내역 초기화' }}
+        </button>
         <button @click="refresh"
           class="hidden md:inline-flex p-2 rounded-lg text-txt-tertiary hover:text-txt-primary hover:bg-surface-2 transition-colors"
           :class="{ 'animate-spin': autoRefreshLoading }" aria-label="새로고침">
@@ -507,6 +512,39 @@ async function correctPrices() {
     importResult.value = { error: err.response?.data?.error || '평단 보정 실패' };
   } finally {
     correctingPrices.value = false;
+  }
+}
+
+const resettingLedger = ref(false);
+async function resetLedger() {
+  resettingLedger.value = true;
+  importResult.value = null;
+  try {
+    // 1) Dry-run 으로 미리보기
+    const preview = await chartApi.resetLedger(true);
+    const p = preview.data;
+    const sample = (p.seeded || []).slice(0, 8).map((s: any) =>
+      `  ${s.ticker} ${s.name}: ${s.quantity}주 @ ${s.avgPrice.toLocaleString()}원`,
+    ).join('\n');
+    const more = (p.seeded || []).length > 8 ? `\n  ...외 ${p.seeded.length - 8}종목` : '';
+    const msg =
+      `⚠️ 되돌릴 수 없습니다.\n\n` +
+      `기존 거래내역 ${p.deletedCount ?? 0}건을 전부 삭제하고, ` +
+      `현재 KIS 실보유 ${(p.seeded || []).length}종목으로 새로 채웁니다.\n` +
+      `과거 매매 기록(손익 내역)은 사라지고 오늘 날짜의 보유 스냅샷만 남습니다.\n\n` +
+      `${sample}${more}\n\n정말 초기화할까요?`;
+    if (!window.confirm(msg)) return;
+    // 2) 재확인 — 실수 방지를 위해 한 번 더 확인
+    if (!window.confirm('마지막 확인입니다. 거래내역을 초기화합니다.')) return;
+    // 3) 적용
+    const applied = await chartApi.resetLedger(false);
+    importResult.value = applied.data;
+    await store.fetchSummary();
+    setTimeout(() => { importResult.value = null; }, 6000);
+  } catch (err: any) {
+    importResult.value = { error: err.response?.data?.error || '거래내역 초기화 실패' };
+  } finally {
+    resettingLedger.value = false;
   }
 }
 
